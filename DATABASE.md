@@ -24,6 +24,12 @@ avatar (String): Path รูปโปรไฟล์ เช่น "assets/images
 
 favorite_stops (Array of Strings): [Optional] รายชื่อป้ายรถที่นักศึกษากดดาวไว้ เช่น ["อาคารทีปวิชญ์", "ตึก IT"]
 
+shuttle_name (String): [เฉพาะคนขับ] ชื่อรถที่ขับประจำ เช่น "รถรับส่ง สาย A"
+
+shuttle_number (String): [เฉพาะคนขับ] หมายเลขรถ เช่น "SH#01"
+
+phone (String): [เฉพาะคนขับ] เบอร์โทรศัพท์
+
 created_at (Timestamp): เวลาที่สร้างบัญชี
 
 2. Collection: stops
@@ -80,20 +86,24 @@ senderId (String): UID ของคนที่ส่งข้อความ (�
 
 timestamp (Timestamp): เวลาที่ส่งข้อความ (ใช้สำหรับเรียงลำดับในหน้าแชท)
 
-5. Collection: active_buses (สำหรับอนาคต)
+5. Collection: shuttles
 
-ใช้เก็บพิกัด Real-time ของรถที่กำลังวิ่งอยู่ (แอปฝั่งคนขับจะเป็นคนอัปเดตข้อมูลนี้)
+เก็บข้อมูลรายชื่อรถรับส่ง (Shuttles) และสถานะการวิ่งรถแบบ Real-time (ยุบรวมจากคอลเล็กชัน buses และ active_buses เดิม)
 
-Document ID: uid ของคนขับ หรือ รหัสรถ
+Document ID: Auto-generated
 
 Fields:
 
-driver_uid (String): UID ของคนขับ
+name (String): ชื่อรถรับส่ง เช่น "รถรับส่ง สาย A"
 
-line (String): สายที่วิ่ง เช่น "A", "B"
+number (String): หมายเลขรถรับส่ง เช่น "SH#01"
 
-lat (Number/Double): ละติจูดปัจจุบันของรถ
+status (String): [อัปเดตอัตโนมัติเมื่อกดเริ่ม/เลิกงาน] ค่า "online" (กำลังวิ่ง) หรือ "offline" (ไม่ได้วิ่ง)
 
-lng (Number/Double): ลองจิจูดปัจจุบันของรถ
+passenger_status (String): [คนขับกดอัปเดตเอง] สถานะที่นั่ง/การให้บริการ ค่าคือ "available" (ว่าง), "full" (เต็ม), "break" (พัก), "offline" (เลิกงาน)
 
-last_updated (Timestamp): เวลาอัปเดตล่าสุด
+lat (Number/Double): [อัปเดตอัตโนมัติ] ละติจูดปัจจุบันของรถ
+
+lng (Number/Double): [อัปเดตอัตโนมัติ] ลองจิจูดปัจจุบันของรถ
+
+last_updated (Timestamp): [อัปเดตอัตโนมัติ] เวลาล่าสุดที่รถมีการขยับหรือเปลี่ยนสถานะ

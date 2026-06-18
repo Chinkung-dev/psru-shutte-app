@@ -6,6 +6,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart'; 
 import 'package:latlong2/latlong.dart'; 
 import '../../route_data.dart'; 
+import 'driver_profile.dart'; // ✨ Import หน้าโปรไฟล์คนขับรถ
+import 'driver_status_screen.dart'; // ✨ Import หน้าสถานะรถ
 
 class DriverHome extends StatefulWidget {
   const DriverHome({super.key});
@@ -15,6 +17,7 @@ class DriverHome extends StatefulWidget {
 }
 
 class _DriverHomeState extends State<DriverHome> {
+  int _selectedIndex = 0; // ✨ เพิ่มตัวแปรสำหรับ BottomNavigationBar
   bool isOnline = false;
   
   LatLng? _currentLocation;
@@ -29,37 +32,66 @@ class _DriverHomeState extends State<DriverHome> {
     const LatLng(16.84500, 100.23000), 
   );
 
-  List<Marker> _busStopMarkers = [];
+  List<Map<String, dynamic>> busStops = [];
 
   String? waitingStudentStop; 
   String? currentRequestId;
+  
+  // ✨ ตัวแปรสำหรับเก็บข้อมูลรถรับส่งของคนขับคนนี้
+  String? _shuttleDocId;
+  String? _shuttleName;
 
   @override
   void initState() {
     super.initState();
     _fetchStopsFromFirebase(); 
+    _fetchDriverShuttle(); // ✨ ดึงข้อมูลรถของคนขับ
+  }
+
+  // ✨ ฟังก์ชันสำหรับหาว่าคนขับคนนี้ รับผิดชอบรถคันไหน
+  Future<void> _fetchDriverShuttle() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        _shuttleName = userDoc.data()?['shuttle_name'];
+
+        if (_shuttleName != null) {
+          final shuttleQuery = await FirebaseFirestore.instance
+              .collection('shuttles')
+              .where('name', isEqualTo: _shuttleName)
+              .limit(1)
+              .get();
+              
+          if (shuttleQuery.docs.isNotEmpty) {
+            setState(() {
+              _shuttleDocId = shuttleQuery.docs.first.id;
+            });
+          }
+        }
+      }
+    } catch (e) {
+      print("Error fetching driver shuttle: $e");
+    }
   }
 
   Future<void> _fetchStopsFromFirebase() async {
     try {
       final snapshot = await FirebaseFirestore.instance.collection('stops').get();
       
-      List<Marker> newMarkers = [];
+      List<Map<String, dynamic>> loadedStops = [];
       for (var doc in snapshot.docs) {
         final data = doc.data();
-        newMarkers.add(
-          Marker(
-            point: LatLng((data['lat'] as num).toDouble(), (data['lng'] as num).toDouble()), 
-            width: 35,
-            height: 35,
-            child: _buildBusStopMarker(),
-          ),
-        );
+        loadedStops.add({
+          'name': data['name'] ?? 'จุดจอด',
+          'lat': (data['lat'] as num).toDouble(), 
+          'lng': (data['lng'] as num).toDouble(),
+        });
       }
 
       if (mounted) {
         setState(() {
-          _busStopMarkers = newMarkers;
+          busStops = loadedStops;
         });
       }
     } catch (e) {
@@ -67,7 +99,6 @@ class _DriverHomeState extends State<DriverHome> {
     }
   }
 
-  // ✨ แก้ไข 1: ใน dispose ให้ปิดแค่ Stream ห้ามเรียก setState เด็ดขาด
   @override
   void dispose() {
     positionStream?.cancel();
@@ -75,12 +106,13 @@ class _DriverHomeState extends State<DriverHome> {
     super.dispose();
   }
 
-  // ✨ แก้ไข 2: ตอน Logout ให้อัปเดตฐานข้อมูลเป็น offline แล้วเด้งออกเลย
   Future<void> _logout() async {
-    // แจ้งฐานข้อมูลว่ารถคันนี้ออฟไลน์แล้ว
-    FirebaseFirestore.instance.collection('buses').doc('bus_A').update({
-      'status': 'offline',
-    }).catchError((e) => print(e));
+    // ✨ เปลี่ยนจาก buses เป็น shuttles
+    if (_shuttleDocId != null) {
+      FirebaseFirestore.instance.collection('shuttles').doc(_shuttleDocId).set({
+        'status': 'offline',
+      }, SetOptions(merge: true)).catchError((e) => print(e));
+    }
 
     await FirebaseAuth.instance.signOut();
     if (mounted) {
@@ -110,25 +142,30 @@ class _DriverHomeState extends State<DriverHome> {
       isOnline = true;
     });
 
+    // อัปเดตตำแหน่งทุกๆ 5 เมตร
     const locationSettings = LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 5);
     
     positionStream = Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position position) {
       if (!mounted) return; 
       
       LatLng newLoc = LatLng(position.latitude, position.longitude);
-      setState(() => _currentLocation = newLoc);
-
-      if (_psruBounds.contains(newLoc)) {
-        _mapController.move(newLoc, 17.0);
+      
+      // ให้แผนที่เลื่อนไปหาจุดแรกที่เจอตอนเริ่มงานเท่านั้น จะได้ไม่กระตุกเวลาคนขับเลื่อนดูแผนที่เอง
+      if (_currentLocation == null && _psruBounds.contains(newLoc)) {
+        _mapController.move(newLoc, 16.5);
       }
 
-      FirebaseFirestore.instance.collection('buses').doc('bus_A').set({
-        'name': 'รถรับส่ง สาย A',
-        'lat': position.latitude,
-        'lng': position.longitude,
-        'status': 'online',
-        'last_updated': FieldValue.serverTimestamp(),
-      });
+      setState(() => _currentLocation = newLoc);
+
+      // ✨ อัปเดตพิกัดไปที่ shuttles แทน buses
+      if (_shuttleDocId != null) {
+        FirebaseFirestore.instance.collection('shuttles').doc(_shuttleDocId).set({
+          'lat': position.latitude,
+          'lng': position.longitude,
+          'status': 'online',
+          'last_updated': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
     });
 
     requestStream = FirebaseFirestore.instance
@@ -152,7 +189,6 @@ class _DriverHomeState extends State<DriverHome> {
     });
   }
 
-  // ✨ ฟังก์ชันนี้จะถูกเรียกเฉพาะตอนกดปุ่ม "เลิกงาน" เท่านั้น (ไม่ถูกเรียกตอน Logout แล้ว)
   void _stopTracking() {
     positionStream?.cancel();
     requestStream?.cancel();
@@ -166,9 +202,12 @@ class _DriverHomeState extends State<DriverHome> {
       });
     }
     
-    FirebaseFirestore.instance.collection('buses').doc('bus_A').update({
-      'status': 'offline',
-    }).catchError((e) => print(e));
+    // ✨ เปลี่ยนจาก buses เป็น shuttles
+    if (_shuttleDocId != null) {
+      FirebaseFirestore.instance.collection('shuttles').doc(_shuttleDocId).set({
+        'status': 'offline',
+      }, SetOptions(merge: true)).catchError((e) => print(e));
+    }
   }
 
   Future<void> _acknowledgeRequest() async {
@@ -186,155 +225,18 @@ class _DriverHomeState extends State<DriverHome> {
       backgroundColor: const Color(0xFFEFF1F2),
       body: Stack(
         children: [
-          Positioned.fill(
-            child: FlutterMap(
-              mapController: _mapController,
-              options: MapOptions(
-                initialCenter: _psruCenter,
-                initialZoom: 15.5,
-                minZoom: 14.5,
-                maxZoom: 18.0,
-                cameraConstraint: CameraConstraint.contain(bounds: _psruBounds),
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.example.psru_shuttle_app',
-                ),
-
-                if (isOnline)
-                  PolylineLayer(
-                    polylines: shuttleRoutes.map((segment) {
-                      return Polyline(points: segment, strokeWidth: 5.0, color: Colors.lightGreen);
-                    }).toList(),
-                  ),
-
-                if (isOnline)
-                  MarkerLayer(
-                    markers: [
-                      ..._busStopMarkers,
-                      if (_currentLocation != null)
-                        Marker(
-                          point: _currentLocation!,
-                          width: 50, height: 50,
-                          child: _buildMyBusMarker(),
-                        ),
-                    ],
-                  ),
-              ],
-            ),
+          // 📌 IndexedStack สลับหน้าจอตาม Bottom Navigation
+          IndexedStack(
+            index: _selectedIndex,
+            children: [
+              _buildMapScreen(), // หน้าแผนที่ (หน้า 0)
+              const DriverStatusScreen(), // ✨ หน้าสถานะรถ (หน้า 1)
+              const Center(child: Text("หน้าแชท (กำลังพัฒนา)")), // หน้า 2
+              const DriverProfileScreen(), // ✨ หน้าโปรไฟล์คนขับรถ (หน้า 3)
+            ],
           ),
 
-          Positioned(
-            top: 0, left: 0, right: 0,
-            child: Container(
-              color: Colors.white,
-              child: SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.directions_bus, color: Color(0xFF176a21), size: 28),
-                          SizedBox(width: 10),
-                          Text('PSRU Shuttle', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF176a21))),
-                        ],
-                      ),
-                      if (isOnline)
-                        GestureDetector(
-                          onTap: _stopTracking,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(15)),
-                            child: const Text('เลิกงาน', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                          ),
-                        )
-                      else
-                        IconButton(
-                          icon: const Icon(Icons.logout, color: Color(0xFF595C5D), size: 26),
-                          onPressed: _logout,
-                        )
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          Positioned(
-            top: 100, 
-            left: 20,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 8, height: 8,
-                    decoration: BoxDecoration(
-                      color: isOnline ? const Color(0xFF176a21) : Colors.grey,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    isOnline ? 'ออนไลน์ (วิ่งให้บริการ)' : 'ออฟไลน์ (ยังไม่เริ่มงาน)',
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF595C5D)),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          if (isOnline && waitingStudentStop != null)
-            Positioned(
-              bottom: 90, 
-              left: 20, right: 20,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF176a21), 
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 15, offset: const Offset(0, 8))]
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: const BoxDecoration(color: Color(0xFF9DF197), shape: BoxShape.circle),
-                      child: const Icon(Icons.location_on, color: Color(0xFF176a21), size: 24),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('มีนักศึกษารออยู่ที่:', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                          Text(waitingStudentStop!, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: _acknowledgeRequest, 
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                        decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
-                        child: const Text('รับทราบ', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                      ),
-                    )
-                  ],
-                ),
-              ),
-            ),
-
+          // 📱 เมนูด้านล่างสุด
           Positioned(
             bottom: 0, left: 0, right: 0,
             child: isOnline 
@@ -343,6 +245,194 @@ class _DriverHomeState extends State<DriverHome> {
           )
         ],
       ),
+    );
+  }
+
+  // ✨ แยกส่วนแผนที่ออกมาเป็นฟังก์ชัน
+  Widget _buildMapScreen() {
+    return Stack(
+      children: [
+        // 🗺️ แผนที่หลัก
+        Positioned.fill(
+          child: FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _psruCenter,
+              initialZoom: 15.5,
+              minZoom: 14.5,
+              maxZoom: 18.0,
+              cameraConstraint: CameraConstraint.contain(bounds: _psruBounds),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.example.psru_shuttle_app',
+              ),
+
+              if (isOnline)
+                PolylineLayer(
+                  polylines: shuttleRoutes.map((segment) {
+                    return Polyline(
+                      points: segment, 
+                      strokeWidth: 5.0, 
+                      color: const Color(0xFF176a21).withOpacity(0.3),
+                    );
+                  }).toList(),
+                ),
+
+              if (isOnline)
+                MarkerLayer(
+                  markers: [
+                    ...busStops.map((stop) {
+                      bool isSelected = waitingStudentStop == stop['name'];
+                      return Marker(
+                        point: LatLng(stop['lat'], stop['lng']), 
+                        width: isSelected ? 50 : 40, height: isSelected ? 50 : 40,
+                        child: _buildStopMarker(isSelected: isSelected),
+                      );
+                    }),
+                    if (_currentLocation != null)
+                      Marker(
+                        point: _currentLocation!,
+                        width: 45, height: 45,
+                        child: _buildMyBusMarker(),
+                      ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+
+        // 📍 ปุ่ม My Location (เป้าเล็งรถตัวเอง)
+        if (isOnline && _currentLocation != null)
+          Positioned(
+            bottom: 110, // ให้อยู่เหนือ BottomNav หรือแจ้งเตือน
+            right: 20,
+            child: FloatingActionButton(
+              mini: true,
+              backgroundColor: Colors.white,
+              elevation: 4,
+              onPressed: () {
+                _mapController.move(_currentLocation!, 16.5);
+              },
+              child: const Icon(Icons.my_location, color: Color(0xFF176a21)),
+            ),
+          ),
+
+        // 🚍 แถบด้านบน
+        Positioned(
+          top: 0, left: 0, right: 0,
+          child: Container(
+            color: Colors.white,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.directions_bus, color: Color(0xFF176a21), size: 28),
+                        SizedBox(width: 10),
+                        Text('PSRU Shuttle', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF176a21))),
+                      ],
+                    ),
+                    if (isOnline)
+                      GestureDetector(
+                        onTap: _stopTracking,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(15)),
+                          child: const Text('เลิกงาน', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                        ),
+                      )
+                    else
+                      IconButton(
+                        icon: const Icon(Icons.logout, color: Color(0xFF595C5D), size: 26),
+                        onPressed: _logout,
+                      )
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // 🟢 สถานะออนไลน์/ออฟไลน์
+        Positioned(
+          top: 120, 
+          left: 20,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8, height: 8,
+                  decoration: BoxDecoration(
+                    color: isOnline ? const Color(0xFF176a21) : Colors.grey,
+                    shape: BoxShape.circle,
+                    boxShadow: isOnline ? [BoxShadow(color: Colors.green.withOpacity(0.5), blurRadius: 4)] : [],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  isOnline ? 'ออนไลน์ (กำลังวิ่งรถ)' : 'ออฟไลน์ (ยังไม่เริ่มงาน)',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF595C5D)),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // 🧑‍🎓 การแจ้งเตือนเวลามีนักศึกษาเรียก (Popup ด้านล่าง)
+        if (isOnline && waitingStudentStop != null)
+          Positioned(
+            bottom: 90, 
+            left: 20, right: 20,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              decoration: BoxDecoration(
+                color: const Color(0xFF176a21), 
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 15, offset: const Offset(0, 8))]
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: const BoxDecoration(color: Color(0xFF9DF197), shape: BoxShape.circle),
+                    child: const Icon(Icons.front_hand, color: Color(0xFF176a21), size: 24),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('มีนักศึกษารออยู่ที่:', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                        Text(waitingStudentStop!, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: _acknowledgeRequest, 
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
+                      child: const Text('รับทราบ', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  )
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -359,10 +449,10 @@ class _DriverHomeState extends State<DriverHome> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            _buildNavItem(Icons.map, 'แผนที่', true),
-            _buildNavItem(Icons.directions_bus_outlined, 'สถานะรถ', false),
-            _buildNavItem(Icons.chat_bubble_outline, 'แชท', false),
-            _buildNavItem(Icons.person_outline, 'โปรไฟล์', false),
+            _buildNavItem(Icons.map, 'แผนที่', 0),
+            _buildNavItem(Icons.directions_bus_outlined, 'สถานะรถ', 1),
+            _buildNavItem(Icons.chat_bubble_outline, 'แชท', 2),
+            _buildNavItem(Icons.person_outline, 'โปรไฟล์', 3),
           ],
         ),
       ),
@@ -418,39 +508,43 @@ class _DriverHomeState extends State<DriverHome> {
     );
   }
 
-  Widget _buildNavItem(IconData icon, String label, bool isActive) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      decoration: isActive ? BoxDecoration(color: const Color(0xFF9DF197).withOpacity(0.3), borderRadius: BorderRadius.circular(16)) : null,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: isActive ? const Color(0xFF176a21) : const Color(0xFF757778)),
-          const SizedBox(height: 4),
-          Text(label, style: TextStyle(fontSize: 12, fontWeight: isActive ? FontWeight.bold : FontWeight.w600, color: isActive ? const Color(0xFF176a21) : const Color(0xFF757778))),
-        ],
+  Widget _buildNavItem(IconData icon, String label, int index) {
+    bool isActive = _selectedIndex == index;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedIndex = index;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        decoration: isActive ? BoxDecoration(color: const Color(0xFF9DF197).withOpacity(0.3), borderRadius: BorderRadius.circular(16)) : null,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: isActive ? const Color(0xFF176a21) : const Color(0xFF757778)),
+            const SizedBox(height: 4),
+            Text(label, style: TextStyle(fontSize: 12, fontWeight: isActive ? FontWeight.bold : FontWeight.w600, color: isActive ? const Color(0xFF176a21) : const Color(0xFF757778))),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildBusStopMarker() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white, shape: BoxShape.circle, border: Border.all(color: const Color(0xFF757778), width: 1.5),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))]
-      ),
-      child: const Icon(Icons.hail, color: Color(0xFF757778), size: 18),
+  Widget _buildStopMarker({required bool isSelected}) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200), 
+      decoration: BoxDecoration(color: isSelected ? const Color(0xFF176a21) : Colors.white, shape: BoxShape.circle, border: Border.all(color: isSelected ? Colors.white : const Color(0xFF757778), width: isSelected ? 3 : 1), boxShadow: [BoxShadow(color: Colors.black.withOpacity(isSelected ? 0.3 : 0.1), blurRadius: isSelected ? 8 : 4, offset: const Offset(0, 2))]), 
+      child: Icon(Icons.hail, color: isSelected ? Colors.white : const Color(0xFF757778), size: isSelected ? 24 : 18),
     );
   }
 
+  // ดีไซน์หมุดตำแหน่งรถคนขับ
   Widget _buildMyBusMarker() {
     return Container(
-      decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3))]),
-      padding: const EdgeInsets.all(4),
-      child: Container(
-        decoration: const BoxDecoration(color: Color(0xFF176a21), shape: BoxShape.circle),
-        child: const Icon(Icons.directions_bus, color: Colors.white, size: 24),
-      ),
+      decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 4, offset: const Offset(0, 2))]), 
+      padding: const EdgeInsets.all(4), 
+      child: Container(decoration: const BoxDecoration(color: Color(0xFF176a21), shape: BoxShape.circle), child: const Icon(Icons.directions_bus, color: Colors.white, size: 20)),
     );
   }
 }

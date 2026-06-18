@@ -15,6 +15,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _phoneController = TextEditingController(); // ✨ เบอร์โทรศัพท์
 
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -34,11 +35,47 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   // ✨ ตัวแปรสำหรับเก็บว่ากำลังสมัครเป็นใคร (ค่าเริ่มต้นคือ นักศึกษา)
   String _selectedRole = 'student'; 
+  
+  // ✨ ตัวแปรสำหรับข้อมูล Driver
+  String? _selectedShuttleName;
+  String? _selectedShuttleNumber;
+
+  List<String> _shuttleNames = [];
+  List<String> _shuttleNumbers = [];
+  List<Map<String, dynamic>> _shuttlesData = [];
+  bool _isLoadingShuttles = false;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController(viewportFraction: 0.5, initialPage: _selectedAvatarIndex);
+    _fetchShuttles();
+  }
+
+  Future<void> _fetchShuttles() async {
+    setState(() => _isLoadingShuttles = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance.collection('shuttles').get();
+      if (snapshot.docs.isNotEmpty) {
+        final data = snapshot.docs.map<Map<String, dynamic>>((doc) => {
+          'id': doc.id,
+          'name': doc.data()['name']?.toString() ?? '',
+          'number': doc.data()['number']?.toString() ?? '',
+        }).toList();
+
+        if (mounted) {
+          setState(() {
+            _shuttlesData = data;
+            _shuttleNames = data.map((s) => s['name'] as String).where((n) => n.isNotEmpty).toSet().toList();
+            _shuttleNumbers = data.map((s) => s['number'] as String).where((n) => n.isNotEmpty).toSet().toList();
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching shuttles: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingShuttles = false);
+    }
   }
 
   @override
@@ -49,6 +86,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -62,6 +100,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (name.isEmpty || studentId.isEmpty || email.isEmpty || password.isEmpty) {
       _showSnackBar('กรุณากรอกข้อมูลให้ครบทุกช่อง', Colors.red);
       return;
+    }
+
+    if (_selectedRole == 'driver') {
+      if (_phoneController.text.trim().isEmpty || _selectedShuttleName == null || _selectedShuttleNumber == null) {
+        _showSnackBar('กรุณากรอกข้อมูลสำหรับคนขับรถให้ครบทุกช่อง', Colors.red);
+        return;
+      }
     }
 
     if (password != confirmPassword) {
@@ -83,7 +128,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       // บันทึกข้อมูลลง Firestore
-      await FirebaseFirestore.instance.collection('users').doc(userCredential.user!.uid).set({
+      Map<String, dynamic> userData = {
         'uid': userCredential.user!.uid,
         'name': name,
         'student_id': studentId,
@@ -91,7 +136,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
         'role': _selectedRole, // ✨ บันทึกตามสิทธิ์ที่ผู้ใช้เลือกใน Dropdown
         'avatar': _avatarList[_selectedAvatarIndex], 
         'created_at': FieldValue.serverTimestamp(),
-      });
+      };
+
+      if (_selectedRole == 'driver') {
+        userData['phone'] = _phoneController.text.trim();
+        userData['shuttle_name'] = _selectedShuttleName;
+        userData['shuttle_number'] = _selectedShuttleNumber;
+      }
+
+      await FirebaseFirestore.instance.collection('users').doc(userCredential.user!.uid).set(userData);
 
       _showSnackBar('สร้างบัญชีสำเร็จ! กรุณาเข้าสู่ระบบ', Colors.green);
       
@@ -210,6 +263,46 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 keyboardType: _selectedRole == 'student' ? TextInputType.number : TextInputType.text,
               ),
               const SizedBox(height: 16),
+
+              if (_selectedRole == 'driver') ...[
+                _buildInputField(
+                  label: 'เบอร์โทรศัพท์',
+                  hint: '08xxxxxxxx',
+                  icon: Icons.phone_android,
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
+                ),
+                const SizedBox(height: 16),
+                _buildDropdownField(
+                  label: 'ชื่อรถรับส่ง',
+                  value: _selectedShuttleName,
+                  items: _shuttleNames,
+                  hint: 'เลือกชื่อรถรับส่ง',
+                  onChanged: (val) {
+                    setState(() {
+                      _selectedShuttleName = val;
+                      final matchedShuttle = _shuttlesData.firstWhere(
+                        (s) => s['name'] == val,
+                        orElse: () => <String, dynamic>{},
+                      );
+                      if (matchedShuttle.isNotEmpty && matchedShuttle['number'] != null && matchedShuttle['number'].toString().isNotEmpty) {
+                        _selectedShuttleNumber = matchedShuttle['number'].toString();
+                      } else {
+                        _selectedShuttleNumber = null;
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(height: 16),
+                _buildDropdownField(
+                  label: 'หมายเลขรถ',
+                  value: _selectedShuttleNumber,
+                  items: _shuttleNumbers,
+                  hint: 'เลือกหมายเลขรถ',
+                  onChanged: (val) => setState(() => _selectedShuttleNumber = val),
+                ),
+                const SizedBox(height: 16),
+              ],
 
               _buildInputField(
                 label: 'อีเมล',
@@ -355,6 +448,40 @@ class _RegisterScreenState extends State<RegisterScreen> {
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               suffixIcon: Icon(icon, color: Colors.grey.shade400),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdownField({
+    required String label,
+    required String? value,
+    required List<String> items,
+    required String hint,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Color(0xFF595C5D), fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 2))],
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: value,
+              isExpanded: true,
+              hint: Text(hint, style: TextStyle(color: Colors.grey.shade400)),
+              icon: Icon(Icons.arrow_drop_down, color: Colors.grey.shade400),
+              items: items.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
+              onChanged: onChanged,
             ),
           ),
         ),
