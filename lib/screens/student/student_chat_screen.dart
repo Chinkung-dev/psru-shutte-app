@@ -1,10 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:intl/intl.dart'; // อย่าลืมเพิ่ม intl ใน pubspec.yaml สำหรับจัดการเวลา
+import 'package:intl/intl.dart';
 
 class StudentChatScreen extends StatefulWidget {
-  const StudentChatScreen({super.key});
+  final String? shuttleId;
+  final String? shuttleName;
+  final String? driverName;
+  final String? driverAvatar;
+
+  const StudentChatScreen({
+    super.key,
+    this.shuttleId,
+    this.shuttleName,
+    this.driverName,
+    this.driverAvatar,
+  });
 
   @override
   State<StudentChatScreen> createState() => _StudentChatScreenState();
@@ -21,16 +32,29 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
     final String text = _messageController.text.trim();
     _messageController.clear(); // ล้างช่องพิมพ์ทันที
 
-    // บันทึกลงคอลเล็กชัน 'chats' (ในที่นี้จำลองเป็นห้องแชทของรถสาย A)
-    await FirebaseFirestore.instance
-        .collection('chats')
-        .doc('shuttle_line_a')
-        .collection('messages')
-        .add({
-      'text': text,
-      'senderId': currentUserId,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
+    final String targetRoom = widget.shuttleId ?? 'shuttle_line_a';
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('chats')
+          .doc(targetRoom)
+          .collection('messages')
+          .add({
+        'text': text,
+        'senderId': currentUserId,
+        'senderRole': 'student', // ✨ ระบุสิทธิ์ว่าเป็นนักศึกษาส่ง
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ ไม่สามารถส่งข้อความได้: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -38,37 +62,52 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF0F2F5), // สีพื้นหลังเทาอ่อนตามแบบ
       body: SafeArea(
-        bottom: false, // ปล่อย bottom ไว้เพื่อให้ไม่บัง BottomNavBar ของหน้า Home
+        bottom: false, // ปล่อย bottom ไว้เพื่อให้ไม่บังพื้นที่ด้านล่าง
         child: Column(
           children: [
-            _buildHeader(),
+            _buildHeader(context),
             Expanded(
               child: _buildMessageList(),
             ),
             _buildMessageInput(),
-            const SizedBox(height: 80), // เว้นที่ว่างด้านล่างเผื่อ BottomNavBar
+            const SizedBox(height: 20), // เว้นระยะช่องพิมพ์ข้อความด้านล่างเล็กน้อย
           ],
         ),
       ),
     );
   }
 
-  // ส่วนหัว (Header) คนขับรถ
-  Widget _buildHeader() {
+  // ส่วนหัว (Header) สรุปข้อมูลรถและคนขับ พร้อมปุ่มย้อนกลับ
+  Widget _buildHeader(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-      decoration: const BoxDecoration(
-        color: Color(0xFFF0F2F5),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back, color: Color(0xFF176a21), size: 26),
+            onPressed: () => Navigator.pop(context),
+          ),
           Stack(
             children: [
-              const CircleAvatar(
-                radius: 24,
-                backgroundColor: Colors.white,
-                // ใส่รูปคนขับรถจำลอง
-                child: Icon(Icons.person, color: Colors.grey, size: 30), 
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: const Color(0xFF176a21).withOpacity(0.1),
+                backgroundImage: (widget.driverAvatar != null && widget.driverAvatar!.isNotEmpty)
+                    ? (widget.driverAvatar!.startsWith('http') ? NetworkImage(widget.driverAvatar!) as ImageProvider : AssetImage(widget.driverAvatar!))
+                    : null,
+                child: (widget.driverAvatar == null || widget.driverAvatar!.isEmpty)
+                    ? const Icon(Icons.directions_bus, color: Color(0xFF176a21), size: 24)
+                    : null,
               ),
               Positioned(
                 bottom: 0,
@@ -86,22 +125,22 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
             ],
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'คนขับ : สมชาย ขับรถดี',
-                  style: TextStyle(
+                  widget.driverName != null ? 'คนขับ : ${widget.driverName}' : 'คนขับรถประจำคัน',
+                  style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF176a21),
                   ),
                 ),
-                SizedBox(height: 2),
+                const SizedBox(height: 2),
                 Text(
-                  'ออนไลน์',
-                  style: TextStyle(
+                  widget.shuttleName != null ? 'รถรับส่ง : ${widget.shuttleName}' : 'ห้องสนทนาสาย A',
+                  style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: Colors.grey,
@@ -110,10 +149,6 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
               ],
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.info_outline, color: Colors.grey),
-            onPressed: () {},
-          )
         ],
       ),
     );
@@ -121,10 +156,12 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
 
   // ส่วนแสดงรายการแชทแบบ Real-time
   Widget _buildMessageList() {
+    final String targetRoom = widget.shuttleId ?? 'shuttle_line_a';
+
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('chats')
-          .doc('shuttle_line_a')
+          .doc(targetRoom)
           .collection('messages')
           .orderBy('timestamp', descending: true) // เรียงจากใหม่ไปเก่า (ให้อยู่ล่างสุด)
           .snapshots(),
@@ -134,7 +171,7 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
         }
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const Center(
-            child: Text('เริ่มการสนทนากับคนขับรถ', style: TextStyle(color: Colors.grey)),
+            child: Text('เริ่มการสนทนากับคนขับรถคันนี้', style: TextStyle(color: Colors.grey)),
           );
         }
 
@@ -147,15 +184,16 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
           itemBuilder: (context, index) {
             final data = messages[index].data() as Map<String, dynamic>;
             final bool isMe = data['senderId'] == currentUserId;
+            final String senderRole = data['senderRole'] ?? 'student';
             final String text = data['text'] ?? '';
             final Timestamp? timestamp = data['timestamp'] as Timestamp?;
             
-            // แปลงเวลาให้เป็นฟอร์แมต 10:42 AM
+            // แปลงเวลาให้เป็นฟอร์แมต HH:mm
             final String timeString = timestamp != null 
-                ? DateFormat('hh:mm a').format(timestamp.toDate()) 
+                ? DateFormat('HH:mm').format(timestamp.toDate()) 
                 : 'กำลังส่ง...';
 
-            return _buildMessageBubble(text, timeString, isMe);
+            return _buildMessageBubble(text, timeString, isMe, senderRole);
           },
         );
       },
@@ -163,12 +201,35 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
   }
 
   // ส่วนกล่องข้อความแชท (สีเขียว และ สีขาว)
-  Widget _buildMessageBubble(String text, String time, bool isMe) {
+  Widget _buildMessageBubble(String text, String time, bool isMe, String senderRole) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
+          if (!isMe)
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    senderRole == 'driver' ? Icons.directions_bus : Icons.school,
+                    size: 14,
+                    color: senderRole == 'driver' ? const Color(0xFF176a21) : Colors.blueGrey,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    senderRole == 'driver' ? 'คนขับรถ (ประกาศ)' : 'นักศึกษา',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: senderRole == 'driver' ? const Color(0xFF176a21) : Colors.blueGrey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),

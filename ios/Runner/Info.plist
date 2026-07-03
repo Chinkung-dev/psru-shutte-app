@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>แอปพลิเคชันต้องการเข้าถึงพิกัดจีพีเอสเพื่อแสดงตำแหน่งรถรับส่งและจุดที่นักศึกษาอยู่บนแผนที่</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>แอปพลิเคชันต้องการเข้าถึงพิกัดจีพีเอสในพื้นหลังเพื่อให้คนขับรถสามารถส่งตำแหน่งรถให้ผู้โดยสารติดตามได้แบบ Real-time</string>
 </dict>
 </plist>
