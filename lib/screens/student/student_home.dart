@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:latlong2/latlong.dart' hide Path;
 import '../../route_data.dart';
 import 'student_profile.dart';
 import 'student_chat_list_screen.dart'; // ✨ Import หน้ารวมห้องแชท
+import 'student_live_status_screen.dart'; // ✨ Import หน้า Live Status
 
 class StudentHome extends StatefulWidget {
   const StudentHome({super.key});
@@ -586,7 +587,7 @@ class _StudentHomeState extends State<StudentHome>
             index: _selectedIndex,
             children: [
               _buildMapScreen(),
-              const Center(child: Text("หน้าสถานะรถ (กำลังพัฒนา)")),
+              StudentLiveStatusScreen(busStops: busStops), // ✨ หน้า Live Status ตามดีไซน์
 
               // ✨ เปลี่ยนเป็นหน้า StudentChatListScreen ที่รวมรายการแชททุกคัน
               const StudentChatListScreen(),
@@ -595,51 +596,12 @@ class _StudentHomeState extends State<StudentHome>
             ],
           ),
 
-          // Bottom Navigation Bar
+          // ✨ Bottom Navigation Bar สไตล์ Curved Notch โมเดิร์น
           Positioned(
             bottom: 0,
             left: 0,
             right: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(32),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 20,
-                    offset: const Offset(0, -5),
-                  ),
-                ],
-              ),
-              child: SafeArea(
-                top: false,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildNavItem(icon: Icons.map, label: 'แผนที่', index: 0),
-                    _buildNavItem(
-                      icon: Icons.directions_bus_outlined,
-                      label: 'สถานะรถ',
-                      index: 1,
-                    ),
-                    _buildNavItem(
-                      icon: Icons.chat_bubble_outline,
-                      label: 'แชท',
-                      index: 2,
-                    ),
-                    _buildNavItem(
-                      icon: Icons.person_outline,
-                      label: 'โปรไฟล์',
-                      index: 3,
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            child: _buildCurvedBottomNav(),
           ),
         ],
       ),
@@ -1017,47 +979,138 @@ class _StudentHomeState extends State<StudentHome>
     );
   }
 
-  Widget _buildNavItem({
-    required IconData icon,
-    required String label,
-    required int index,
-  }) {
-    bool isActive = _selectedIndex == index;
-    return GestureDetector(
-      onTap: () {
-        setState(() => _selectedIndex = index);
+  // ✨ วิดเจ็ต Bottom Navigation Bar ดีไซน์โค้งเว้าพร้อมปุ่มวงกลมลอย
+  Widget _buildCurvedBottomNav() {
+    final List<Map<String, dynamic>> navItems = [
+      {'icon': Icons.map_outlined, 'activeIcon': Icons.map, 'label': 'Map'},
+      {
+        'icon': Icons.directions_bus_outlined,
+        'activeIcon': Icons.directions_bus,
+        'label': 'Live Status',
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: isActive
-            ? BoxDecoration(
-                color: const Color(0xFF9DF197).withOpacity(0.3),
-                borderRadius: BorderRadius.circular(16),
-              )
-            : null,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isActive
-                  ? const Color(0xFF176a21)
-                  : const Color(0xFF757778),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
-                color: isActive
-                    ? const Color(0xFF176a21)
-                    : const Color(0xFF757778),
+      {
+        'icon': Icons.chat_bubble_outline,
+        'activeIcon': Icons.chat_bubble,
+        'label': 'Chat',
+      },
+      {
+        'icon': Icons.person_outline,
+        'activeIcon': Icons.person,
+        'label': 'Profile',
+      },
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double width = constraints.maxWidth;
+        final double itemWidth = width / navItems.length;
+        final double targetX = itemWidth * _selectedIndex + itemWidth / 2;
+
+        return SizedBox(
+          height: 85,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // พื้นหลังบาร์สีขาวพร้อมรอยบาก (Curved Notch)
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: targetX, end: targetX),
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.easeOutCubic,
+                builder: (context, animatedX, child) {
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      CustomPaint(
+                        size: Size(width, 85),
+                        painter: _CurvedNavPainter(notchCenter: animatedX),
+                      ),
+                      // ปุ่มวงกลมสีเขียวลอยในรอยบาก
+                      Positioned(
+                        top: 2,
+                        left: animatedX - 24,
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF176a21),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(
+                                  0xFF176a21,
+                                ).withOpacity(0.35),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            navItems[_selectedIndex]['activeIcon'],
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
-            ),
-          ],
-        ),
-      ),
+
+              // รายการปุ่มกดแต่ละ Tab
+              Positioned(
+                top: 18,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Row(
+                  children: List.generate(navItems.length, (index) {
+                    final bool isActive = _selectedIndex == index;
+                    return Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          setState(() => _selectedIndex = index);
+                        },
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (!isActive) ...[
+                              Icon(
+                                navItems[index]['icon'],
+                                color: const Color(0xFF757778),
+                                size: 24,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                navItems[index]['label'],
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF757778),
+                                ),
+                              ),
+                            ] else ...[
+                              const SizedBox(height: 28),
+                              Text(
+                                navItems[index]['label'],
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF176a21),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1448,5 +1501,63 @@ class _StudentHomeState extends State<StudentHome>
         ],
       ),
     );
+  }
+}
+
+// ✨ CustomPainter สำหรับวาด Bottom Navigation Bar โค้งเว้า (Curved Notch) ตามสไตล์โมเดิร์น
+class _CurvedNavPainter extends CustomPainter {
+  final double notchCenter;
+
+  _CurvedNavPainter({required this.notchCenter});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const double barTop = 18.0;
+    const double notchDepth = 30.0;
+    const double notchHalfWidth = 42.0;
+
+    Path path = Path();
+    path.moveTo(0, barTop);
+
+    if (notchCenter - notchHalfWidth > 0) {
+      path.lineTo(notchCenter - notchHalfWidth, barTop);
+    }
+
+    // โค้งลงไปในรอยบาก (Left curve)
+    path.cubicTo(
+      notchCenter - 22,
+      barTop,
+      notchCenter - 26,
+      barTop + notchDepth,
+      notchCenter,
+      barTop + notchDepth,
+    );
+
+    // โค้งขึ้นจากรอยบาก (Right curve)
+    path.cubicTo(
+      notchCenter + 26,
+      barTop + notchDepth,
+      notchCenter + 22,
+      barTop,
+      notchCenter + notchHalfWidth,
+      barTop,
+    );
+
+    path.lineTo(size.width, barTop);
+    path.lineTo(size.width, size.height);
+    path.lineTo(0, size.height);
+    path.close();
+
+    // วาดเงาให้บาร์ด้านล่าง
+    canvas.drawShadow(path, Colors.black.withOpacity(0.08), 15.0, true);
+
+    // วาดพื้นหลังสีขาว
+    Paint paint = Paint()..color = Colors.white;
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _CurvedNavPainter oldDelegate) {
+    return oldDelegate.notchCenter != notchCenter;
   }
 }

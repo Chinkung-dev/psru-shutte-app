@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:latlong2/latlong.dart' hide Path;
 import '../../route_data.dart';
 import 'driver_profile.dart'; // ✨ Import หน้าโปรไฟล์คนขับรถ
 import 'driver_status_screen.dart'; // ✨ Import หน้าสถานะรถ
@@ -45,6 +45,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
   String? waitingStudentStop;
   String? currentRequestId;
+  String? currentRequestStatus; // ✨ เก็บสถานะการเรียก ('waiting' หรือ 'acknowledged')
 
   // ✨ ตัวแปรสำหรับเก็บข้อมูลรถรับส่งของคนขับคนนี้
   String? _shuttleDocId;
@@ -493,19 +494,31 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
     requestStream = FirebaseFirestore.instance
         .collection('ride_requests')
-        .where('status', isEqualTo: 'waiting')
+        .where('status', whereIn: ['waiting', 'acknowledged'])
         .snapshots()
         .listen((snapshot) {
           if (!mounted) return;
 
           if (snapshot.docs.isNotEmpty) {
+            // ✨ ค้นหาคำขอที่มีสถานะ 'waiting' ก่อนเป็นอันดับแรก เพื่อให้ปุ่ม "รับทราบ" ขึ้นเสมอเมื่อมีคนเรียกรถใหม่
+            QueryDocumentSnapshot activeDoc = snapshot.docs.first;
+            for (var doc in snapshot.docs) {
+              if (doc['status'] == 'waiting') {
+                activeDoc = doc;
+                break;
+              }
+            }
+
             setState(() {
-              waitingStudentStop = snapshot.docs.first['stop_name'];
-              currentRequestId = snapshot.docs.first.id;
+              waitingStudentStop = activeDoc['stop_name'];
+              currentRequestId = activeDoc.id;
+              currentRequestStatus = activeDoc['status'];
             });
           } else {
             setState(() {
               waitingStudentStop = null;
+              currentRequestId = null;
+              currentRequestStatus = null;
             });
           }
         });
@@ -539,6 +552,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         _oldLocation = null;
         waitingStudentStop = null;
         currentRequestId = null;
+        currentRequestStatus = null;
       });
     }
 
@@ -560,6 +574,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     }
   }
 
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -577,12 +592,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             ],
           ),
 
-          // 📱 เมนูด้านล่างสุด
+          // ✨ Bottom Navigation Bar สไตล์ Curved Notch โมเดิร์นเหมือนฝั่งนักศึกษา
           Positioned(
             bottom: 0,
             left: 0,
             right: 0,
-            child: isOnline ? _buildBottomNav() : _buildOfflineSheet(),
+            child: _buildCurvedBottomNav(),
           ),
         ],
       ),
@@ -625,14 +640,17 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
               MarkerLayer(
                 markers: [
-                  // ✨ แสดงป้ายจอดเสมอ
+                  // ✨ แสดงป้ายจอดพร้อมชื่อป้ายเหมือนฝั่งนักศึกษา
                   ...busStops.map((stop) {
                     bool isSelected = waitingStudentStop == stop['name'];
                     return Marker(
                       point: LatLng(stop['lat'], stop['lng']),
-                      width: isSelected ? 50 : 40,
-                      height: isSelected ? 50 : 40,
-                      child: _buildStopMarker(isSelected: isSelected),
+                      width: isSelected ? 150 : 130,
+                      height: isSelected ? 75 : 65,
+                      child: _buildStopMarker(
+                        isSelected: isSelected,
+                        name: stop['name'] ?? '',
+                      ),
                     );
                   }),
                   // ✨ แสดงตำแหน่งรถตัวเอง
@@ -652,7 +670,11 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         // 📍 ปุ่ม My Location (เป้าเล็งรถตัวเอง)
         if (isOnline && _currentLocation != null)
           Positioned(
-            bottom: 110, // ปรับตำแหน่งให้พ้น Sheet
+            bottom:
+                (waitingStudentStop != null &&
+                        currentRequestStatus == 'waiting')
+                    ? 190
+                    : 100, // ปรับตำแหน่งให้พ้นการ์ดแจ้งเตือน
             right: 20,
             child: FloatingActionButton(
               mini: true,
@@ -789,22 +811,34 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           ),
         ),
 
-        // 🧑‍🎓 การแจ้งเตือนเวลามีนักศึกษาเรียก (Popup ด้านล่าง)
-        if (isOnline && waitingStudentStop != null)
+        // 🛑 หน้าต่างออฟไลน์ (แสดงเป็นการ์ดลอยด้านล่างเมื่อยังไม่เริ่มงาน)
+        if (!isOnline)
           Positioned(
-            bottom: 125,
-            left: 20,
-            right: 20,
+            bottom: 95,
+            left: 0,
+            right: 0,
+            child: _buildOfflineSheet(),
+          ),
+
+        // 🧑‍🎓 การแจ้งเตือนเวลามีนักศึกษาเรียก (Popup ด้านล่าง)
+        if (isOnline &&
+            waitingStudentStop != null &&
+            currentRequestStatus == 'waiting')
+          Positioned(
+            bottom: 95,
+            left: 0,
+            right: 0,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
               decoration: BoxDecoration(
                 color: const Color(0xFF176a21),
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(32),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 15,
-                    offset: const Offset(0, 8),
+                    color: const Color(0xFF176a21).withOpacity(0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
                   ),
                 ],
               ),
@@ -835,7 +869,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                           waitingStudentStop!,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 16,
+                            fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -846,18 +880,26 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                     onTap: _acknowledgeRequest,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
+                        horizontal: 20,
+                        vertical: 12,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(20),
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.15),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
                       child: const Text(
                         'รับทราบ',
                         style: TextStyle(
-                          color: Colors.white,
+                          color: Color(0xFF176a21),
                           fontWeight: FontWeight.bold,
+                          fontSize: 15,
                         ),
                       ),
                     ),
@@ -870,189 +912,278 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildBottomNav() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFF1F2),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 20,
-            offset: const Offset(0, -5),
+  // ✨ วิดเจ็ต Bottom Navigation Bar ดีไซน์โค้งเว้าพร้อมปุ่มวงกลมลอยเหมือนฝั่งนักศึกษา
+  Widget _buildCurvedBottomNav() {
+    final List<Map<String, dynamic>> navItems = [
+      {'icon': Icons.map_outlined, 'activeIcon': Icons.map, 'label': 'แผนที่'},
+      {'icon': Icons.directions_bus_outlined, 'activeIcon': Icons.directions_bus, 'label': 'สถานะรถ'},
+      {'icon': Icons.chat_bubble_outline, 'activeIcon': Icons.chat_bubble, 'label': 'แชท'},
+      {'icon': Icons.person_outline, 'activeIcon': Icons.person, 'label': 'โปรไฟล์'},
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double width = constraints.maxWidth;
+        final double itemWidth = width / navItems.length;
+        final double targetX = itemWidth * _selectedIndex + itemWidth / 2;
+
+        return SizedBox(
+          height: 85,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // พื้นหลังบาร์สีขาวพร้อมรอยบาก (Curved Notch)
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: targetX, end: targetX),
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.easeOutCubic,
+                builder: (context, animatedX, child) {
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      CustomPaint(
+                        size: Size(width, 85),
+                        painter: _CurvedNavPainter(notchCenter: animatedX),
+                      ),
+                      // ปุ่มวงกลมสีเขียวลอยในรอยบาก
+                      Positioned(
+                        top: 2,
+                        left: animatedX - 24,
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF176a21),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF176a21).withOpacity(0.35),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            navItems[_selectedIndex]['activeIcon'],
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+
+              // รายการปุ่มกดแต่ละ Tab
+              Positioned(
+                top: 18,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Row(
+                  children: List.generate(navItems.length, (index) {
+                    final bool isActive = _selectedIndex == index;
+                    return Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          setState(() => _selectedIndex = index);
+                        },
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (!isActive) ...[
+                              Icon(
+                                navItems[index]['icon'],
+                                color: const Color(0xFF757778),
+                                size: 24,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                navItems[index]['label'],
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF757778),
+                                ),
+                              ),
+                            ] else ...[
+                              const SizedBox(height: 28),
+                              Text(
+                                navItems[index]['label'],
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF176a21),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _buildNavItem(Icons.map, 'แผนที่', 0),
-            _buildNavItem(Icons.directions_bus_outlined, 'สถานะรถ', 1),
-            _buildNavItem(Icons.chat_bubble_outline, 'แชท', 2),
-            _buildNavItem(Icons.person_outline, 'โปรไฟล์', 3),
-          ],
-        ),
-      ),
+        );
+      },
     );
   }
 
   Widget _buildOfflineSheet() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
+        borderRadius: BorderRadius.circular(32),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 20,
-            offset: const Offset(0, -5),
+            color: const Color(0xFF2C2F30).withOpacity(0.1),
+            blurRadius: 30,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: const BoxDecoration(
-                    color: Colors.grey,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                const Text(
-                  'ออฟไลน์ (ยังไม่เริ่มงาน)',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF595C5D),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'ระบบกำลังรอการเชื่อมต่อเพื่อเริ่มติดตามตำแหน่งรถ',
-              style: TextStyle(color: Colors.grey, fontSize: 13),
-            ),
-            const SizedBox(height: 32),
-            GestureDetector(
-              onTap: _startShift,
-              child: Container(
-                height: 60,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF81C784), Color(0xFF388E3C)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(30),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.green.withOpacity(0.3),
-                      blurRadius: 15,
-                      offset: const Offset(0, 5),
-                    ),
-                  ],
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.play_arrow, color: Colors.white, size: 24),
-                    SizedBox(width: 10),
-                    Text(
-                      'เริ่มงาน (Online)',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: const BoxDecoration(
+                  color: Colors.grey,
+                  shape: BoxShape.circle,
                 ),
               ),
+              const SizedBox(width: 10),
+              const Text(
+                'ออฟไลน์ (ยังไม่เริ่มงาน)',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF595C5D),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'ระบบกำลังรอการเชื่อมต่อเพื่อเริ่มติดตามตำแหน่งรถ',
+            style: TextStyle(color: Colors.grey, fontSize: 13),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          GestureDetector(
+            onTap: _startShift,
+            child: Container(
+              height: 56,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF9DF197), Color(0xFF176a21)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF176a21).withOpacity(0.3),
+                    blurRadius: 15,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.play_arrow, color: Colors.white, size: 24),
+                  SizedBox(width: 10),
+                  Text(
+                    'เริ่มงาน (Online)',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildNavItem(IconData icon, String label, int index) {
-    bool isActive = _selectedIndex == index;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedIndex = index;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        decoration: isActive
-            ? BoxDecoration(
-                color: const Color(0xFF9DF197).withOpacity(0.3),
-                borderRadius: BorderRadius.circular(16),
-              )
-            : null,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isActive
-                  ? const Color(0xFF176a21)
-                  : const Color(0xFF757778),
+  Widget _buildStopMarker({required bool isSelected, required String name}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        // ป้ายชื่อจุดจอดรถ
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF176a21) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? Colors.white : const Color(0xFF176a21),
+              width: 1.5,
             ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
-                color: isActive
-                    ? const Color(0xFF176a21)
-                    : const Color(0xFF757778),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.15),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStopMarker({required bool isSelected}) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      decoration: BoxDecoration(
-        color: isSelected ? const Color(0xFF176a21) : Colors.white,
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: isSelected ? Colors.white : const Color(0xFF757778),
-          width: isSelected ? 3 : 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isSelected ? 0.3 : 0.1),
-            blurRadius: isSelected ? 8 : 4,
-            offset: const Offset(0, 2),
+            ],
           ),
-        ],
-      ),
-      child: Icon(
-        Icons.hail,
-        color: isSelected ? Colors.white : const Color(0xFF757778),
-        size: isSelected ? 24 : 18,
-      ),
+          child: Text(
+            name,
+            style: TextStyle(
+              fontSize: isSelected ? 11 : 10,
+              fontWeight: FontWeight.bold,
+              color: isSelected ? Colors.white : const Color(0xFF2C2F30),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+          ),
+        ),
+        const SizedBox(height: 3),
+        // หมุดไอคอนจุดจอด
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: isSelected ? 34 : 28,
+          height: isSelected ? 34 : 28,
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF176a21) : Colors.white,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: isSelected ? Colors.white : const Color(0xFF757778),
+              width: isSelected ? 2.5 : 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isSelected ? 0.3 : 0.1),
+                blurRadius: isSelected ? 6 : 3,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Icon(
+            Icons.hail,
+            color: isSelected ? Colors.white : const Color(0xFF757778),
+            size: isSelected ? 18 : 15,
+          ),
+        ),
+      ],
     );
   }
 
@@ -1090,3 +1221,56 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     );
   }
 }
+
+// ✨ CustomPainter สำหรับวาด Bottom Navigation Bar โค้งเว้า (Curved Notch) ตามสไตล์โมเดิร์น
+class _CurvedNavPainter extends CustomPainter {
+  final double notchCenter;
+
+  _CurvedNavPainter({required this.notchCenter});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const double barTop = 18.0;
+    const double notchDepth = 30.0;
+    const double notchHalfWidth = 42.0;
+
+    Path path = Path();
+    path.moveTo(0, barTop);
+
+    if (notchCenter - notchHalfWidth > 0) {
+      path.lineTo(notchCenter - notchHalfWidth, barTop);
+    }
+
+    // โค้งลงไปในรอยบาก (Left curve)
+    path.cubicTo(
+      notchCenter - 22, barTop,
+      notchCenter - 26, barTop + notchDepth,
+      notchCenter, barTop + notchDepth,
+    );
+
+    // โค้งขึ้นจากรอยบาก (Right curve)
+    path.cubicTo(
+      notchCenter + 26, barTop + notchDepth,
+      notchCenter + 22, barTop,
+      notchCenter + notchHalfWidth, barTop,
+    );
+
+    path.lineTo(size.width, barTop);
+    path.lineTo(size.width, size.height);
+    path.lineTo(0, size.height);
+    path.close();
+
+    // วาดเงาให้บาร์ด้านล่าง
+    canvas.drawShadow(path, Colors.black.withOpacity(0.08), 15.0, true);
+
+    // วาดพื้นหลังสีขาว
+    Paint paint = Paint()..color = Colors.white;
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _CurvedNavPainter oldDelegate) {
+    return oldDelegate.notchCenter != notchCenter;
+  }
+}
+

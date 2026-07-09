@@ -12,6 +12,19 @@ class StudentChatListScreen extends StatefulWidget {
 
 class _StudentChatListScreenState extends State<StudentChatListScreen> {
   String _searchQuery = '';
+  late final Stream<QuerySnapshot> _driversStream;
+  late final Stream<QuerySnapshot> _shuttlesStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _driversStream = FirebaseFirestore.instance
+        .collection('users')
+        .where('role', isEqualTo: 'driver')
+        .snapshots();
+    _shuttlesStream =
+        FirebaseFirestore.instance.collection('shuttles').snapshots();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -92,7 +105,7 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
   // ส่วนรายการห้องแชทรถแต่ละคัน
   Widget _buildShuttleList() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'driver').snapshots(),
+      stream: _driversStream,
       builder: (context, driverSnapshot) {
         final driverDocs = driverSnapshot.hasData ? driverSnapshot.data!.docs : [];
         final Map<String, Map<String, dynamic>> driverMapByShuttleName = {};
@@ -107,7 +120,7 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
         }
 
         return StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance.collection('shuttles').snapshots(),
+          stream: _shuttlesStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator(color: Color(0xFF176a21)));
