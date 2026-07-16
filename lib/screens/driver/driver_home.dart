@@ -30,7 +30,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   StreamSubscription<QuerySnapshot>? requestStream;
   StreamSubscription<DocumentSnapshot>?
   myShuttleSubscription; // ✨ ฟังสถานะตัวเอง
-  Timer? _heartbeatTimer; // ✨ Heartbeat สำหรับอัปเดตเวลาให้สดใหม่อยู่เสมอตอนจอดรอรับส่ง
+  Timer?
+  _heartbeatTimer; // ✨ Heartbeat สำหรับอัปเดตเวลาให้สดใหม่อยู่เสมอตอนจอดรอรับส่ง
   String _currentPassengerStatus = 'available';
 
   final MapController _mapController = MapController();
@@ -45,14 +46,16 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
   String? waitingStudentStop;
   String? currentRequestId;
-  String? currentRequestStatus; // ✨ เก็บสถานะการเรียก ('waiting' หรือ 'acknowledged')
+  String?
+  currentRequestStatus; // ✨ เก็บสถานะการเรียก ('waiting' หรือ 'acknowledged')
 
   // ✨ ตัวแปรสำหรับเก็บข้อมูลรถรับส่งของคนขับคนนี้
   String? _shuttleDocId;
   String? _shuttleName;
 
-  // ✨ ตัวแปรจำกัดเวลาส่งข้อมูลขึ้น Firebase (Throttling) ทุกๆ 3 วินาที เพื่อประหยัดโควตาและแบตเตอรี่
+  // ✨ ตัวแปรจำกัดเวลาส่งข้อมูล (Throttling 3 วินาที) และพิกัดล่าสุด (Distance Check 5 เมตร) เพื่อประหยัดโควตาและแบตเตอรี่
   DateTime? _lastFirebaseUpdate;
+  LatLng? _lastUploadedLocation;
 
   @override
   void initState() {
@@ -114,20 +117,25 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             // ลองค้นหาตาม number
             final numQuery = await FirebaseFirestore.instance
                 .collection('shuttles')
-                .where('number', isEqualTo: userDoc.data()?['shuttle_number'] ?? '')
+                .where(
+                  'number',
+                  isEqualTo: userDoc.data()?['shuttle_number'] ?? '',
+                )
                 .limit(1)
                 .get();
             if (numQuery.docs.isNotEmpty) {
               docId = numQuery.docs.first.id;
             } else {
               // สร้างรถคันใหม่ในระบบ
-              final newDoc = await FirebaseFirestore.instance.collection('shuttles').add({
-                'name': _shuttleName,
-                'number': userDoc.data()?['shuttle_number'] ?? '1',
-                'status': 'offline',
-                'lat': 16.82753,
-                'lng': 100.20686,
-              });
+              final newDoc = await FirebaseFirestore.instance
+                  .collection('shuttles')
+                  .add({
+                    'name': _shuttleName,
+                    'number': userDoc.data()?['shuttle_number'] ?? '1',
+                    'status': 'offline',
+                    'lat': 16.82753,
+                    'lng': 100.20686,
+                  });
               docId = newDoc.id;
             }
           }
@@ -139,7 +147,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
             // ✨ บันทึกชื่อและรูป Avatar คนขับลงในเอกสารรถเพื่อให้หน้านักศึกษาดึงไปแสดงผล
             final driverName = userDoc.data()?['name'] ?? 'คนขับรถประจำคัน';
-            final driverAvatar = userDoc.data()?['avatar'] ?? 'assets/images/man1.png';
+            final driverAvatar =
+                userDoc.data()?['avatar'] ?? 'assets/images/man1.png';
             FirebaseFirestore.instance.collection('shuttles').doc(docId).set({
               'driver_name': driverName,
               'driver_avatar': driverAvatar,
@@ -305,7 +314,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            '⚠️ สิทธิ์การเข้าถึงตำแหน่งถูกบล็อกถาวร กรุณาเปิดสิทธิ์ในตั้งค่า',
+            '⚠️ สิทธิ์การเข้าถึงตำแหน่งถูกบล็อก กรุณาเปิดสิทธิ์ในตั้งค่า',
           ),
           backgroundColor: Colors.red,
         ),
@@ -321,6 +330,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     ); // หอประชุมศรีวชิรโชติ
 
     // 🌟 แสดงตำแหน่งไอคอนเริ่มต้นบนแผนที่ทันที เพื่อป้องกันอาการค้างหรือรอโหลด GPS (Instant UX)
+    _lastFirebaseUpdate = null;
+    _lastUploadedLocation = null;
     setState(() {
       isOnline = true;
       _currentLocation = fallbackLoc;
@@ -385,6 +396,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         }
 
         if (_shuttleDocId != null) {
+          _lastFirebaseUpdate = DateTime.now();
+          _lastUploadedLocation = newLoc;
           FirebaseFirestore.instance
               .collection('shuttles')
               .doc(_shuttleDocId)
@@ -409,6 +422,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         );
 
         if (_shuttleDocId != null && _currentLocation != null) {
+          _lastFirebaseUpdate = DateTime.now();
+          _lastUploadedLocation = _currentLocation;
           FirebaseFirestore.instance
               .collection('shuttles')
               .doc(_shuttleDocId)
@@ -470,12 +485,18 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               _markerAnimationController.forward(from: 0.0);
             }
 
-            // ✨ Throttling: ยิงอัปเดตขึ้น Firebase Firestore ทุกๆ 1 วินาที (เพื่อให้หน้าแอปนักศึกษาตอบสนองเร็วและสมูตที่สุด)
+            // ✨ Smart Throttling & Distance Check: ส่งข้อมูลขึ้น Firestore ต่อเมื่อรถขยับไปอย่างน้อย 5 เมตร และเว้นระยะเวลาอย่างน้อย 3 วินาที
             final now = DateTime.now();
+            final double distanceMoved = _lastUploadedLocation == null
+                ? 999.0
+                : const Distance().distance(_lastUploadedLocation!, newLoc);
+
             if (_shuttleDocId != null &&
+                distanceMoved >= 5.0 &&
                 (_lastFirebaseUpdate == null ||
-                    now.difference(_lastFirebaseUpdate!).inSeconds >= 1)) {
+                    now.difference(_lastFirebaseUpdate!).inSeconds >= 3)) {
               _lastFirebaseUpdate = now;
+              _lastUploadedLocation = newLoc;
               FirebaseFirestore.instance
                   .collection('shuttles')
                   .doc(_shuttleDocId)
@@ -523,19 +544,17 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           }
         });
 
-    // ✨ เริ่ม Heartbeat ทุกๆ 30 วินาที เพื่อให้อัปเดตเวลาล่าสุด (last_updated) ตอนรถจอดรอที่ป้าย
+    // ✨ เริ่ม Heartbeat ทุกๆ 60 วินาที เพื่อให้อัปเดตเวลาล่าสุด (last_updated) ตอนรถจอดรอที่ป้าย ไม่ให้ระบบตัดเป็นออฟไลน์
     _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 60), (timer) {
       if (!isOnline || _shuttleDocId == null) {
         timer.cancel();
         return;
       }
-      FirebaseFirestore.instance
-          .collection('shuttles')
-          .doc(_shuttleDocId)
-          .set({
-            'last_updated': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+      _lastFirebaseUpdate = DateTime.now();
+      FirebaseFirestore.instance.collection('shuttles').doc(_shuttleDocId).set({
+        'last_updated': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     });
   }
 
@@ -543,6 +562,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     _heartbeatTimer?.cancel();
     positionStream?.cancel();
     requestStream?.cancel();
+
+    _lastUploadedLocation = null;
+    _lastFirebaseUpdate = null;
 
     if (mounted) {
       setState(() {
@@ -574,7 +596,6 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -587,7 +608,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             children: [
               _buildMapScreen(), // หน้าแผนที่ (หน้า 0)
               const DriverStatusScreen(), // ✨ หน้าสถานะรถ (หน้า 1)
-              DriverChatScreen(shuttleDocId: _shuttleDocId, shuttleName: _shuttleName), // ✨ หน้าแชทคนขับรถ (หน้า 2)
+              DriverChatScreen(
+                shuttleDocId: _shuttleDocId,
+                shuttleName: _shuttleName,
+              ), // ✨ หน้าแชทคนขับรถ (หน้า 2)
               const DriverProfileScreen(), // ✨ หน้าโปรไฟล์คนขับรถ (หน้า 3)
             ],
           ),
@@ -672,9 +696,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           Positioned(
             bottom:
                 (waitingStudentStop != null &&
-                        currentRequestStatus == 'waiting')
-                    ? 190
-                    : 100, // ปรับตำแหน่งให้พ้นการ์ดแจ้งเตือน
+                    currentRequestStatus == 'waiting')
+                ? 190
+                : 100, // ปรับตำแหน่งให้พ้นการ์ดแจ้งเตือน
             right: 20,
             child: FloatingActionButton(
               mini: true,
@@ -704,23 +728,30 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Row(
-                      children: [
-                        Icon(
-                          Icons.directions_bus,
-                          color: Color(0xFF176a21),
-                          size: 28,
-                        ),
-                        SizedBox(width: 10),
-                        Text(
-                          'PSRU Shuttle',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF176a21),
-                          ),
-                        ),
-                      ],
+                    Image.asset(
+                      'lib/screens/driver/logo.png',
+                      height: 42,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Row(
+                          children: [
+                            Icon(
+                              Icons.directions_bus,
+                              color: Color(0xFF176a21),
+                              size: 28,
+                            ),
+                            SizedBox(width: 10),
+                            Text(
+                              'PSRU Shuttle',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF176a21),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                     if (isOnline)
                       GestureDetector(
@@ -761,7 +792,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
         // 🟢 สถานะออนไลน์/ออฟไลน์
         Positioned(
-          top: 120,
+          top: 140,
           left: 20,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -916,9 +947,21 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   Widget _buildCurvedBottomNav() {
     final List<Map<String, dynamic>> navItems = [
       {'icon': Icons.map_outlined, 'activeIcon': Icons.map, 'label': 'แผนที่'},
-      {'icon': Icons.directions_bus_outlined, 'activeIcon': Icons.directions_bus, 'label': 'สถานะรถ'},
-      {'icon': Icons.chat_bubble_outline, 'activeIcon': Icons.chat_bubble, 'label': 'แชท'},
-      {'icon': Icons.person_outline, 'activeIcon': Icons.person, 'label': 'โปรไฟล์'},
+      {
+        'icon': Icons.directions_bus_outlined,
+        'activeIcon': Icons.directions_bus,
+        'label': 'สถานะรถ',
+      },
+      {
+        'icon': Icons.chat_bubble_outline,
+        'activeIcon': Icons.chat_bubble,
+        'label': 'แชท',
+      },
+      {
+        'icon': Icons.person_outline,
+        'activeIcon': Icons.person,
+        'label': 'โปรไฟล์',
+      },
     ];
 
     return LayoutBuilder(
@@ -957,7 +1000,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFF176a21).withOpacity(0.35),
+                                color: const Color(
+                                  0xFF176a21,
+                                ).withOpacity(0.35),
                                 blurRadius: 10,
                                 offset: const Offset(0, 4),
                               ),
@@ -1243,16 +1288,22 @@ class _CurvedNavPainter extends CustomPainter {
 
     // โค้งลงไปในรอยบาก (Left curve)
     path.cubicTo(
-      notchCenter - 22, barTop,
-      notchCenter - 26, barTop + notchDepth,
-      notchCenter, barTop + notchDepth,
+      notchCenter - 22,
+      barTop,
+      notchCenter - 26,
+      barTop + notchDepth,
+      notchCenter,
+      barTop + notchDepth,
     );
 
     // โค้งขึ้นจากรอยบาก (Right curve)
     path.cubicTo(
-      notchCenter + 26, barTop + notchDepth,
-      notchCenter + 22, barTop,
-      notchCenter + notchHalfWidth, barTop,
+      notchCenter + 26,
+      barTop + notchDepth,
+      notchCenter + 22,
+      barTop,
+      notchCenter + notchHalfWidth,
+      barTop,
     );
 
     path.lineTo(size.width, barTop);
@@ -1273,4 +1324,3 @@ class _CurvedNavPainter extends CustomPainter {
     return oldDelegate.notchCenter != notchCenter;
   }
 }
-

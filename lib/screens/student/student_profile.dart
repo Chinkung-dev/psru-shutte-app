@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'favorite_stops_screen.dart';
+import 'student_edit_profile_screen.dart';
 
 class StudentProfileScreen extends StatefulWidget {
   const StudentProfileScreen({super.key});
@@ -24,7 +25,10 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
         if (doc.exists) {
           setState(() {
             userData = doc.data();
@@ -45,16 +49,29 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
     }
   }
 
+  Future<void> _navigateToEditProfile() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const StudentEditProfileScreen()),
+    );
+    if (result == true || mounted) {
+      _fetchUserData();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF176a21)));
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFF176a21)),
+      );
     }
 
     final String name = userData?['name'] ?? 'ไม่ระบุชื่อ';
     final String studentId = userData?['student_id'] ?? '-';
     final String email = userData?['email'] ?? '-';
-    final String avatarPath = userData?['avatar'] ?? 'assets/images/avatar1.png';
+    final String phone = userData?['phone'] ?? 'ไม่ระบุเบอร์โทร';
+    final String avatarPath = userData?['avatar'] ?? 'assets/images/man1.png';
 
     // เช็คว่ามีดาวกี่ดวง เพื่อเอาไปโชว์ในหน้าโปรไฟล์
     List<String> favStops = [];
@@ -64,60 +81,82 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FA),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.menu, color: Color(0xFF176a21)),
-          onPressed: () {},
-        ),
-        title: const Text('Student Profile', style: TextStyle(color: Color(0xFF176a21), fontWeight: FontWeight.bold)),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined, color: Color(0xFF176a21)),
-            onPressed: () {},
-          )
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 100),
-        child: Column(
-          children: [
-            Center(
-              child: Stack(
+      body: Column(
+        children: [
+          _buildHeader(context),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 100),
+              child: Column(
                 children: [
-                  Container(
-                    width: 120, height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white,
-                      border: Border.all(color: Colors.grey.shade300, width: 2),
-                      image: DecorationImage(
-                        image: AssetImage(avatarPath),
-                        fit: BoxFit.cover,
+                  const Center(
+                    child: Text(
+                      'Student Profile',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF176a21),
                       ),
                     ),
                   ),
-                  Positioned(
-                    bottom: 0, right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: GestureDetector(
+                onTap: _navigateToEditProfile,
+                child: Stack(
+                  children: [
+                    Container(
+                      width: 120,
+                      height: 120,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF176a21),
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 3),
+                        color: Colors.white,
+                        border: Border.all(
+                          color: Colors.grey.shade300,
+                          width: 2,
+                        ),
+                        image: DecorationImage(
+                          image: AssetImage(avatarPath),
+                          fit: BoxFit.cover,
+                        ),
                       ),
-                      child: const Icon(Icons.edit, color: Colors.white, size: 16),
                     ),
-                  )
-                ],
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF176a21),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 3),
+                        ),
+                        child: const Icon(
+                          Icons.edit,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),
-            Text(name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF2C2F30))),
+            Text(
+              name,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF2C2F30),
+              ),
+            ),
             const SizedBox(height: 4),
-            Text('รหัสนักศึกษา: $studentId', style: const TextStyle(fontSize: 14, color: Color(0xFF757778))),
+            Text(
+              'รหัสนักศึกษา: $studentId',
+              style: const TextStyle(fontSize: 14, color: Color(0xFF757778)),
+            ),
             const SizedBox(height: 30),
 
             _buildSectionCard(
@@ -126,7 +165,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
               children: [
                 _buildInfoRow('ชื่อ-นามสกุล', name),
                 _buildInfoRow('อีเมล', email),
-                _buildInfoRow('เบอร์โทรศัพท์', '0651234567'), 
+                _buildInfoRow('เบอร์โทรศัพท์', phone),
               ],
             ),
             const SizedBox(height: 20),
@@ -136,10 +175,21 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
               icon: Icons.tune,
               children: [
                 // ✨ ใส่ await เพื่อรอให้หน้า Favorite ปิดลงมา แล้วดึงข้อมูลใหม่ทันที
-                _buildActionRow('จุดจอดที่ใช้บ่อย', Icons.star, iconColor: Colors.amber, trailingText: '${favStops.length} จุด', onTap: () async {
-                  await Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoriteStopsScreen()));
-                  _fetchUserData(); // ดึงข้อมูลใหม่หลังจากปิดหน้าจุดจอด
-                }),
+                _buildActionRow(
+                  'จุดจอดที่ใช้บ่อย',
+                  Icons.star,
+                  iconColor: Colors.amber,
+                  trailingText: '${favStops.length} จุด',
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const FavoriteStopsScreen(),
+                      ),
+                    );
+                    _fetchUserData(); // ดึงข้อมูลใหม่หลังจากปิดหน้าจุดจอด
+                  },
+                ),
                 _buildActionRow('การแจ้งเตือน', Icons.notifications_none),
               ],
             ),
@@ -161,16 +211,29 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                 width: double.infinity,
                 height: 56,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF28522), 
+                  color: const Color(0xFFF28522),
                   borderRadius: BorderRadius.circular(28),
-                  boxShadow: [BoxShadow(color: const Color(0xFFF28522).withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))],
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFF28522).withOpacity(0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.logout, color: Colors.white),
                     SizedBox(width: 8),
-                    Text('Logout', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(
+                      'Logout',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -178,16 +241,63 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
           ],
         ),
       ),
+    ),
+  ],
+),
+);
+}
+
+  // ส่วนหัวข้อแบบแถบสีขาวเหมือน student_home
+  Widget _buildHeader(BuildContext context) {
+    return Container(
+      color: Colors.white,
+      width: double.infinity,
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Image.asset(
+                'lib/screens/driver/logo.png',
+                height: 42,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) =>
+                    const Icon(Icons.menu, color: Color(0xFF176a21), size: 28),
+              ),
+              IconButton(
+                icon: const Icon(
+                  Icons.settings_outlined,
+                  color: Color(0xFF176a21),
+                  size: 26,
+                ),
+                onPressed: _navigateToEditProfile,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
-  Widget _buildSectionCard({required String title, required IconData icon, required List<Widget> children}) {
+  Widget _buildSectionCard({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -196,11 +306,21 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: const Color(0xFF9DF197).withOpacity(0.3), shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF9DF197).withOpacity(0.3),
+                  shape: BoxShape.circle,
+                ),
                 child: Icon(icon, color: const Color(0xFF176a21), size: 20),
               ),
               const SizedBox(width: 12),
-              Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2C2F30))),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF2C2F30),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 20),
@@ -216,15 +336,31 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF757778))),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF757778)),
+          ),
           const SizedBox(height: 4),
-          Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF2C2F30))),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF2C2F30),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildActionRow(String label, IconData icon, {VoidCallback? onTap, Color? iconColor, String? trailingText}) {
+  Widget _buildActionRow(
+    String label,
+    IconData icon, {
+    VoidCallback? onTap,
+    Color? iconColor,
+    String? trailingText,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: InkWell(
@@ -236,16 +372,34 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
               children: [
                 Icon(icon, color: iconColor ?? Colors.grey.shade400, size: 20),
                 const SizedBox(width: 12),
-                Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF2C2F30))),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF2C2F30),
+                  ),
+                ),
               ],
             ),
             Row(
               children: [
-                if (trailingText != null) Text(trailingText, style: const TextStyle(color: Color(0xFF176a21), fontWeight: FontWeight.bold)),
+                if (trailingText != null)
+                  Text(
+                    trailingText,
+                    style: const TextStyle(
+                      color: Color(0xFF176a21),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 if (trailingText != null) const SizedBox(width: 8),
-                Icon(Icons.arrow_forward_ios, color: Colors.grey.shade300, size: 16),
+                Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.grey.shade300,
+                  size: 16,
+                ),
               ],
-            )
+            ),
           ],
         ),
       ),

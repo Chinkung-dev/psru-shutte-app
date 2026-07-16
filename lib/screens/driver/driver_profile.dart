@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'driver_edit_profile_screen.dart';
 
 class DriverProfileScreen extends StatefulWidget {
   const DriverProfileScreen({super.key});
@@ -48,6 +49,16 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     }
   }
 
+  Future<void> _navigateToEditProfile() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const DriverEditProfileScreen()),
+    );
+    if (result == true || mounted) {
+      _fetchUserData();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
@@ -77,7 +88,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined, color: Color(0xFF176a21)),
-            onPressed: () {},
+            onPressed: _navigateToEditProfile,
           )
         ],
       ),
@@ -86,33 +97,36 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
         child: Column(
           children: [
             Center(
-              child: Stack(
-                children: [
-                  Container(
-                    width: 120, height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white,
-                      border: Border.all(color: const Color(0xFF4CA2CD), width: 3),
-                      image: DecorationImage(
-                        image: AssetImage(avatarPath),
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 0, right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
+              child: GestureDetector(
+                onTap: _navigateToEditProfile,
+                child: Stack(
+                  children: [
+                    Container(
+                      width: 120, height: 120,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF176a21),
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
+                        color: Colors.white,
+                        border: Border.all(color: const Color(0xFF4CA2CD), width: 3),
+                        image: DecorationImage(
+                          image: AssetImage(avatarPath),
+                          fit: BoxFit.cover,
+                        ),
                       ),
-                      child: const Icon(Icons.camera_alt, color: Colors.white, size: 18),
                     ),
-                  )
-                ],
+                    Positioned(
+                      bottom: 0, right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF176a21),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: const Icon(Icons.camera_alt, color: Colors.white, size: 18),
+                      ),
+                    )
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),

@@ -11,7 +11,7 @@ class DriverStatusScreen extends StatefulWidget {
 
 class _DriverStatusScreenState extends State<DriverStatusScreen> {
   // ค่าเริ่มต้นของสถานะ (ใช้ 'available', 'full', 'break', 'offline')
-  String _currentStatus = 'available'; 
+  String _currentStatus = 'available';
   bool _isLoading = true;
   String? _shuttleDocId;
 
@@ -26,7 +26,10 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         // 1. ดึงข้อมูลคนขับ เพื่อดูว่าขับรถคันไหน
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
         final shuttleName = userDoc.data()?['shuttle_name'];
 
         if (shuttleName != null) {
@@ -36,11 +39,11 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
               .where('name', isEqualTo: shuttleName)
               .limit(1)
               .get();
-              
+
           if (shuttleQuery.docs.isNotEmpty) {
             _shuttleDocId = shuttleQuery.docs.first.id;
             final docData = shuttleQuery.docs.first.data();
-            
+
             // 3. ดึงสถานะเดิมมาแสดง (ถ้ามี)
             if (docData.containsKey('passenger_status')) {
               setState(() {
@@ -66,15 +69,18 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
 
     try {
       // อัปเดตไปที่คอลเล็กชัน shuttles โดยใช้ SetOptions(merge: true) เพื่อไม่ให้ทับข้อมูลเดิม (name, number)
-      await FirebaseFirestore.instance.collection('shuttles').doc(_shuttleDocId).set({
-        'passenger_status': newStatus,
-        'last_updated': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      
+      await FirebaseFirestore.instance
+          .collection('shuttles')
+          .doc(_shuttleDocId)
+          .set({
+            'passenger_status': newStatus,
+            'last_updated': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('อัปเดตสถานะสำเร็จ'), 
+            content: Text('อัปเดตสถานะสำเร็จ'),
             backgroundColor: Colors.green,
             duration: Duration(seconds: 1),
           ),
@@ -92,28 +98,46 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        automaticallyImplyLeading: false, 
-        title: const Row(
-          children: [
-            Icon(Icons.directions_bus, color: Color(0xFF176a21), size: 28),
-            SizedBox(width: 10),
-            Text('PSRU Shuttle', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF176a21))),
-          ],
+        automaticallyImplyLeading: false,
+        title: Image.asset(
+          'lib/screens/driver/logo.png',
+          height: 42,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) => const Row(
+            children: [
+              Icon(Icons.directions_bus, color: Color(0xFF176a21), size: 28),
+              SizedBox(width: 10),
+              Text(
+                'PSRU Shuttle',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF176a21),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      body: _isLoading 
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF176a21)))
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF176a21)),
+            )
           : SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 30),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Update Current Status',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF2C2F30)),
+                    'อัพเดตสถานะรถ',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF2C2F30),
+                    ),
                   ),
                   const SizedBox(height: 24),
-                  
+
                   // ปุ่ม: ว่าง (Available)
                   _buildStatusCard(
                     statusKey: 'available',
@@ -123,7 +147,7 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
                     activeColor: const Color(0xFF176a21),
                     activeBgColor: const Color(0xFFE8F5E9),
                   ),
-                  
+
                   // ปุ่ม: เต็ม (Full)
                   _buildStatusCard(
                     statusKey: 'full',
@@ -141,7 +165,7 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
                     subtitle: 'Break',
                     icon: Icons.pause_circle_outline,
                     activeColor: const Color(0xFFF28522),
-                    activeBgColor: const Color(0xFFFBE9E7), 
+                    activeBgColor: const Color(0xFFFBE9E7),
                   ),
 
                   // ปุ่ม: เลิกงาน (Off Duty)
@@ -153,8 +177,8 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
                     activeColor: Colors.red,
                     activeBgColor: const Color(0xFFFFEBEE),
                   ),
-                  
-                  const SizedBox(height: 80), 
+
+                  const SizedBox(height: 80),
                 ],
               ),
             ),
@@ -190,7 +214,7 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
                 color: Colors.black.withOpacity(0.05),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
-              )
+              ),
           ],
         ),
         child: Center(
@@ -223,7 +247,9 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
                 subtitle,
                 style: TextStyle(
                   fontSize: 14,
-                  color: isActive ? activeColor.withOpacity(0.8) : const Color(0xFF757778),
+                  color: isActive
+                      ? activeColor.withOpacity(0.8)
+                      : const Color(0xFF757778),
                 ),
               ),
             ],

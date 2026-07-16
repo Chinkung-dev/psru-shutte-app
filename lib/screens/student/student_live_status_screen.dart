@@ -29,16 +29,18 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7F8), // สีพื้นหลังเทาอ่อนสะอาดตาตามดีไซน์
-      body: SafeArea(
-        bottom: false,
-        child: StreamBuilder<QuerySnapshot>(
-          stream: _shuttlesStream,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(
-                child: CircularProgressIndicator(color: Color(0xFF176a21)),
-              );
-            }
+      body: Column(
+        children: [
+          _buildHeader(),
+          Expanded(
+              child: StreamBuilder<QuerySnapshot>(
+                stream: _shuttlesStream,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                      child: CircularProgressIndicator(color: Color(0xFF176a21)),
+                    );
+                  }
 
             final docs = snapshot.data?.docs ?? [];
 
@@ -147,9 +149,6 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildHeader(),
-                  const SizedBox(height: 20),
-                  
                   // 🌟 Hero Card (รถรับส่งทั้งหมด)
                   _buildHeroCard(totalActive),
                   const SizedBox(height: 16),
@@ -180,36 +179,59 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
             );
           },
         ),
-      ),
+            ),
+          ],
+        ),
     );
   }
 
   // 🏛️ ส่วนหัวข้อ PSRU Shuttle
   Widget _buildHeader() {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE8F5E9),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(
-            Icons.directions_bus,
-            color: Color(0xFF176a21),
-            size: 24,
+    return Container(
+      color: Colors.white,
+      width: double.infinity,
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          child: Row(
+            children: [
+              Image.asset(
+                'lib/screens/driver/logo.png',
+                height: 42,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  return Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F5E9),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.directions_bus,
+                          color: Color(0xFF176a21),
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'PSRU Shuttle',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF176a21),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
           ),
         ),
-        const SizedBox(width: 12),
-        const Text(
-          'PSRU Shuttle',
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF176a21),
-          ),
-        ),
-      ],
+      ),
     );
   }
 

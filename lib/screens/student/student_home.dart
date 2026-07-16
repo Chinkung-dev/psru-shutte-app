@@ -65,10 +65,10 @@ class _StudentHomeState extends State<StudentHome>
     _buildRouteGraph();
     _listenToShuttles(); // ✨ เริ่มฟังตำแหน่งรถ
 
-    // ✨ Setup animation controller for smooth marker movement ให้ตรงกับฝั่งคนขับเป๊ะ (400ms, easeInOut)
+    // ✨ Setup animation controller for smooth marker movement (800ms สำหรับรองรับ Smart Throttling 3 วินาทีให้ลื่นไหลสุดๆ)
     _markerAnimationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 800),
     );
     _markerAnimation =
         CurvedAnimation(
@@ -139,23 +139,46 @@ class _StudentHomeState extends State<StudentHome>
                 )
                 .toList();
 
+            bool hasMeaningfulChange =
+                false; // ✨ ตรวจสอบว่ามีรถคันไหนขยับจริงหรือเปลี่ยนสถานะที่นั่งหรือไม่
+
             for (var shuttle in newShuttles) {
               final String id = shuttle['id'];
               final LatLng newLoc = LatLng(shuttle['lat'], shuttle['lng']);
+              final String newPassengerStatus = shuttle['passenger_status'];
               final currentLoc = _currentShuttleLocations[id];
+
+              // เช็คว่าสถานะผู้โดยสารเปลี่ยนหรือไม่
+              bool statusChanged = true;
+              for (var oldS in activeShuttles) {
+                if (oldS['id'] == id &&
+                    oldS['passenger_status'] == newPassengerStatus) {
+                  statusChanged = false;
+                  break;
+                }
+              }
+              if (statusChanged) {
+                hasMeaningfulChange = true;
+              }
 
               if (currentLoc == null) {
                 _currentShuttleLocations[id] = newLoc;
                 _targetShuttleLocations[id] = newLoc;
+                hasMeaningfulChange = true;
               } else if (currentLoc.latitude != newLoc.latitude ||
                   currentLoc.longitude != newLoc.longitude) {
                 _oldShuttleLocations[id] = currentLoc;
                 _targetShuttleLocations[id] = newLoc;
                 shouldAnimate = true;
+                hasMeaningfulChange = true;
               }
             }
 
             final activeIds = newShuttles.map((s) => s['id'] as String).toSet();
+            if (activeIds.length != activeShuttles.length) {
+              hasMeaningfulChange = true;
+            }
+
             _currentShuttleLocations.removeWhere(
               (id, loc) => !activeIds.contains(id),
             );
@@ -166,17 +189,22 @@ class _StudentHomeState extends State<StudentHome>
               (id, loc) => !activeIds.contains(id),
             );
 
-            setState(() {
-              activeShuttles = newShuttles;
-            });
+            // ✨ State Guard: อัปเดต UI และคำนวณกราฟเส้นทางใหม่เฉพาะเมื่อรถขยับจริง หรือสถานะเปลี่ยนเท่านั้น (เพื่อประหยัดแบตเตอรี่และไม่รีบิ้วฟรีเมื่อได้รับ Heartbeat)
+            if (hasMeaningfulChange) {
+              setState(() {
+                activeShuttles = newShuttles;
+              });
 
-            if (shouldAnimate) {
-              _markerAnimationController.forward(from: 0.0);
-            }
+              if (shouldAnimate) {
+                _markerAnimationController.forward(from: 0.0);
+              }
 
-            // ถ้านักศึกษาเลือกป้ายไว้ ให้อัปเดตเส้นทางและเวลา ETA ตามตำแหน่งรถใหม่ Real-time
-            if (selectedStopLatLng != null && activeShuttles.isNotEmpty) {
-              _updateRouteAndETA();
+              // ถ้านักศึกษาเลือกป้ายไว้ และรถมีการขยับพิกัดจริง ให้อัปเดตเส้นทางและเวลา ETA Real-time
+              if (selectedStopLatLng != null &&
+                  activeShuttles.isNotEmpty &&
+                  shouldAnimate) {
+                _updateRouteAndETA();
+              }
             }
           }
         });
@@ -587,8 +615,9 @@ class _StudentHomeState extends State<StudentHome>
             index: _selectedIndex,
             children: [
               _buildMapScreen(),
-              StudentLiveStatusScreen(busStops: busStops), // ✨ หน้า Live Status ตามดีไซน์
-
+              StudentLiveStatusScreen(
+                busStops: busStops,
+              ), // ✨ หน้า Live Status ตามดีไซน์
               // ✨ เปลี่ยนเป็นหน้า StudentChatListScreen ที่รวมรายการแชททุกคัน
               const StudentChatListScreen(),
 
@@ -741,23 +770,30 @@ class _StudentHomeState extends State<StudentHome>
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Row(
-                      children: [
-                        Icon(
-                          Icons.directions_bus,
-                          color: Color(0xFF176a21),
-                          size: 28,
-                        ),
-                        SizedBox(width: 10),
-                        Text(
-                          'PSRU Shuttle',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF176a21),
-                          ),
-                        ),
-                      ],
+                    Image.asset(
+                      'lib/screens/driver/logo.png',
+                      height: 42,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Row(
+                          children: [
+                            Icon(
+                              Icons.directions_bus,
+                              color: Color(0xFF176a21),
+                              size: 28,
+                            ),
+                            SizedBox(width: 10),
+                            Text(
+                              'PSRU Shuttle',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF176a21),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                     IconButton(
                       icon: const Icon(
@@ -775,7 +811,7 @@ class _StudentHomeState extends State<StudentHome>
         ),
 
         Positioned(
-          top: 130,
+          top: 150,
           left: 20,
           right: 20,
           child: Autocomplete<Map<String, dynamic>>(

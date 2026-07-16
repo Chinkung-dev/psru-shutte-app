@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -55,19 +56,63 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _fetchShuttles() async {
     setState(() => _isLoadingShuttles = true);
     try {
+      // ดึงรายชื่อรถทั้งหมดในระบบ
       final snapshot = await FirebaseFirestore.instance.collection('shuttles').get();
+      // ดึงรายชื่อคนขับที่มีอยู่ในระบบแล้วเพื่อเช็คว่ารถคันไหนถูกจองไปแล้ว
+      final driversSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'driver')
+          .get();
+
+      final usedShuttleNames = <String>{};
+      final usedShuttleNumbers = <String>{};
+
+      for (var doc in driversSnapshot.docs) {
+        final data = doc.data();
+        final sName = (data['shuttle_name'] ?? '').toString().trim();
+        final sNum = (data['shuttle_number'] ?? '').toString().trim();
+        if (sName.isNotEmpty) usedShuttleNames.add(sName);
+        if (sNum.isNotEmpty) usedShuttleNumbers.add(sNum);
+      }
+
       if (snapshot.docs.isNotEmpty) {
-        final data = snapshot.docs.map<Map<String, dynamic>>((doc) => {
+        final allData = snapshot.docs.map<Map<String, dynamic>>((doc) => {
           'id': doc.id,
-          'name': doc.data()['name']?.toString() ?? '',
-          'number': doc.data()['number']?.toString() ?? '',
+          'name': doc.data()['name']?.toString().trim() ?? '',
+          'number': doc.data()['number']?.toString().trim() ?? '',
+        }).toList();
+
+        // กรองเอาเฉพาะรถที่ยังไม่มีคนขับลงทะเบียนใช้
+        final availableData = allData.where((s) {
+          final name = s['name'] as String;
+          final number = s['number'] as String;
+          return name.isNotEmpty &&
+              number.isNotEmpty &&
+              !usedShuttleNames.contains(name) &&
+              !usedShuttleNumbers.contains(number);
         }).toList();
 
         if (mounted) {
           setState(() {
-            _shuttlesData = data;
-            _shuttleNames = data.map((s) => s['name'] as String).where((n) => n.isNotEmpty).toSet().toList();
-            _shuttleNumbers = data.map((s) => s['number'] as String).where((n) => n.isNotEmpty).toSet().toList();
+            _shuttlesData = availableData;
+            _shuttleNames = availableData
+                .map((s) => s['name'] as String)
+                .toSet()
+                .toList();
+            _shuttleNumbers = availableData
+                .map((s) => s['number'] as String)
+                .toSet()
+                .toList();
+
+            // รีเซ็ตค่าหากค่าที่เลือกไว้ก่อนหน้าไม่มีในตัวเลือกแล้ว
+            if (_selectedShuttleName != null &&
+                !_shuttleNames.contains(_selectedShuttleName)) {
+              _selectedShuttleName = null;
+            }
+            if (_selectedShuttleNumber != null &&
+                !_shuttleNumbers.contains(_selectedShuttleNumber)) {
+              _selectedShuttleNumber = null;
+            }
           });
         }
       }
@@ -93,19 +138,72 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _register() async {
     final name = _nameController.text.trim();
     final studentId = _studentIdController.text.trim();
+    final phone = _phoneController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
     final confirmPassword = _confirmPasswordController.text.trim();
 
-    if (name.isEmpty || studentId.isEmpty || email.isEmpty || password.isEmpty) {
+    if (name.isEmpty || studentId.isEmpty || phone.isEmpty || email.isEmpty || password.isEmpty) {
       _showSnackBar('กรุณากรอกข้อมูลให้ครบทุกช่อง', Colors.red);
       return;
     }
 
-    if (_selectedRole == 'driver') {
-      if (_phoneController.text.trim().isEmpty || _selectedShuttleName == null || _selectedShuttleNumber == null) {
-        _showSnackBar('กรุณากรอกข้อมูลสำหรับคนขับรถให้ครบทุกช่อง', Colors.red);
+    // 1. ตรวจสอบชื่อ-นามสกุล
+    if (name.length < 2 || RegExp(r'\d').hasMatch(name)) {
+      _showSnackBar('กรุณากรอกชื่อ-นามสกุลที่ถูกต้อง (อย่างน้อย 2 ตัวอักษร และไม่มีตัวเลข)', Colors.red);
+      return;
+    }
+
+    // 2. ตรวจสอบรหัสนักศึกษา/รหัสคนขับรถ
+    if (_selectedRole == 'student') {
+      if (!RegExp(r'^\d{8,11}$').hasMatch(studentId)) {
+        _showSnackBar('รหัสนักศึกษาต้องเป็นตัวเลข 8-11 หลักเท่านั้น (ห้ามกรอกตัวอักษร)', Colors.red);
         return;
+      }
+    } else {
+      if (studentId.length < 3) {
+        _showSnackBar('รหัสพนักงานขับรถต้องมีอย่างน้อย 3 ตัวอักษร', Colors.red);
+        return;
+      }
+    }
+
+    // 3. ตรวจสอบเบอร์โทรศัพท์ (10 หลัก ขึ้นต้นด้วย 0)
+    if (!RegExp(r'^0\d{9}$').hasMatch(phone)) {
+      _showSnackBar('เบอร์โทรศัพท์ต้องเป็นตัวเลข 10 หลักและขึ้นต้นด้วยเลข 0 เท่านั้น', Colors.red);
+      return;
+    }
+
+    // 4. ตรวจสอบรูปแบบอีเมล
+    if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(email)) {
+      _showSnackBar('กรุณากรอกรูปแบบอีเมลให้ถูกต้อง (เช่น name@example.com)', Colors.red);
+      return;
+    }
+
+    if (_selectedRole == 'driver') {
+      if (_selectedShuttleName == null || _selectedShuttleNumber == null) {
+        _showSnackBar('กรุณาเลือกรถรับส่งสำหรับคนขับให้ครบถ้วน', Colors.red);
+        return;
+      }
+
+      // ตรวจสอบซ้ำอีกครั้งว่ารถคันที่เลือกเพิ่งถูกสมัครใช้งานไปหรือไม่
+      try {
+        final checkExisting = await FirebaseFirestore.instance
+            .collection('users')
+            .where('role', isEqualTo: 'driver')
+            .get();
+
+        for (var doc in checkExisting.docs) {
+          final data = doc.data();
+          final existingName = (data['shuttle_name'] ?? '').toString().trim();
+          final existingNumber = (data['shuttle_number'] ?? '').toString().trim();
+          if (existingName == _selectedShuttleName || existingNumber == _selectedShuttleNumber) {
+            _showSnackBar('ชื่อรถหรือหมายเลขรถนี้เพิ่งถูกสมัครโดยคนขับท่านอื่นแล้ว กรุณาเลือกคันใหม่', Colors.orange);
+            await _fetchShuttles();
+            return;
+          }
+        }
+      } catch (e) {
+        debugPrint('Error checking duplicate shuttle: $e');
       }
     }
 
@@ -132,14 +230,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
         'uid': userCredential.user!.uid,
         'name': name,
         'student_id': studentId,
+        'phone': phone,
         'email': email,
         'role': _selectedRole, // ✨ บันทึกตามสิทธิ์ที่ผู้ใช้เลือกใน Dropdown
         'avatar': _avatarList[_selectedAvatarIndex], 
+        'hasSeenOnboarding': _selectedRole == 'student' ? false : true,
         'created_at': FieldValue.serverTimestamp(),
       };
 
       if (_selectedRole == 'driver') {
-        userData['phone'] = _phoneController.text.trim();
         userData['shuttle_name'] = _selectedShuttleName;
         userData['shuttle_number'] = _selectedShuttleNumber;
       }
@@ -195,48 +294,87 @@ class _RegisterScreenState extends State<RegisterScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               
-              SizedBox(
-                height: 140, 
-                child: PageView.builder(
-                  controller: _pageController,
-                  itemCount: _avatarList.length,
-                  onPageChanged: (int index) {
-                    setState(() {
-                      _selectedAvatarIndex = index; 
-                    });
-                  },
-                  itemBuilder: (context, index) {
-                    bool isSelected = index == _selectedAvatarIndex;
-                    return AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeOut,
-                      margin: EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: isSelected ? 5 : 25, 
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: () {
+                      if (_selectedAvatarIndex > 0) {
+                        _pageController.animateToPage(
+                          _selectedAvatarIndex - 1,
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut,
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.arrow_back_ios, color: Color(0xFF176a21)),
+                  ),
+                  Expanded(
+                    child: SizedBox(
+                      height: 140,
+                      child: PageView.builder(
+                        controller: _pageController,
+                        itemCount: _avatarList.length,
+                        onPageChanged: (int index) {
+                          setState(() {
+                            _selectedAvatarIndex = index;
+                          });
+                        },
+                        itemBuilder: (context, index) {
+                          bool isSelected = index == _selectedAvatarIndex;
+                          return GestureDetector(
+                            onTap: () {
+                              _pageController.animateToPage(
+                                index,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeInOut,
+                              );
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeOut,
+                              margin: EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: isSelected ? 5 : 25,
+                              ),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white,
+                                border: Border.all(
+                                  color: isSelected ? const Color(0xFF176a21) : Colors.transparent,
+                                  width: isSelected ? 4 : 0,
+                                ),
+                                boxShadow: isSelected
+                                    ? [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 15, offset: const Offset(0, 8))]
+                                    : [],
+                                image: DecorationImage(
+                                  image: AssetImage(_avatarList[index]),
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white,
-                        border: Border.all(
-                          color: isSelected ? const Color(0xFF176a21) : Colors.transparent,
-                          width: isSelected ? 4 : 0, 
-                        ),
-                        boxShadow: isSelected
-                            ? [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 15, offset: const Offset(0, 8))]
-                            : [],
-                        image: DecorationImage(
-                          image: AssetImage(_avatarList[index]), 
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      if (_selectedAvatarIndex < _avatarList.length - 1) {
+                        _pageController.animateToPage(
+                          _selectedAvatarIndex + 1,
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut,
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.arrow_forward_ios, color: Color(0xFF176a21)),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               const Center(
                 child: Text(
-                  '👈 เลื่อนซ้าย-ขวา เพื่อเลือกรูปโปรไฟล์ 👉',
+                  '👈 คลิกปุ่มลูกศร, คลิกที่รูป หรือลากเมาส์เลื่อนเพื่อเลือกรูป 👉',
                   style: TextStyle(color: Color(0xFF757778), fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ),
@@ -261,23 +399,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 icon: Icons.badge_outlined,
                 controller: _studentIdController,
                 keyboardType: _selectedRole == 'student' ? TextInputType.number : TextInputType.text,
+                inputFormatters: _selectedRole == 'student'
+                    ? [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(11)]
+                    : [LengthLimitingTextInputFormatter(20)],
+              ),
+              const SizedBox(height: 16),
+
+              _buildInputField(
+                label: 'เบอร์โทรศัพท์',
+                hint: '08xxxxxxxx',
+                icon: Icons.phone_android,
+                controller: _phoneController,
+                keyboardType: TextInputType.phone,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)],
               ),
               const SizedBox(height: 16),
 
               if (_selectedRole == 'driver') ...[
-                _buildInputField(
-                  label: 'เบอร์โทรศัพท์',
-                  hint: '08xxxxxxxx',
-                  icon: Icons.phone_android,
-                  controller: _phoneController,
-                  keyboardType: TextInputType.phone,
-                ),
-                const SizedBox(height: 16),
                 _buildDropdownField(
                   label: 'ชื่อรถรับส่ง',
                   value: _selectedShuttleName,
                   items: _shuttleNames,
-                  hint: 'เลือกชื่อรถรับส่ง',
+                  hint: _isLoadingShuttles
+                      ? 'กำลังตรวจสอบข้อมูลรถ...'
+                      : _shuttleNames.isEmpty
+                          ? 'ไม่มีรถรับส่งว่างในขณะนี้'
+                          : 'เลือกชื่อรถรับส่ง',
                   onChanged: (val) {
                     setState(() {
                       _selectedShuttleName = val;
@@ -298,7 +445,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   label: 'หมายเลขรถ',
                   value: _selectedShuttleNumber,
                   items: _shuttleNumbers,
-                  hint: 'เลือกหมายเลขรถ',
+                  hint: _isLoadingShuttles
+                      ? 'กำลังตรวจสอบข้อมูลรถ...'
+                      : _shuttleNumbers.isEmpty
+                          ? 'ไม่มีหมายเลขรถว่างในขณะนี้'
+                          : 'เลือกหมายเลขรถ',
                   onChanged: (val) => setState(() => _selectedShuttleNumber = val),
                 ),
                 const SizedBox(height: 16),
@@ -412,6 +563,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   setState(() {
                     _selectedRole = value;
                   });
+                  if (value == 'driver') {
+                    _fetchShuttles();
+                  }
                 }
               },
             ),
@@ -427,6 +581,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     required IconData icon, 
     required TextEditingController controller,
     TextInputType keyboardType = TextInputType.text,
+    List<TextInputFormatter>? inputFormatters,
+    int? maxLength,
+    bool obscureText = false,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -442,10 +599,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: TextField(
             controller: controller,
             keyboardType: keyboardType,
+            inputFormatters: inputFormatters,
+            maxLength: maxLength,
+            obscureText: obscureText,
             decoration: InputDecoration(
               hintText: hint,
               hintStyle: TextStyle(color: Colors.grey.shade400),
               border: InputBorder.none,
+              counterText: "",
               contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               suffixIcon: Icon(icon, color: Colors.grey.shade400),
             ),
@@ -478,10 +639,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: DropdownButton<String>(
               value: value,
               isExpanded: true,
-              hint: Text(hint, style: TextStyle(color: Colors.grey.shade400)),
-              icon: Icon(Icons.arrow_drop_down, color: Colors.grey.shade400),
+              hint: Text(hint, style: TextStyle(color: items.isEmpty ? Colors.red.shade300 : Colors.grey.shade400)),
+              icon: Icon(Icons.arrow_drop_down, color: items.isEmpty ? Colors.red.shade300 : Colors.grey.shade400),
               items: items.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
-              onChanged: onChanged,
+              onChanged: items.isEmpty ? null : onChanged,
             ),
           ),
         ),

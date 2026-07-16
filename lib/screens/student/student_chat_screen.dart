@@ -24,6 +24,32 @@ class StudentChatScreen extends StatefulWidget {
 class _StudentChatScreenState extends State<StudentChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final String currentUserId = FirebaseAuth.instance.currentUser?.uid ?? 'unknown';
+  Stream<QuerySnapshot>? _messagesStream;
+  String? _currentRoomId;
+
+  @override
+  void initState() {
+    super.initState();
+    _initChatStream();
+  }
+
+  @override
+  void didUpdateWidget(covariant StudentChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.shuttleId != widget.shuttleId) {
+      _initChatStream();
+    }
+  }
+
+  void _initChatStream() {
+    _currentRoomId = widget.shuttleId ?? 'shuttle_line_a';
+    _messagesStream = FirebaseFirestore.instance
+        .collection('chats')
+        .doc(_currentRoomId)
+        .collection('messages')
+        .orderBy('timestamp', descending: true)
+        .snapshots();
+  }
 
   // ส่งข้อความขึ้น Firestore
   Future<void> _sendMessage() async {
@@ -156,15 +182,8 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
 
   // ส่วนแสดงรายการแชทแบบ Real-time
   Widget _buildMessageList() {
-    final String targetRoom = widget.shuttleId ?? 'shuttle_line_a';
-
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('chats')
-          .doc(targetRoom)
-          .collection('messages')
-          .orderBy('timestamp', descending: true) // เรียงจากใหม่ไปเก่า (ให้อยู่ล่างสุด)
-          .snapshots(),
+      stream: _messagesStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator(color: Color(0xFF176a21)));

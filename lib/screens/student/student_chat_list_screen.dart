@@ -22,56 +22,79 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
         .collection('users')
         .where('role', isEqualTo: 'driver')
         .snapshots();
-    _shuttlesStream =
-        FirebaseFirestore.instance.collection('shuttles').snapshots();
+    _shuttlesStream = FirebaseFirestore.instance
+        .collection('shuttles')
+        .snapshots();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7F8), // สีพื้นหลังเทาอ่อนสะอาดตาตามดีไซน์
-      body: SafeArea(
+      backgroundColor: const Color(
+        0xFFF5F7F8,
+      ), // สีพื้นหลังเทาอ่อนสะอาดตาตามดีไซน์
+      body: Column(
+        children: [
+          _buildHeader(context),
+          _buildMessagesTitle(),
+          _buildSearchBar(),
+          Expanded(child: _buildShuttleList()),
+          const SizedBox(
+            height: 80,
+          ), // เว้นที่ด้านล่างเผื่อ Bottom Navigation Bar
+        ],
+      ),
+    );
+  }
+
+  // ส่วนหัวข้อแบบแถบสีขาวเหมือน student_home
+  Widget _buildHeader(BuildContext context) {
+    return Container(
+      color: Colors.white,
+      width: double.infinity,
+      child: SafeArea(
         bottom: false,
-        child: Column(
-          children: [
-            _buildHeader(context),
-            _buildSearchBar(),
-            Expanded(
-              child: _buildShuttleList(),
-            ),
-            _buildFooter(),
-            const SizedBox(height: 80), // เว้นที่ด้านล่างเผื่อ Bottom Navigation Bar
-          ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: () {
+                  Scaffold.maybeOf(context)?.openDrawer();
+                },
+                child: Container(
+                  width: 150,
+                  alignment: Alignment.centerLeft,
+                  child: Image.asset(
+                    'lib/screens/driver/logo.png',
+                    height: 42,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) =>
+                        const Icon(Icons.menu, color: Color(0xFF176a21), size: 28),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // ส่วนหัวข้อ Messages
-  Widget _buildHeader(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.menu, color: Color(0xFF176a21), size: 28),
-            onPressed: () {
-              Scaffold.maybeOf(context)?.openDrawer();
-            },
+  // ส่วนหัวข้อ Messages (อยู่ด้านบนช่องค้นหา Search conversations)
+  Widget _buildMessagesTitle() {
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(20, 16, 20, 4),
+      child: Center(
+        child: Text(
+          'Messages',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF176a21),
           ),
-          const Expanded(
-            child: Text(
-              'Messages',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF176a21),
-              ),
-            ),
-          ),
-          const SizedBox(width: 48), // ถ่วงดุลให้คำว่า Messages อยู่กึ่งกลางพอดี
-        ],
+        ),
       ),
     );
   }
@@ -107,14 +130,22 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
     return StreamBuilder<QuerySnapshot>(
       stream: _driversStream,
       builder: (context, driverSnapshot) {
-        final driverDocs = driverSnapshot.hasData ? driverSnapshot.data!.docs : [];
+        final driverDocs = driverSnapshot.hasData
+            ? driverSnapshot.data!.docs
+            : [];
         final Map<String, Map<String, dynamic>> driverMapByShuttleName = {};
         final Map<String, Map<String, dynamic>> driverMapByShuttleNum = {};
 
         for (var doc in driverDocs) {
           final d = doc.data() as Map<String, dynamic>;
-          final sName = (d['shuttle_name'] ?? '').toString().toLowerCase().trim();
-          final sNum = (d['shuttle_number'] ?? '').toString().toLowerCase().trim();
+          final sName = (d['shuttle_name'] ?? '')
+              .toString()
+              .toLowerCase()
+              .trim();
+          final sNum = (d['shuttle_number'] ?? '')
+              .toString()
+              .toLowerCase()
+              .trim();
           if (sName.isNotEmpty) driverMapByShuttleName[sName] = d;
           if (sNum.isNotEmpty) driverMapByShuttleNum[sNum] = d;
         }
@@ -123,11 +154,16 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
           stream: _shuttlesStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator(color: Color(0xFF176a21)));
+              return const Center(
+                child: CircularProgressIndicator(color: Color(0xFF176a21)),
+              );
             }
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
               return const Center(
-                child: Text('ยังไม่มีรถรับส่งในระบบ', style: TextStyle(color: Colors.grey)),
+                child: Text(
+                  'ยังไม่มีรถรับส่งในระบบ',
+                  style: TextStyle(color: Colors.grey),
+                ),
               );
             }
 
@@ -135,17 +171,28 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
               final data = doc.data() as Map<String, dynamic>;
               final String name = (data['name'] ?? doc.id).toString();
               final String number = (data['number'] ?? '').toString();
-              
-              final dMap = driverMapByShuttleName[name.toLowerCase().trim()] ?? driverMapByShuttleNum[number.toLowerCase().trim()];
-              final String driverName = data['driver_name'] ?? data['driverName'] ?? dMap?['name'] ?? 'คนขับรถประจำคัน';
+
+              final dMap =
+                  driverMapByShuttleName[name.toLowerCase().trim()] ??
+                  driverMapByShuttleNum[number.toLowerCase().trim()];
+              final String driverName =
+                  data['driver_name'] ??
+                  data['driverName'] ??
+                  dMap?['name'] ??
+                  'คนขับรถประจำคัน';
 
               final q = _searchQuery;
-              return name.toLowerCase().contains(q) || number.toLowerCase().contains(q) || driverName.toLowerCase().contains(q);
+              return name.toLowerCase().contains(q) ||
+                  number.toLowerCase().contains(q) ||
+                  driverName.toLowerCase().contains(q);
             }).toList();
 
             if (docs.isEmpty) {
               return const Center(
-                child: Text('ไม่พบห้องสนทนาที่ค้นหา', style: TextStyle(color: Colors.grey)),
+                child: Text(
+                  'ไม่พบห้องสนทนาที่ค้นหา',
+                  style: TextStyle(color: Colors.grey),
+                ),
               );
             }
 
@@ -158,16 +205,31 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
                 final String shuttleId = doc.id;
                 final String shuttleName = data['name'] ?? shuttleId;
                 final String shuttleNumber = data['number'] ?? '';
-                
-                final dMap = driverMapByShuttleName[shuttleName.toLowerCase().trim()] ?? driverMapByShuttleNum[shuttleNumber.toLowerCase().trim()];
-                final String driverName = data['driver_name'] ?? data['driverName'] ?? dMap?['name'] ?? 'คนขับรถประจำคัน';
-                final String driverAvatar = data['driver_avatar'] ?? data['avatar'] ?? dMap?['avatar'] ?? '';
+
+                final dMap =
+                    driverMapByShuttleName[shuttleName.toLowerCase().trim()] ??
+                    driverMapByShuttleNum[shuttleNumber.toLowerCase().trim()];
+                final String driverName =
+                    data['driver_name'] ??
+                    data['driverName'] ??
+                    dMap?['name'] ??
+                    'คนขับรถประจำคัน';
+                final String driverAvatar =
+                    data['driver_avatar'] ??
+                    data['avatar'] ??
+                    dMap?['avatar'] ??
+                    '';
 
                 final bool isOnline = data['status'] == 'online';
 
                 // จัดการตัวเลขให้สวยงาม ไม่ให้ซ้ำซ้อน เช่น SH#03 -> 03
-                String cleanNum = shuttleNumber.replaceAll(RegExp(r'[^0-9]'), '');
-                final String badgeText = cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : shuttleName;
+                String cleanNum = shuttleNumber.replaceAll(
+                  RegExp(r'[^0-9]'),
+                  '',
+                );
+                final String badgeText = cleanNum.isNotEmpty
+                    ? 'Shuttle #$cleanNum'
+                    : shuttleName;
 
                 return _buildChatCard(
                   context: context,
@@ -209,7 +271,8 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
         String timeString = '';
 
         if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-          final lastDoc = snapshot.data!.docs.first.data() as Map<String, dynamic>;
+          final lastDoc =
+              snapshot.data!.docs.first.data() as Map<String, dynamic>;
           final String text = lastDoc['text'] ?? '';
           lastMessage = '"$text"'; // ใส่เครื่องหมายคำพูดตามแบบภาพ
 
@@ -217,7 +280,9 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
           if (timestamp != null) {
             final date = timestamp.toDate();
             final now = DateTime.now();
-            if (date.year == now.year && date.month == now.month && date.day == now.day) {
+            if (date.year == now.year &&
+                date.month == now.month &&
+                date.day == now.day) {
               timeString = DateFormat('hh:mm a').format(date);
             } else {
               timeString = 'Yesterday';
@@ -263,10 +328,16 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
                       radius: 28,
                       backgroundColor: const Color(0xFF176a21).withOpacity(0.1),
                       backgroundImage: driverAvatar.isNotEmpty
-                          ? (driverAvatar.startsWith('http') ? NetworkImage(driverAvatar) as ImageProvider : AssetImage(driverAvatar))
+                          ? (driverAvatar.startsWith('http')
+                                ? NetworkImage(driverAvatar) as ImageProvider
+                                : AssetImage(driverAvatar))
                           : null,
                       child: driverAvatar.isEmpty
-                          ? const Icon(Icons.person, color: Color(0xFF176a21), size: 34)
+                          ? const Icon(
+                              Icons.person,
+                              color: Color(0xFF176a21),
+                              size: 34,
+                            )
                           : null,
                     ),
                     Positioned(
@@ -276,7 +347,9 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
                         width: 14,
                         height: 14,
                         decoration: BoxDecoration(
-                          color: isOnline ? const Color(0xFF2E7D32) : Colors.grey,
+                          color: isOnline
+                              ? const Color(0xFF2E7D32)
+                              : Colors.grey,
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.white, width: 2.5),
                         ),
@@ -307,14 +380,20 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
                           ),
                           Text(
                             timeString,
-                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 6),
                       // ป้าย Badge บอกเบอร์รถ (สีเขียวอ่อนตามภาพ)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFE8F5E9),
                           borderRadius: BorderRadius.circular(12),
@@ -352,7 +431,7 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
                                 color: Color(0xFF2E7D32),
                                 shape: BoxShape.circle,
                               ),
-                            )
+                            ),
                         ],
                       ),
                     ],
@@ -363,23 +442,6 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
           ),
         );
       },
-    );
-  }
-
-  // ส่วนท้าย (Footer) No more messages
-  Widget _buildFooter() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      child: Column(
-        children: [
-          Icon(Icons.chat_bubble_outline, color: Colors.grey.shade400, size: 36),
-          const SizedBox(height: 8),
-          Text(
-            'No more messages',
-            style: TextStyle(color: Colors.grey.shade400, fontSize: 14, fontWeight: FontWeight.w500),
-          ),
-        ],
-      ),
     );
   }
 }
