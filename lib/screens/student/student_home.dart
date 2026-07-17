@@ -65,10 +65,10 @@ class _StudentHomeState extends State<StudentHome>
     _buildRouteGraph();
     _listenToShuttles(); // ✨ เริ่มฟังตำแหน่งรถ
 
-    // ✨ Setup animation controller for smooth marker movement (800ms สำหรับรองรับ Smart Throttling 3 วินาทีให้ลื่นไหลสุดๆ)
+    // ✨ Setup animation controller for smooth marker movement (1200ms สอดคล้องกับการอัปเดตจากรถคนขับทุก 1.2 วินาทีเพื่อให้ลื่นไหลสุดๆ)
     _markerAnimationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 1200),
     );
     _markerAnimation =
         CurvedAnimation(
@@ -199,10 +199,8 @@ class _StudentHomeState extends State<StudentHome>
                 _markerAnimationController.forward(from: 0.0);
               }
 
-              // ถ้านักศึกษาเลือกป้ายไว้ และรถมีการขยับพิกัดจริง ให้อัปเดตเส้นทางและเวลา ETA Real-time
-              if (selectedStopLatLng != null &&
-                  activeShuttles.isNotEmpty &&
-                  shouldAnimate) {
+              // ถ้านักศึกษาเลือกป้ายไว้ ให้ทำการอัปเดตเส้นทางและเวลา ETA (ไม่ว่ารถจะออนไลน์หรือเพิ่งออฟไลน์ไป)
+              if (selectedStopLatLng != null) {
                 _updateRouteAndETA();
               }
             }
@@ -360,7 +358,8 @@ class _StudentHomeState extends State<StudentHome>
     }
 
     String eta;
-    double speed = 4.5; // ~16.2 กม./ชม. (ความเร็วเฉลี่ยบนถนนในมหาลัยรวมชะลอ)
+    double speed =
+        7.0; // ~25.2 กม./ชม. (ความเร็วเฉลี่ย 20-30 กม./ชม. รวมชะลอทางแยก/รับส่ง)
     double sec =
         (totalMeters / speed) + 15.0; // เผื่อเวลาชะลอทางแยก/รับส่ง 15 วินาที
 
@@ -502,7 +501,11 @@ class _StudentHomeState extends State<StudentHome>
 
     LatLng target = selectedStopLatLng!;
     if (activeShuttles.isEmpty) {
-      _calculateHighlightedPath(const LatLng(16.826835, 100.208930), target);
+      setState(() {
+        highlightedPath.clear();
+        estimatedArrivalText =
+            "⚠️ ขณะนี้ยังไม่มีคนขับเปิดแอปออนไลน์อยู่ \n(ไม่สามารถแสดงเส้นทางและเวลา ETA ได้)";
+      });
       return;
     }
 
@@ -693,14 +696,17 @@ class _StudentHomeState extends State<StudentHome>
                   ...busStops.map((stop) {
                     bool isSelected = selectedStopName == stop['name'];
                     return Marker(
+                      key: ValueKey('stop_${stop['name']}'),
                       point: LatLng(stop['lat'], stop['lng']),
                       width: isSelected ? 150 : 130,
                       height: isSelected ? 75 : 65,
-                      child: GestureDetector(
-                        onTap: () => _moveToStop(stop),
-                        child: _buildStopMarker(
-                          isSelected: isSelected,
-                          name: stop['name'] ?? '',
+                      child: RepaintBoundary(
+                        child: GestureDetector(
+                          onTap: () => _moveToStop(stop),
+                          child: _buildStopMarker(
+                            isSelected: isSelected,
+                            name: stop['name'] ?? '',
+                          ),
                         ),
                       ),
                     );
@@ -715,10 +721,13 @@ class _StudentHomeState extends State<StudentHome>
                           (shuttle['lng'] as num).toDouble(),
                         );
                     return Marker(
+                      key: ValueKey('shuttle_$id'),
                       point: displayLoc,
                       width: 45,
                       height: 45,
-                      child: _buildBusMarker(shuttle['passenger_status']),
+                      child: RepaintBoundary(
+                        child: _buildBusMarker(shuttle['passenger_status']),
+                      ),
                     );
                   }),
                   // ✨ แสดงป้ายเวลาประมาณการ (ETA Badge) ข้างเส้นทางไฮไลท์บนแผนที่
@@ -726,10 +735,13 @@ class _StudentHomeState extends State<StudentHome>
                       estimatedArrivalText != null &&
                       _getPathMidpoint() != null)
                     Marker(
+                      key: const ValueKey('eta_badge'),
                       point: _getPathMidpoint()!,
                       width: 170,
                       height: 40,
-                      child: _buildRouteEtaBadge(estimatedArrivalText!),
+                      child: RepaintBoundary(
+                        child: _buildRouteEtaBadge(estimatedArrivalText!),
+                      ),
                     ),
                 ],
               ),
@@ -999,7 +1011,6 @@ class _StudentHomeState extends State<StudentHome>
             },
           ),
         ),
-
         if (selectedStopName != null)
           Positioned(
             bottom: 90,
@@ -1167,7 +1178,7 @@ class _StudentHomeState extends State<StudentHome>
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.15),
+                color: Colors.black.withValues(alpha: 0.15),
                 blurRadius: 4,
                 offset: const Offset(0, 2),
               ),
@@ -1187,8 +1198,7 @@ class _StudentHomeState extends State<StudentHome>
         ),
         const SizedBox(height: 3),
         // หมุดไอคอนจุดจอด
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+        Container(
           width: isSelected ? 34 : 28,
           height: isSelected ? 34 : 28,
           decoration: BoxDecoration(
@@ -1200,7 +1210,7 @@ class _StudentHomeState extends State<StudentHome>
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(isSelected ? 0.3 : 0.1),
+                color: Colors.black.withValues(alpha: isSelected ? 0.3 : 0.1),
                 blurRadius: isSelected ? 6 : 3,
                 offset: const Offset(0, 2),
               ),
@@ -1249,44 +1259,49 @@ class _StudentHomeState extends State<StudentHome>
   Widget _buildStopDetailsCard() {
     // ✨ ถ้าอยู่ในสถานะคนขับรับทราบแล้ว และถูกย่อจากการกดที่แผนที่ ให้แสดงเหลือแค่ปุ่ม "ขึ้นรถเรียบร้อยแล้ว"
     if (isAcknowledged && isCardMinimized) {
-      return Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16),
-        child: GestureDetector(
-          onTap: _toggleWaitState,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            width: double.infinity,
-            height: 56,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF9DF197), Color(0xFF176a21)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(28),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF176a21).withOpacity(0.3),
-                  blurRadius: 15,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.check, color: Colors.white, size: 20),
-                  SizedBox(width: 10),
-                  Text(
-                    'ขึ้นรถเรียบร้อยแล้ว (เสร็จสิ้น)',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+      return Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 380),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 28),
+            child: GestureDetector(
+              onTap: _toggleWaitState,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: double.infinity,
+                height: 46,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF9DF197), Color(0xFF176a21)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                ],
+                  borderRadius: BorderRadius.circular(23),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF176a21).withOpacity(0.3),
+                      blurRadius: 15,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
+                ),
+                child: const Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.check, color: Colors.white, size: 18),
+                      SizedBox(width: 8),
+                      Text(
+                        'ขึ้นรถเรียบร้อยแล้ว (เสร็จสิ้น)',
+                        style: TextStyle(
+                          fontSize: 15.5,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -1294,247 +1309,298 @@ class _StudentHomeState extends State<StudentHome>
       );
     }
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(32),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF2C2F30).withOpacity(0.1),
-            blurRadius: 30,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFF1F2),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Text(
-                  'จุดจอดรถรับส่ง',
-                  style: TextStyle(
-                    color: Color(0xFF595C5D),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
-                ),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 28),
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF2C2F30).withOpacity(0.1),
+                blurRadius: 25,
+                offset: const Offset(0, 8),
               ),
-              if (!isWaiting)
-                GestureDetector(
-                  onTap: () async {
-                    if (activeRequestId != null) {
-                      try {
-                        await FirebaseFirestore.instance
-                            .collection('ride_requests')
-                            .doc(activeRequestId)
-                            .delete();
-                      } catch (e) {
-                        print("Error deleting request: $e");
-                      }
-                      requestSubscription?.cancel();
-                    }
-                    if (mounted) {
-                      setState(() {
-                        isWaiting = false;
-                        isAcknowledged = false;
-                        isCardMinimized = false;
-                        activeRequestId = null;
-                        selectedStopName = null;
-                        selectedStopLatLng = null;
-                        estimatedArrivalText = null;
-                        highlightedPath.clear();
-                      });
-                    }
-                  },
-                  child: const Icon(Icons.close, color: Color(0xFF757778)),
-                ),
             ],
           ),
-          const SizedBox(height: 16),
-          Text(
-            selectedStopName ?? '',
-            style: const TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF2C2F30),
-            ),
-          ),
-          const SizedBox(height: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF1F2),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Text(
+                      'จุดจอดรถรับส่ง',
+                      style: TextStyle(
+                        color: Color(0xFF595C5D),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ),
+                  if (!isWaiting)
+                    GestureDetector(
+                      onTap: () async {
+                        if (activeRequestId != null) {
+                          try {
+                            await FirebaseFirestore.instance
+                                .collection('ride_requests')
+                                .doc(activeRequestId)
+                                .delete();
+                          } catch (e) {
+                            print("Error deleting request: $e");
+                          }
+                          requestSubscription?.cancel();
+                        }
+                        if (mounted) {
+                          setState(() {
+                            isWaiting = false;
+                            isAcknowledged = false;
+                            isCardMinimized = false;
+                            activeRequestId = null;
+                            selectedStopName = null;
+                            selectedStopLatLng = null;
+                            estimatedArrivalText = null;
+                            highlightedPath.clear();
+                          });
+                        }
+                      },
+                      child: const Icon(
+                        Icons.close,
+                        color: Color(0xFF757778),
+                        size: 20,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                selectedStopName ?? '',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF2C2F30),
+                  height: 1.2,
+                ),
+              ),
+              const SizedBox(height: 6),
 
-          if (isWaiting)
-            const Row(
-              children: [
-                SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.orange,
-                  ),
-                ),
-                SizedBox(width: 10),
-                Text(
-                  'กำลังส่งสัญญาณเรียกคนขับ...',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.orange,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            )
-          else if (isAcknowledged)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              if (isWaiting)
                 const Row(
                   children: [
-                    Icon(
-                      Icons.check_circle,
-                      size: 20,
-                      color: Color(0xFF176a21),
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.orange,
+                      ),
                     ),
                     SizedBox(width: 8),
+                    Text(
+                      'กำลังส่งสัญญาณเรียกคนขับ...',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.orange,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                )
+              else if (isAcknowledged)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(
+                          Icons.check_circle,
+                          size: 18,
+                          color: Color(0xFF176a21),
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'คนขับรับทราบแล้ว! รถกำลังเดินทางมารับคุณที่ป้าย',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF176a21),
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (estimatedArrivalText != null) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            activeShuttles.isEmpty
+                                ? Icons.info_outline
+                                : Icons.timer_outlined,
+                            size: 16,
+                            color: activeShuttles.isEmpty
+                                ? const Color(0xFFD84315)
+                                : const Color(0xFF595C5D),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              activeShuttles.isEmpty
+                                  ? estimatedArrivalText!
+                                  : 'รถจะมาถึง: $estimatedArrivalText',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: activeShuttles.isEmpty
+                                    ? const Color(0xFFD84315)
+                                    : const Color(0xFF595C5D),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                )
+              else if (estimatedArrivalText != null)
+                Row(
+                  children: [
+                    Icon(
+                      activeShuttles.isEmpty
+                          ? Icons.info_outline
+                          : Icons.timer_outlined,
+                      size: 16,
+                      color: activeShuttles.isEmpty
+                          ? const Color(0xFFD84315)
+                          : const Color(0xFF176a21),
+                    ),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'คนขับรับทราบแล้ว! รถกำลังเดินทางมารับคุณที่ป้าย',
+                        estimatedArrivalText!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 14.5,
-                          color: Color(0xFF176a21),
+                          fontSize: 13,
+                          color: activeShuttles.isEmpty
+                              ? const Color(0xFFD84315)
+                              : const Color(0xFF176a21),
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
                   ],
-                ),
-                if (estimatedArrivalText != null) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.timer_outlined,
-                        size: 18,
-                        color: Color(0xFF595C5D),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'เวลาประมาณที่รถจะมาถึง: $estimatedArrivalText',
-                        style: const TextStyle(
-                          fontSize: 13.5,
-                          color: Color(0xFF595C5D),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            )
-          else if (estimatedArrivalText != null)
-            Row(
-              children: [
-                const Icon(
-                  Icons.timer_outlined,
-                  size: 18,
-                  color: Color(0xFF176a21),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  estimatedArrivalText!,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF176a21),
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            )
-          else
-            const Row(
-              children: [
-                Icon(Icons.directions_bus, size: 16, color: Color(0xFF176a21)),
-                SizedBox(width: 8),
-                Text(
-                  'รถรับส่ง สาย A กำลังวิ่งให้บริการ',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF176a21),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-
-          const SizedBox(height: 24),
-
-          GestureDetector(
-            onTap: _toggleWaitState,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              width: double.infinity,
-              height: 56,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: isWaiting
-                      ? [Colors.red.shade400, Colors.red.shade600]
-                      : [const Color(0xFF9DF197), const Color(0xFF176a21)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: [
-                  BoxShadow(
-                    color: (isWaiting ? Colors.red : const Color(0xFF176a21))
-                        .withOpacity(0.3),
-                    blurRadius: 15,
-                    offset: const Offset(0, 5),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                )
+              else
+                Row(
                   children: [
                     Icon(
-                      isWaiting
-                          ? Icons.cancel
-                          : (isAcknowledged ? Icons.check : Icons.waving_hand),
-                      color: Colors.white,
-                      size: 20,
+                      activeShuttles.isEmpty
+                          ? Icons.info_outline
+                          : Icons.directions_bus,
+                      size: 16,
+                      color: activeShuttles.isEmpty
+                          ? const Color(0xFFD84315)
+                          : const Color(0xFF176a21),
                     ),
-                    const SizedBox(width: 10),
-                    Text(
-                      isWaiting
-                          ? 'ยกเลิกการรอรถ'
-                          : (isAcknowledged
-                                ? 'ขึ้นรถเรียบร้อยแล้ว (เสร็จสิ้น)'
-                                : 'แจ้งรอรถที่จุดนี้'),
-                      style: const TextStyle(
-                        fontSize: 18,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        activeShuttles.isEmpty
+                            ? '⚠️ ขณะนี้ยังไม่มีคนขับเปิดแอปออนไลน์ในระบบ'
+                            : 'รถรับส่ง สาย A กำลังวิ่งให้บริการ',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: activeShuttles.isEmpty
+                              ? const Color(0xFFD84315)
+                              : const Color(0xFF176a21),
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   ],
                 ),
+
+              const SizedBox(height: 14),
+
+              GestureDetector(
+                onTap: _toggleWaitState,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  width: double.infinity,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: isWaiting
+                          ? [Colors.red.shade400, Colors.red.shade600]
+                          : [const Color(0xFF9DF197), const Color(0xFF176a21)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(23),
+                    boxShadow: [
+                      BoxShadow(
+                        color:
+                            (isWaiting ? Colors.red : const Color(0xFF176a21))
+                                .withOpacity(0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          isWaiting
+                              ? Icons.cancel
+                              : (isAcknowledged
+                                    ? Icons.check
+                                    : Icons.waving_hand),
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          isWaiting
+                              ? 'ยกเลิกการรอรถ'
+                              : (isAcknowledged
+                                    ? 'ขึ้นรถเรียบร้อยแล้ว (เสร็จสิ้น)'
+                                    : 'แจ้งรอรถที่จุดนี้'),
+                          style: const TextStyle(
+                            fontSize: 15.5,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

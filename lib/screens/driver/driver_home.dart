@@ -1,10 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // ✨ สำหรับเช็ค kIsWeb
+import 'package:flutter/services.dart'; // ✨ สำหรับ HapticFeedback
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
+import 'package:flutter_tts/flutter_tts.dart'; // ✨ สำหรับเสียง AI พูดภาษาไทย
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'; // ✨ สำหรับเล่นเสียงแจ้งเตือนมือถือ
+import 'package:audioplayers/audioplayers.dart'; // ✨ สำหรับเล่นไฟล์เสียง MP3 จุดจอด
 import '../../route_data.dart';
 import 'driver_profile.dart'; // ✨ Import หน้าโปรไฟล์คนขับรถ
 import 'driver_status_screen.dart'; // ✨ Import หน้าสถานะรถ
@@ -20,12 +25,14 @@ class DriverHome extends StatefulWidget {
 class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   int _selectedIndex = 0; // ✨ เพิ่มตัวแปรสำหรับ BottomNavigationBar
   bool isOnline = false;
+  bool _isAutoFollow = true; // ✨ หน้าจอขยับตามตำแหน่งรถอัตโนมัติ
 
   LatLng? _currentLocation;
   LatLng? _oldLocation;
   LatLng? _targetLocation;
   late AnimationController _markerAnimationController;
   late Animation<double> _markerAnimation;
+  late FlutterTts flutterTts; // ✨ ตัวอ่านเสียง AI ภาษาไทย
   StreamSubscription<Position>? positionStream;
   StreamSubscription<QuerySnapshot>? requestStream;
   StreamSubscription<DocumentSnapshot>?
@@ -60,13 +67,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _initTts(); // ✨ เตรียมระบบอ่านข้อความ AI ภาษาไทย
 
-    // ✨ Setup animation controller for smooth marker movement
+    // ✨ Setup animation controller for smooth marker movement (900ms ให้หมุดเคลื่อนที่ต่อเนื่องเมื่อรถวิ่ง 20-30 กม./ชม.)
     _markerAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(
-        milliseconds: 400,
-      ), // ปรับให้สั้นลงเป็น 400ms เพื่อให้หมุดตอบสนองและขยับถี่ขึ้น
+        milliseconds: 900,
+      ),
     );
     _markerAnimation =
         CurvedAnimation(
@@ -85,6 +93,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             setState(() {
               _currentLocation = LatLng(lat, lng);
             });
+            // ✨ ขยับกล้องแผนที่ให้ตามตัวรถอัตโนมัติเมื่อเปิดโหมด Auto-Follow อยู่
+            if (_isAutoFollow && _currentLocation != null) {
+              _mapController.move(_currentLocation!, _mapController.camera.zoom);
+            }
           }
         });
 
@@ -241,6 +253,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       for (var doc in snapshot.docs) {
         final data = doc.data();
         loadedStops.add({
+          'id': doc.id,
+          'stop_id': data['stop_id'] ?? doc.id,
           'name': data['name'] ?? 'จุดจอด',
           'lat': (data['lat'] as num).toDouble(),
           'lng': (data['lng'] as num).toDouble(),
@@ -259,6 +273,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    flutterTts.stop();
     _heartbeatTimer?.cancel();
     _markerAnimationController.dispose();
     positionStream?.cancel();
@@ -280,6 +295,65 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     await FirebaseAuth.instance.signOut();
     if (mounted) {
       Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+    }
+  }
+
+  // ✨ เตรียมการทำงานของเสียง AI ภาษาไทย
+  Future<void> _initTts() async {
+    try {
+      flutterTts = FlutterTts();
+
+      // ✨ ตรวจสอบว่าระบบรองรับรหัสภาษาไทยแบบใด (บางระบบใช้ th-TH บางระบบใช้ th)
+      dynamic isThThAvailable = await flutterTts.isLanguageAvailable("th-TH");
+      dynamic isThAvailable = await flutterTts.isLanguageAvailable("th");
+
+      if (isThThAvailable == true || isThThAvailable == 1) {
+        await flutterTts.setLanguage("th-TH");
+      } else if (isThAvailable == true || isThAvailable == 1) {
+        await flutterTts.setLanguage("th");
+      } else {
+        await flutterTts.setLanguage("th-TH"); // ลองตั้งค่าเริ่มต้นไว้
+      }
+
+      await flutterTts.setSpeechRate(0.5); // ความเร็วพอเหมาะฟังง่าย
+      await flutterTts.setVolume(1.0);
+      await flutterTts.setPitch(1.0);
+    } catch (e) {
+      print("❌ Error initializing TTS: $e");
+    }
+  }
+
+  // ✨ ฟังก์ชันเล่นเสียงแจ้งเตือนและไฟล์เสียงจุดจอด (.mp3) ตาม stop_id
+  Future<void> _triggerVoiceAlert(String stopName) async {
+    try {
+      // 1. สั่นเตือนแรงๆ + เล่นเสียงแจ้งเตือนของมือถือ (หากไม่ใช่บน Web)
+      try {
+        HapticFeedback.heavyImpact();
+        if (!kIsWeb) {
+          FlutterRingtonePlayer().playNotification();
+        }
+      } catch (_) {}
+
+      if (!mounted || !isOnline) return;
+
+      // 2. หา stop_id จากชื่อป้ายที่ส่งเข้ามา (เช่น "อาคาร IT" -> "stop_01")
+      String? stopId;
+      for (var stop in busStops) {
+        if (stop['name'] == stopName || stop['stop_id'] == stopName || stop['id'] == stopName) {
+          stopId = stop['stop_id'] ?? stop['id'];
+          break;
+        }
+      }
+
+      // 3. เปิดเล่นไฟล์เสียงจาก Assets ใน lib/screens/voice/
+      if (stopId != null) {
+        final AudioPlayer audioPlayer = AudioPlayer();
+        await audioPlayer.play(AssetSource('lib/screens/voice/voice_$stopId.mp3'));
+      } else {
+        print("⚠️ ไม่พบ stop_id สำหรับป้าย '$stopName' ในรายการ busStops");
+      }
+    } catch (e) {
+      print("❌ Error triggering voice alert: $e");
     }
   }
 
@@ -334,6 +408,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     _lastUploadedLocation = null;
     setState(() {
       isOnline = true;
+      _isAutoFollow = true; // ✨ เปิดติดตามตำแหน่งรถอัตโนมัติเมื่อเริ่มงาน
       _currentLocation = fallbackLoc;
       _targetLocation = fallbackLoc;
     });
@@ -437,23 +512,22 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       }
     }
 
-    // ✨ ตั้งค่า distanceFilter เป็น 3 เมตร เพื่อลดการทำงานเมื่อจอดนิ่ง (ติดไฟแดง/จอดรับนักศึกษา)
-    // และตั้งค่า intervalDuration ให้เหมาะสมเพื่อประหยัดแบตเตอรี่
+    // ✨ ตั้งค่า distanceFilter เป็น 2 เมตร และอัปเดตทุก 800ms เพื่อรองรับรถวิ่งความเร็ว 20-30 กม./ชม.
     late final LocationSettings locationSettings;
     if (Theme.of(context).platform == TargetPlatform.android) {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3,
+        distanceFilter: 2,
         forceLocationManager: true,
         intervalDuration: const Duration(
-          milliseconds: 1000,
-        ), // อัปเดตพิกัด GPS ทุกๆ 1 วินาที
+          milliseconds: 800,
+        ), // อัปเดตพิกัด GPS ทุกๆ 0.8 วินาที
       );
     } else if (Theme.of(context).platform == TargetPlatform.iOS ||
         Theme.of(context).platform == TargetPlatform.macOS) {
       locationSettings = AppleSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3,
+        distanceFilter: 2,
         pauseLocationUpdatesAutomatically: false,
       );
     } else {
@@ -479,22 +553,25 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 _currentLocation = newLoc;
                 _targetLocation = newLoc;
               });
+              if (_isAutoFollow) {
+                _mapController.move(newLoc, 16.5);
+              }
             } else {
               _oldLocation = _currentLocation;
               _targetLocation = newLoc;
               _markerAnimationController.forward(from: 0.0);
             }
 
-            // ✨ Smart Throttling & Distance Check: ส่งข้อมูลขึ้น Firestore ต่อเมื่อรถขยับไปอย่างน้อย 5 เมตร และเว้นระยะเวลาอย่างน้อย 3 วินาที
+            // ✨ Smart Throttling & Distance Check: ส่งข้อมูลขึ้น Firestore ต่อเมื่อรถขยับไปอย่างน้อย 3 เมตร และเว้นระยะเวลาอย่างน้อย 1.2 วินาที (พอดีกับความเร็ว 20-30 กม./ชม.)
             final now = DateTime.now();
             final double distanceMoved = _lastUploadedLocation == null
                 ? 999.0
                 : const Distance().distance(_lastUploadedLocation!, newLoc);
 
             if (_shuttleDocId != null &&
-                distanceMoved >= 5.0 &&
+                distanceMoved >= 3.0 &&
                 (_lastFirebaseUpdate == null ||
-                    now.difference(_lastFirebaseUpdate!).inSeconds >= 3)) {
+                    now.difference(_lastFirebaseUpdate!).inMilliseconds >= 1200)) {
               _lastFirebaseUpdate = now;
               _lastUploadedLocation = newLoc;
               FirebaseFirestore.instance
@@ -528,6 +605,11 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 activeDoc = doc;
                 break;
               }
+            }
+
+            // ✨ หากมีคำขอใหม่ที่มีสถานะ 'waiting' ให้ส่งเสียงเตือนและเสียง AI พูดชื่อจุดจอดรถ
+            if (activeDoc['status'] == 'waiting' && currentRequestId != activeDoc.id) {
+              _triggerVoiceAlert(activeDoc['stop_name'] ?? 'จุดจอดรถ');
             }
 
             setState(() {
@@ -642,6 +724,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               minZoom: 14.5,
               maxZoom: 18.0,
               cameraConstraint: CameraConstraint.contain(bounds: _psruBounds),
+              // ✨ ตรวจจับเมื่อคนขับใช้นิ้วเลื่อนหรือแตะแผนที่ด้วยตัวเอง ให้ปิด Auto-Follow อัตโนมัติ
+              onPositionChanged: (camera, hasGesture) {
+                if (hasGesture && _isAutoFollow) {
+                  setState(() {
+                    _isAutoFollow = false;
+                  });
+                }
+              },
             ),
             children: [
               TileLayer(
@@ -668,22 +758,28 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                   ...busStops.map((stop) {
                     bool isSelected = waitingStudentStop == stop['name'];
                     return Marker(
+                      key: ValueKey('stop_${stop['name']}'),
                       point: LatLng(stop['lat'], stop['lng']),
                       width: isSelected ? 150 : 130,
                       height: isSelected ? 75 : 65,
-                      child: _buildStopMarker(
-                        isSelected: isSelected,
-                        name: stop['name'] ?? '',
+                      child: RepaintBoundary(
+                        child: _buildStopMarker(
+                          isSelected: isSelected,
+                          name: stop['name'] ?? '',
+                        ),
                       ),
                     );
                   }),
                   // ✨ แสดงตำแหน่งรถตัวเอง
                   if (isOnline && _currentLocation != null)
                     Marker(
+                      key: const ValueKey('my_bus_marker'),
                       point: _currentLocation!,
                       width: 45,
                       height: 45,
-                      child: _buildMyBusMarker(),
+                      child: RepaintBoundary(
+                        child: _buildMyBusMarker(),
+                      ),
                     ),
                 ],
               ),
@@ -691,7 +787,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           ),
         ),
 
-        // 📍 ปุ่ม My Location (เป้าเล็งรถตัวเอง)
+        // 📍 ปุ่ม My Location (เป้าเล็งรถตัวเอง และเปิด/ปิด Auto-Follow)
         if (isOnline && _currentLocation != null)
           Positioned(
             bottom:
@@ -702,12 +798,19 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             right: 20,
             child: FloatingActionButton(
               mini: true,
-              backgroundColor: Colors.white,
+              backgroundColor:
+                  _isAutoFollow ? const Color(0xFF176a21) : Colors.white,
               elevation: 4,
               onPressed: () {
+                setState(() {
+                  _isAutoFollow = true; // ✨ เปิดติดตามตำแหน่งรถอัตโนมัติ
+                });
                 _mapController.move(_currentLocation!, 16.5);
               },
-              child: const Icon(Icons.my_location, color: Color(0xFF176a21)),
+              child: Icon(
+                _isAutoFollow ? Icons.my_location : Icons.location_searching,
+                color: _isAutoFollow ? Colors.white : const Color(0xFF176a21),
+              ),
             ),
           ),
 
@@ -1203,8 +1306,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         ),
         const SizedBox(height: 3),
         // หมุดไอคอนจุดจอด
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+        Container(
           width: isSelected ? 34 : 28,
           height: isSelected ? 34 : 28,
           decoration: BoxDecoration(
