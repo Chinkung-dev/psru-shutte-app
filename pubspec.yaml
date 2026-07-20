@@ -100,4 +100,4 @@ flutter:
   assets:
     - assets/images/
     - lib/screens/driver/
-    - lib/screens/voice/
+    - assets/voice/

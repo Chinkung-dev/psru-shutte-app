@@ -68,7 +68,7 @@ class _StudentHomeState extends State<StudentHome>
     // ✨ Setup animation controller for smooth marker movement (1200ms สอดคล้องกับการอัปเดตจากรถคนขับทุก 1.2 วินาทีเพื่อให้ลื่นไหลสุดๆ)
     _markerAnimationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 3000),
     );
     _markerAnimation =
         CurvedAnimation(

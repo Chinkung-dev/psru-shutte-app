@@ -72,9 +72,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     // ✨ Setup animation controller for smooth marker movement (900ms ให้หมุดเคลื่อนที่ต่อเนื่องเมื่อรถวิ่ง 20-30 กม./ชม.)
     _markerAnimationController = AnimationController(
       vsync: this,
-      duration: const Duration(
-        milliseconds: 900,
-      ),
+      duration: const Duration(milliseconds: 900),
     );
     _markerAnimation =
         CurvedAnimation(
@@ -95,7 +93,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             });
             // ✨ ขยับกล้องแผนที่ให้ตามตัวรถอัตโนมัติเมื่อเปิดโหมด Auto-Follow อยู่
             if (_isAutoFollow && _currentLocation != null) {
-              _mapController.move(_currentLocation!, _mapController.camera.zoom);
+              _mapController.move(
+                _currentLocation!,
+                _mapController.camera.zoom,
+              );
             }
           }
         });
@@ -326,12 +327,15 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   // ✨ ฟังก์ชันเล่นเสียงแจ้งเตือนและไฟล์เสียงจุดจอด (.mp3) ตาม stop_id
   Future<void> _triggerVoiceAlert(String stopName) async {
     try {
-      // 1. สั่นเตือนแรงๆ + เล่นเสียงแจ้งเตือนของมือถือ (หากไม่ใช่บน Web)
+      // 1. สั่นเตือนแรงๆ + เล่นเสียงแจ้งเตือนแบบเคาะแก้ว (Glass Ting)
       try {
         HapticFeedback.heavyImpact();
-        if (!kIsWeb) {
-          FlutterRingtonePlayer().playNotification();
-        }
+        final AudioPlayer chatPlayer = AudioPlayer();
+        await chatPlayer.play(AssetSource('voice/glass_1.mp3'));
+        // รอให้เสียงแจ้งเตือนจบก่อน (กันค้างด้วยการตั้งเวลาไว้ 2 วินาที)
+        await chatPlayer.onPlayerComplete.first.timeout(
+          const Duration(seconds: 1),
+        );
       } catch (_) {}
 
       if (!mounted || !isOnline) return;
@@ -339,16 +343,18 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       // 2. หา stop_id จากชื่อป้ายที่ส่งเข้ามา (เช่น "อาคาร IT" -> "stop_01")
       String? stopId;
       for (var stop in busStops) {
-        if (stop['name'] == stopName || stop['stop_id'] == stopName || stop['id'] == stopName) {
+        if (stop['name'] == stopName ||
+            stop['stop_id'] == stopName ||
+            stop['id'] == stopName) {
           stopId = stop['stop_id'] ?? stop['id'];
           break;
         }
       }
 
-      // 3. เปิดเล่นไฟล์เสียงจาก Assets ใน lib/screens/voice/
+      // 3. เปิดเล่นไฟล์เสียงจาก Assets ใน assets/voice/
       if (stopId != null) {
         final AudioPlayer audioPlayer = AudioPlayer();
-        await audioPlayer.play(AssetSource('lib/screens/voice/voice_$stopId.mp3'));
+        await audioPlayer.play(AssetSource('voice/voice_$stopId.mp3'));
       } else {
         print("⚠️ ไม่พบ stop_id สำหรับป้าย '$stopName' ในรายการ busStops");
       }
@@ -571,7 +577,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             if (_shuttleDocId != null &&
                 distanceMoved >= 3.0 &&
                 (_lastFirebaseUpdate == null ||
-                    now.difference(_lastFirebaseUpdate!).inMilliseconds >= 1200)) {
+                    now.difference(_lastFirebaseUpdate!).inMilliseconds >=
+                        3000)) {
               _lastFirebaseUpdate = now;
               _lastUploadedLocation = newLoc;
               FirebaseFirestore.instance
@@ -608,7 +615,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             }
 
             // ✨ หากมีคำขอใหม่ที่มีสถานะ 'waiting' ให้ส่งเสียงเตือนและเสียง AI พูดชื่อจุดจอดรถ
-            if (activeDoc['status'] == 'waiting' && currentRequestId != activeDoc.id) {
+            if (activeDoc['status'] == 'waiting' &&
+                currentRequestId != activeDoc.id) {
               _triggerVoiceAlert(activeDoc['stop_name'] ?? 'จุดจอดรถ');
             }
 
@@ -777,9 +785,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                       point: _currentLocation!,
                       width: 45,
                       height: 45,
-                      child: RepaintBoundary(
-                        child: _buildMyBusMarker(),
-                      ),
+                      child: RepaintBoundary(child: _buildMyBusMarker()),
                     ),
                 ],
               ),
@@ -798,8 +804,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             right: 20,
             child: FloatingActionButton(
               mini: true,
-              backgroundColor:
-                  _isAutoFollow ? const Color(0xFF176a21) : Colors.white,
+              backgroundColor: _isAutoFollow
+                  ? const Color(0xFF176a21)
+                  : Colors.white,
               elevation: 4,
               onPressed: () {
                 setState(() {
