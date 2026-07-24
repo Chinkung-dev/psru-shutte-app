@@ -36,7 +36,9 @@ class _StudentHomeState extends State<StudentHome>
   String? selectedDropOffName; // ✨ จุดลงรถ
   LatLng? selectedStopLatLng; // ✨ เก็บพิกัดป้ายที่เลือก
   String? estimatedArrivalText; // ✨ ข้อความแสดงเวลา ETA
-  String? targetedShuttleId; // ✨ เก็บ ID ของรถคันที่ใกล้ที่สุดเพื่อส่งคำขอเจาะจง
+  int? remainingStops; // ✨ เก็บจำนวนป้ายที่เหลือก่อนถึงจุดหมาย
+  String?
+  targetedShuttleId; // ✨ เก็บ ID ของรถคันที่ใกล้ที่สุดเพื่อส่งคำขอเจาะจง
   LatLng? _myLocation; // ✨ ตำแหน่งปัจจุบันของนักศึกษา
 
   final MapController _mapController = MapController();
@@ -121,14 +123,15 @@ class _StudentHomeState extends State<StudentHome>
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return;
     }
-    
+
     if (permission == LocationPermission.deniedForever) return;
 
     try {
       Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-          timeLimit: const Duration(seconds: 10));
-          
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+
       if (mounted) {
         final loc = LatLng(position.latitude, position.longitude);
         setState(() {
@@ -178,7 +181,12 @@ class _StudentHomeState extends State<StudentHome>
                         doc.data().containsKey('passenger_status')
                         ? doc['passenger_status']
                         : 'available',
-                    'number': doc.data().containsKey('number') ? doc['number'] : '',
+                    'number': doc.data().containsKey('number')
+                        ? doc['number']
+                        : '',
+                    'last_passed_stop': doc.data().containsKey('last_passed_stop')
+                        ? doc['last_passed_stop']
+                        : null,
                   },
                 )
                 .toList();
@@ -544,9 +552,22 @@ class _StudentHomeState extends State<StudentHome>
 
   // ✨ คำนวณเส้นทางและเวลา ETA จากรถคันที่ใกล้ป้ายที่สุดด้วย Modulo Route Index
   void _updateRouteAndETA() {
-    if (selectedStopLatLng == null || selectedStopName == null) return;
+    String? targetName = isOnBoard ? selectedDropOffName : selectedStopName;
+    if (targetName == null) return;
 
-    LatLng target = selectedStopLatLng!;
+    LatLng target;
+    if (isOnBoard) {
+      final targetStopMap = busStops.firstWhere(
+        (s) => s['name'] == targetName,
+        orElse: () => {},
+      );
+      if (targetStopMap.isEmpty) return;
+      target = LatLng(targetStopMap['lat'], targetStopMap['lng']);
+    } else {
+      if (selectedStopLatLng == null) return;
+      target = selectedStopLatLng!;
+    }
+
     if (activeShuttles.isEmpty) {
       setState(() {
         highlightedPath.clear();
@@ -556,9 +577,9 @@ class _StudentHomeState extends State<StudentHome>
       return;
     }
 
-    // หาระบบ order ของป้ายที่นักศึกษาเลือก
+    // หาระบบ order ของป้ายที่เป็นเป้าหมาย
     final targetStopMap = busStops.firstWhere(
-      (s) => s['name'] == selectedStopName,
+      (s) => s['name'] == targetName,
       orElse: () => {},
     );
     int targetOrder = (targetStopMap['order'] as int?) ?? 1;
@@ -566,49 +587,81 @@ class _StudentHomeState extends State<StudentHome>
     String? closestBusId;
     LatLng? closestBusLoc;
     int minIndexDistance = 999;
-    double minDirectDistFallback = double.infinity; // เผื่อกรณีรถเพิ่งออนไลน์และยังไม่มี last_passed_stop
+    double minDirectDistFallback = double.infinity;
 
-    for (var bus in activeShuttles) {
-      LatLng busLoc = LatLng(bus['lat'], bus['lng']);
-      int? lastPassed = bus['last_passed_stop'] as int?;
-
-      if (lastPassed != null) {
-        // ใช้ลอจิก Modulo (1-Way Loop)
-        // สมมติว่ามีป้ายทั้งหมด N ป้าย (ในที่นี้คือหาค่า order สูงสุด หรือ 23)
-        int maxOrder = 23;
-        if (busStops.isNotEmpty) {
-           maxOrder = busStops.map((s) => (s['order'] ?? 0) as int).reduce((a, b) => a > b ? a : b);
-           if (maxOrder == 0) maxOrder = 23;
-        }
-
-        int distIndex = targetOrder - lastPassed;
-        if (distIndex <= 0) { // ถ้ารถวิ่งเลยป้ายเป้าหมายไปแล้ว หรืออยู่ที่ป้ายพอดี (ถ้าอยู่พอดีตีว่าเลยไปแล้ว ต้องวนใหม่)
-           distIndex += maxOrder;
-        }
-
-        if (distIndex < minIndexDistance) {
+    // ถ้านักศึกษาเรียกไปแล้ว หรือขึ้นรถแล้ว ให้ track รถคันที่รับงาน
+    if ((isAcknowledged || isOnBoard) && targetedShuttleId != null) {
+      try {
+        final trackedBus = activeShuttles.firstWhere((bus) => bus['id'] == targetedShuttleId);
+        closestBusId = trackedBus['id'];
+        closestBusLoc = LatLng(trackedBus['lat'], trackedBus['lng']);
+        
+        int? lastPassed = trackedBus['last_passed_stop'] as int?;
+        if (lastPassed != null) {
+          int maxOrder = 23;
+          if (busStops.isNotEmpty) {
+            maxOrder = busStops
+                .map((s) => (s['order'] ?? 0) as int)
+                .reduce((a, b) => a > b ? a : b);
+            if (maxOrder == 0) maxOrder = 23;
+          }
+          int distIndex = targetOrder - lastPassed;
+          if (distIndex <= 0) {
+            distIndex += maxOrder;
+          }
           minIndexDistance = distIndex;
-          closestBusId = bus['id'];
-          closestBusLoc = busLoc;
         }
-      } else {
-        // Fallback ไปใช้หาระยะกระจัดแบบเดิมถ้ารถเพิ่งออนไลน์
-        double d = const Distance().distance(busLoc, target);
-        if (d < minDirectDistFallback && minIndexDistance == 999) {
-          minDirectDistFallback = d;
-          closestBusId = bus['id'];
-          closestBusLoc = busLoc;
+      } catch (e) {
+        // รถอาจจะออฟไลน์ไปแล้ว Fallback ไปหาคันใกล้สุดใหม่
+      }
+    }
+
+    if (closestBusId == null) {
+      for (var bus in activeShuttles) {
+        LatLng busLoc = LatLng(bus['lat'], bus['lng']);
+        int? lastPassed = bus['last_passed_stop'] as int?;
+
+        if (lastPassed != null) {
+          int maxOrder = 23;
+          if (busStops.isNotEmpty) {
+            maxOrder = busStops
+                .map((s) => (s['order'] ?? 0) as int)
+                .reduce((a, b) => a > b ? a : b);
+            if (maxOrder == 0) maxOrder = 23;
+          }
+
+          int distIndex = targetOrder - lastPassed;
+          if (distIndex <= 0) {
+            distIndex += maxOrder;
+          }
+
+          if (distIndex < minIndexDistance) {
+            minIndexDistance = distIndex;
+            closestBusId = bus['id'];
+            closestBusLoc = busLoc;
+          }
+        } else {
+          double d = const Distance().distance(busLoc, target);
+          if (d < minDirectDistFallback && minIndexDistance == 999) {
+            minDirectDistFallback = d;
+            closestBusId = bus['id'];
+            closestBusLoc = busLoc;
+          }
         }
       }
     }
 
-    // กรณีไม่มีรถคันไหนมี last_passed_stop เลย หรือ loop พลาด
     if (closestBusId == null) {
       closestBusId = activeShuttles.first['id'];
-      closestBusLoc = LatLng(activeShuttles.first['lat'], activeShuttles.first['lng']);
+      closestBusLoc = LatLng(
+        activeShuttles.first['lat'],
+        activeShuttles.first['lng'],
+      );
     }
 
     targetedShuttleId = closestBusId;
+    remainingStops = (minIndexDistance != 999) ? minIndexDistance : null;
+    
     _calculateHighlightedPath(closestBusLoc!, target);
   }
 
@@ -628,11 +681,12 @@ class _StudentHomeState extends State<StudentHome>
       setState(() {
         isOnBoard = true;
       });
+      _updateRouteAndETA(); // ✨ อัปเดตเส้นทางไปยังจุดลงรถและคำนวณ ETA
     }
   }
 
   Future<void> _toggleWaitState() async {
-    if (isWaiting || isAcknowledged) {
+    if (isWaiting || isAcknowledged || isOnBoard) {
       if (activeRequestId != null) {
         try {
           await FirebaseFirestore.instance
@@ -660,7 +714,11 @@ class _StudentHomeState extends State<StudentHome>
       }
     } else {
       if (selectedDropOffName == null) {
-        TopToast.show(context, 'กรุณาเลือกจุดลงรถก่อนกดเรียกรถครับ', isError: true);
+        TopToast.show(
+          context,
+          'กรุณาเลือกจุดลงรถก่อนกดเรียกรถครับ',
+          isError: true,
+        );
         return;
       }
 
@@ -680,37 +738,49 @@ class _StudentHomeState extends State<StudentHome>
               'timestamp': FieldValue.serverTimestamp(),
               if (_myLocation != null) 'student_lat': _myLocation!.latitude,
               if (_myLocation != null) 'student_lng': _myLocation!.longitude,
-              if (targetedShuttleId != null) 'target_shuttle_id': targetedShuttleId,
-              if (selectedDropOffName != null) 'dropoff_stop': selectedDropOffName,
+              if (targetedShuttleId != null)
+                'target_shuttle_id': targetedShuttleId,
+              if (selectedDropOffName != null)
+                'dropoff_stop': selectedDropOffName,
             });
 
         activeRequestId = docRef.id;
 
         requestSubscription?.cancel();
-        requestSubscription = docRef.snapshots().handleError((e) => print("Firestore Error (ride_requests): $e")).listen((snapshot) {
-          if (snapshot.exists) {
-            final data = snapshot.data();
-            if (data != null && data['status'] == 'acknowledged') {
-              if (mounted) {
-                TopToast.show(context, 'คนขับรับทราบแล้ว! กำลังเดินทางไปรับที่ป้ายครับ 🚌', isError: false);
-                setState(() {
-                  isWaiting = false;
-                  isAcknowledged =
-                      true; // ✨ เปลี่ยนสถานะเป็นคนขับรับทราบแล้ว และคงเส้นทางกับป้ายจอดไว้
-                  isCardMinimized = false;
-                });
-                _updateRouteAndETA();
+        requestSubscription = docRef
+            .snapshots()
+            .handleError((e) => print("Firestore Error (ride_requests): $e"))
+            .listen((snapshot) {
+              if (snapshot.exists) {
+                final data = snapshot.data();
+                if (data != null && data['status'] == 'acknowledged') {
+                  if (mounted) {
+                    TopToast.show(
+                      context,
+                      'คนขับรับทราบแล้ว! กำลังเดินทางไปรับที่ป้ายครับ 🚌',
+                      isError: false,
+                    );
+                    setState(() {
+                      isWaiting = false;
+                      isAcknowledged =
+                          true; // ✨ เปลี่ยนสถานะเป็นคนขับรับทราบแล้ว และคงเส้นทางกับป้ายจอดไว้
+                      isCardMinimized = false;
+                    });
+                    _updateRouteAndETA();
+                  }
+                } else if (data != null && data['status'] == 'on_board') {
+                  // ถ้าสถานะถูกเปลี่ยนจากที่อื่น
+                  if (mounted) {
+                    if (!isOnBoard) {
+                      setState(() {
+                        isOnBoard = true;
+                      });
+                      _updateRouteAndETA(); // อัปเดตเส้นทาง
+                    }
+                  }
+                }
               }
-            } else if (data != null && data['status'] == 'on_board') {
-              // ถ้าสถานะถูกเปลี่ยนจากที่อื่น
-              if (mounted) {
-                setState(() {
-                  isOnBoard = true;
-                });
-              }
-            }
-          }
-        });
+            });
       } catch (e) {
         print("Error requesting ride: $e");
         if (mounted) {
@@ -729,13 +799,19 @@ class _StudentHomeState extends State<StudentHome>
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            final availableStops = busStops.where((stop) => stop['name'] != selectedStopName).toList();
-            
+            final availableStops = busStops
+                .where((stop) => stop['name'] != selectedStopName)
+                .toList();
+
             var filteredStops = availableStops;
             if (searchQuery.isNotEmpty) {
-              filteredStops = availableStops.where((stop) => 
-                stop['name'].toString().toLowerCase().contains(searchQuery.toLowerCase())
-              ).toList();
+              filteredStops = availableStops
+                  .where(
+                    (stop) => stop['name'].toString().toLowerCase().contains(
+                      searchQuery.toLowerCase(),
+                    ),
+                  )
+                  .toList();
             }
 
             filteredStops.sort((a, b) {
@@ -746,110 +822,153 @@ class _StudentHomeState extends State<StudentHome>
               return 0;
             });
 
-            return Container(
-              height: MediaQuery.of(context).size.height * 0.7,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
               ),
-              child: Column(
-                children: [
-                  Container(
-                    margin: const EdgeInsets.symmetric(vertical: 12),
-                    width: 40,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'เลือกลงที่ป้าย',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2C2F30)),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                    child: Container(
+              child: Container(
+                height: MediaQuery.of(context).size.height * 0.5,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.symmetric(vertical: 12),
+                      width: 40,
+                      height: 5,
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.grey.shade300),
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      child: TextField(
-                        onChanged: (value) {
-                          setModalState(() {
-                            searchQuery = value;
-                          });
-                        },
-                        decoration: const InputDecoration(
-                          hintText: 'ค้นหาจุดลงรถ...',
-                          hintStyle: TextStyle(color: Color(0xFF757778), fontSize: 14),
-                          prefixIcon: Icon(Icons.search, color: Color(0xFF757778)),
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 8,
+                      ),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'เลือกลงที่ป้าย',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF2C2F30),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  Divider(height: 1, color: Colors.grey.shade200),
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: filteredStops.length,
-                      itemBuilder: (context, index) {
-                        final option = filteredStops[index];
-                        final bool isFav = favoriteStops.contains(option['name']);
-
-                        return Material(
-                          color: index % 2 == 0 ? Colors.grey.shade50 : Colors.white,
-                          child: InkWell(
-                            onTap: () {
-                              setState(() {
-                                selectedDropOffName = option['name'];
-                              });
-                              Navigator.pop(context);
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.location_on_outlined, color: Color(0xFF176a21), size: 22),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Text(
-                                      option['name'],
-                                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: Color(0xFF2C2F30)),
-                                    ),
-                                  ),
-                                  GestureDetector(
-                                    onTap: () async {
-                                      await _toggleFavorite(option['name']);
-                                      setModalState(() {});
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.all(4),
-                                      child: Icon(
-                                        isFav ? Icons.star : Icons.star_border,
-                                        color: isFav ? Colors.amber : Colors.grey.shade400,
-                                        size: 24,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 10,
+                      ),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: TextField(
+                          onChanged: (value) {
+                            setModalState(() {
+                              searchQuery = value;
+                            });
+                          },
+                          decoration: const InputDecoration(
+                            hintText: 'ค้นหาจุดลงรถ...',
+                            hintStyle: TextStyle(
+                              color: Color(0xFF757778),
+                              fontSize: 14,
+                            ),
+                            prefixIcon: Icon(
+                              Icons.search,
+                              color: Color(0xFF757778),
+                            ),
+                            border: InputBorder.none,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 15,
                             ),
                           ),
-                        );
-                      },
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    Divider(height: 1, color: Colors.grey.shade200),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: filteredStops.length,
+                        itemBuilder: (context, index) {
+                          final option = filteredStops[index];
+                          final bool isFav = favoriteStops.contains(
+                            option['name'],
+                          );
+
+                          return Material(
+                            color: index % 2 == 0
+                                ? Colors.grey.shade50
+                                : Colors.white,
+                            child: InkWell(
+                              onTap: () {
+                                setState(() {
+                                  selectedDropOffName = option['name'];
+                                });
+                                Navigator.pop(context);
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 16,
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.location_on_outlined,
+                                      color: Color(0xFF176a21),
+                                      size: 22,
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Text(
+                                        option['name'],
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w500,
+                                          color: Color(0xFF2C2F30),
+                                        ),
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onTap: () async {
+                                        await _toggleFavorite(option['name']);
+                                        setModalState(() {});
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        child: Icon(
+                                          isFav
+                                              ? Icons.star
+                                              : Icons.star_border,
+                                          color: isFav
+                                              ? Colors.amber
+                                              : Colors.grey.shade400,
+                                          size: 24,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
           },
@@ -908,8 +1027,13 @@ class _StudentHomeState extends State<StudentHome>
               maxZoom: 18.0,
               cameraConstraint: CameraConstraint.contain(bounds: _psruBounds),
               interactionOptions: InteractionOptions(
-                flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.doubleTapZoom | InteractiveFlag.scrollWheelZoom,
-                cursorKeyboardRotationOptions: CursorKeyboardRotationOptions.disabled(), // ✨ ปิดการหมุนด้วยคีย์บอร์ด/เมาส์บน Web
+                flags:
+                    InteractiveFlag.pinchZoom |
+                    InteractiveFlag.drag |
+                    InteractiveFlag.doubleTapZoom |
+                    InteractiveFlag.scrollWheelZoom,
+                cursorKeyboardRotationOptions:
+                    CursorKeyboardRotationOptions.disabled(), // ✨ ปิดการหมุนด้วยคีย์บอร์ด/เมาส์บน Web
               ),
               onPositionChanged: (camera, hasGesture) {
                 if (hasGesture && _isAutoFollow) {
@@ -1011,11 +1135,17 @@ class _StudentHomeState extends State<StudentHome>
                           Positioned(
                             bottom: 2,
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.blueAccent.withOpacity(0.95),
                                 borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: Colors.white, width: 1.0),
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 1.0,
+                                ),
                               ),
                               child: const Text(
                                 'ฉัน', // ข้อความบอกว่าเป็นตัวนักศึกษาเอง
@@ -1045,7 +1175,10 @@ class _StudentHomeState extends State<StudentHome>
                       width: 80,
                       height: 80,
                       child: RepaintBoundary(
-                        child: _buildBusMarker(shuttle['passenger_status'], shuttle['number']?.toString()),
+                        child: _buildBusMarker(
+                          shuttle['passenger_status'],
+                          shuttle['number']?.toString(),
+                        ),
                       ),
                     );
                   }),
@@ -1143,11 +1276,15 @@ class _StudentHomeState extends State<StudentHome>
 
         // ✨ ปุ่มเป้าเล็ง (แบบเดียวกับของคนขับ)
         Positioned(
-          bottom: (selectedStopName != null) ? 230 : 100, // ขยับหลบการ์ดด้านล่างถ้ายกขึ้นมา
+          bottom: (selectedStopName != null)
+              ? 230
+              : 100, // ขยับหลบการ์ดด้านล่างถ้ายกขึ้นมา
           right: 20,
           child: FloatingActionButton(
             mini: true,
-            backgroundColor: _isAutoFollow ? const Color(0xFF176a21) : Colors.white,
+            backgroundColor: _isAutoFollow
+                ? const Color(0xFF176a21)
+                : Colors.white,
             elevation: 4,
             onPressed: () {
               setState(() {
@@ -1167,7 +1304,6 @@ class _StudentHomeState extends State<StudentHome>
             ),
           ),
         ),
-
 
         if (selectedStopName != null)
           Positioned(
@@ -1210,7 +1346,7 @@ class _StudentHomeState extends State<StudentHome>
         final double width = constraints.maxWidth;
         final double itemWidth = width / navItems.length;
         final double targetX = itemWidth * _selectedIndex + itemWidth / 2;
-        
+
         // เช็คว่าหน้าจอโดยรวมกว้างกว่า 800 หรือไม่ (iPad/Desktop)
         final bool isDesktop = MediaQuery.of(context).size.width > 800;
 
@@ -1231,7 +1367,7 @@ class _StudentHomeState extends State<StudentHome>
                       CustomPaint(
                         size: Size(width, 85),
                         painter: _CurvedNavPainter(
-                          notchCenter: animatedX, 
+                          notchCenter: animatedX,
                           isDesktop: isDesktop,
                         ),
                       ),
@@ -1403,7 +1539,9 @@ class _StudentHomeState extends State<StudentHome>
     }
 
     String displayNum = shuttleNumber ?? '';
-    displayNum = displayNum.replaceAll(RegExp(r'sh#|shuttle#', caseSensitive: false), '').trim();
+    displayNum = displayNum
+        .replaceAll(RegExp(r'sh#|shuttle#', caseSensitive: false), '')
+        .trim();
 
     return Stack(
       clipBehavior: Clip.none,
@@ -1425,7 +1563,10 @@ class _StudentHomeState extends State<StudentHome>
           padding: const EdgeInsets.all(3), // ลดความหนาขอบขาวลง
           child: Container(
             padding: const EdgeInsets.all(7), // ระยะห่างขอบสีถึงไอคอน
-            decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: statusColor,
+              shape: BoxShape.circle,
+            ),
             child: const Icon(
               Icons.directions_bus,
               color: Colors.white,
@@ -1442,7 +1583,10 @@ class _StudentHomeState extends State<StudentHome>
               decoration: BoxDecoration(
                 color: const Color(0xFF176a21).withOpacity(0.95),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.white, width: 1.0), // ลดความหนาขอบขาวของป้ายเบอร์
+                border: Border.all(
+                  color: Colors.white,
+                  width: 1.0,
+                ), // ลดความหนาขอบขาวของป้ายเบอร์
               ),
               child: Text(
                 displayNum,
@@ -1494,7 +1638,9 @@ class _StudentHomeState extends State<StudentHome>
                       const Icon(Icons.check, color: Colors.white, size: 18),
                       const SizedBox(width: 8),
                       Text(
-                        isOnBoard ? 'ถึงที่หมายแล้ว (เสร็จสิ้น)' : 'ขึ้นรถเรียบร้อยแล้ว',
+                        isOnBoard
+                            ? 'ถึงที่หมายแล้ว (เสร็จสิ้น)'
+                            : 'ขึ้นรถเรียบร้อยแล้ว',
                         style: const TextStyle(
                           fontSize: 15.5,
                           color: Colors.white,
@@ -1592,7 +1738,7 @@ class _StudentHomeState extends State<StudentHome>
               ),
               const SizedBox(height: 10),
               Text(
-                selectedStopName ?? '',
+                (isOnBoard ? selectedDropOffName : selectedStopName) ?? '',
                 style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w800,
@@ -1638,8 +1784,10 @@ class _StudentHomeState extends State<StudentHome>
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            isOnBoard 
-                                ? 'กำลังเดินทางไปยังจุดหมายของคุณ 🚌'
+                            isOnBoard
+                                ? (remainingStops != null
+                                    ? 'กำลังเดินทางไปยังจุดหมายของคุณ อีก $remainingStops จุดจอดจะถึงจุดหมายคุณ 🚌'
+                                    : 'กำลังเดินทางไปยังจุดหมายของคุณ 🚌')
                                 : 'คนขับรับทราบแล้ว! รถกำลังเดินทางมารับคุณที่ป้าย',
                             style: const TextStyle(
                               fontSize: 13,
@@ -1668,7 +1816,9 @@ class _StudentHomeState extends State<StudentHome>
                             child: Text(
                               activeShuttles.isEmpty
                                   ? estimatedArrivalText!
-                                  : 'รถจะมาถึง: $estimatedArrivalText',
+                                  : (isOnBoard
+                                      ? 'เวลาที่จะถึงจุดหมาย: $estimatedArrivalText'
+                                      : 'รถจะมาถึง: $estimatedArrivalText'),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -1731,7 +1881,7 @@ class _StudentHomeState extends State<StudentHome>
                       child: Text(
                         activeShuttles.isEmpty
                             ? '⚠️ ขณะนี้ยังไม่มีคนขับเปิดแอปออนไลน์ในระบบ'
-                            : 'รถรับส่ง สาย A กำลังวิ่งให้บริการ',
+                            : 'รถรับส่ง กำลังวิ่งให้บริการ',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -1762,7 +1912,10 @@ class _StudentHomeState extends State<StudentHome>
                 GestureDetector(
                   onTap: () => _showDropOffSelectionSheet(context),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
@@ -1770,19 +1923,32 @@ class _StudentHomeState extends State<StudentHome>
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.location_on_outlined, color: selectedDropOffName == null ? Colors.grey.shade500 : const Color(0xFF176a21)),
+                        Icon(
+                          Icons.location_on_outlined,
+                          color: selectedDropOffName == null
+                              ? Colors.grey.shade500
+                              : const Color(0xFF176a21),
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             selectedDropOffName ?? 'ต้องการลงที่ป้ายไหน?',
                             style: TextStyle(
                               fontSize: 14,
-                              color: selectedDropOffName == null ? Colors.grey.shade600 : const Color(0xFF2C2F30),
-                              fontWeight: selectedDropOffName == null ? FontWeight.normal : FontWeight.bold,
+                              color: selectedDropOffName == null
+                                  ? Colors.grey.shade600
+                                  : const Color(0xFF2C2F30),
+                              fontWeight: selectedDropOffName == null
+                                  ? FontWeight.normal
+                                  : FontWeight.bold,
                             ),
                           ),
                         ),
-                        const Icon(Icons.search, color: Color(0xFF176a21), size: 20),
+                        const Icon(
+                          Icons.search,
+                          color: Color(0xFF176a21),
+                          size: 20,
+                        ),
                       ],
                     ),
                   ),
@@ -1791,7 +1957,9 @@ class _StudentHomeState extends State<StudentHome>
               ],
 
               GestureDetector(
-                onTap: isOnBoard ? _toggleWaitState : (isAcknowledged ? _boardShuttle : _toggleWaitState),
+                onTap: isOnBoard
+                    ? _toggleWaitState
+                    : (isAcknowledged ? _boardShuttle : _toggleWaitState),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
                   width: double.infinity,
@@ -1822,7 +1990,7 @@ class _StudentHomeState extends State<StudentHome>
                         Icon(
                           isWaiting
                               ? Icons.cancel
-                              : (isOnBoard 
+                              : (isOnBoard
                                     ? Icons.check_circle_outline
                                     : (isAcknowledged
                                           ? Icons.directions_walk
@@ -1834,7 +2002,7 @@ class _StudentHomeState extends State<StudentHome>
                         Text(
                           isWaiting
                               ? 'ยกเลิกการรอรถ'
-                              : (isOnBoard 
+                              : (isOnBoard
                                     ? 'ถึงที่หมายแล้ว (เสร็จสิ้น)'
                                     : (isAcknowledged
                                           ? 'ขึ้นรถเรียบร้อยแล้ว'
@@ -1870,7 +2038,7 @@ class _CurvedNavPainter extends CustomPainter {
     const double barTop = 18.0;
     const double notchDepth = 30.0;
     const double notchHalfWidth = 42.0;
-    
+
     // ถ้าเป็นหน้าจอใหญ่ ให้มีขอบมน (radius = 30) ไม่งั้นให้ขอบตรง (radius = 0)
     double radius = isDesktop ? 30.0 : 0.0;
 
@@ -1940,7 +2108,7 @@ class _CurvedNavPainter extends CustomPainter {
       path.lineTo(size.width, size.height);
       path.lineTo(0, size.height);
     }
-    
+
     path.close();
 
     // วาดเงาให้บาร์ด้านล่าง
@@ -1953,6 +2121,7 @@ class _CurvedNavPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CurvedNavPainter oldDelegate) {
-    return oldDelegate.notchCenter != notchCenter || oldDelegate.isDesktop != isDesktop;
+    return oldDelegate.notchCenter != notchCenter ||
+        oldDelegate.isDesktop != isDesktop;
   }
 }
