@@ -190,6 +190,8 @@ final List<List<LatLng>> shuttleRoutes = [
     const LatLng(16.82835820, 100.21230270),
     const LatLng(16.82868940, 100.21206010),
     const LatLng(16.82888520, 100.21191690),
+  ],
+  [
     const LatLng(16.82912010, 100.21173570),
     const LatLng(16.82887120, 100.21140550),
     const LatLng(16.82857190, 100.21101690),

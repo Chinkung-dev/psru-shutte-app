@@ -54,7 +54,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   String? waitingStudentStop;
   List<String> activeRequestIds = []; // ✨ เก็บไอดีคำขอทั้งหมดในป้ายที่กำลังรอ
   int activeStudentCount = 0; // ✨ จำนวนนักศึกษาที่รออยู่ป้ายนั้น
-  String? currentRequestStatus; // ✨ เก็บสถานะการเรียก ('waiting' หรือ 'acknowledged')
+  String?
+  currentRequestStatus; // ✨ เก็บสถานะการเรียก ('waiting' หรือ 'acknowledged')
 
   // ✨ เก็บตำแหน่งของนักศึกษาที่เรียกรถทั้งหมด
   List<Map<String, dynamic>> waitingStudentsList = [];
@@ -103,7 +104,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                       _markerAnimation.value;
               _currentLocation = LatLng(lat, lng);
               needsUpdate = true;
-              
+
               // ✨ ขยับกล้องแผนที่ให้ตามตัวรถอัตโนมัติเมื่อเปิดโหมด Auto-Follow อยู่
               if (_isAutoFollow && _currentLocation != null) {
                 _mapController.move(
@@ -118,8 +119,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               final oldLoc = _otherOldLocations[id];
               final targetLoc = _otherTargetLocations[id];
               if (oldLoc != null && targetLoc != null) {
-                final lat = oldLoc.latitude + (targetLoc.latitude - oldLoc.latitude) * _markerAnimation.value;
-                final lng = oldLoc.longitude + (targetLoc.longitude - oldLoc.longitude) * _markerAnimation.value;
+                final lat =
+                    oldLoc.latitude +
+                    (targetLoc.latitude - oldLoc.latitude) *
+                        _markerAnimation.value;
+                final lng =
+                    oldLoc.longitude +
+                    (targetLoc.longitude - oldLoc.longitude) *
+                        _markerAnimation.value;
                 _otherCurrentLocations[id] = LatLng(lat, lng);
                 needsUpdate = true;
               }
@@ -204,6 +211,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 .collection('shuttles')
                 .doc(docId)
                 .snapshots()
+                .handleError((e) => print("Firestore Error (shuttles doc): $e"))
                 .listen((doc) {
                   if (doc.exists && mounted) {
                     final data = doc.data() as Map<String, dynamic>;
@@ -217,7 +225,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           }
         }
       }
-      
+
       // ✨ เริ่มฟังสัญญาณรถทุกคัน เพื่อนำมาแสดงจุดบนแผนที่ให้คนขับเห็นกันเอง
       _listenToAllShuttles();
     } catch (e) {
@@ -231,59 +239,77 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         .collection('shuttles')
         .where('status', isEqualTo: 'online')
         .snapshots()
+        .handleError((e) => print("Firestore Error (all shuttles): $e"))
         .listen((snapshot) {
-      if (mounted) {
-        bool shouldAnimate = false;
-        final now = DateTime.now();
-        final validDocs = snapshot.docs.where((doc) {
-          final data = doc.data();
-          if (data.containsKey('last_updated') && data['last_updated'] != null) {
-            final lastUpdated = (data['last_updated'] as Timestamp).toDate();
-            // ถ้ารถอัปเดตล่าสุดภายใน 2 นาที ถือว่ายังออนไลน์อยู่จริงๆ
-            return now.difference(lastUpdated).inMinutes <= 2;
+          if (mounted) {
+            bool shouldAnimate = false;
+            final now = DateTime.now();
+            final validDocs = snapshot.docs.where((doc) {
+              final data = doc.data();
+              if (data.containsKey('last_updated') &&
+                  data['last_updated'] != null) {
+                final lastUpdated = (data['last_updated'] as Timestamp)
+                    .toDate();
+                // ถ้ารถอัปเดตล่าสุดภายใน 2 นาที ถือว่ายังออนไลน์อยู่จริงๆ
+                return now.difference(lastUpdated).inMinutes <= 2;
+              }
+              return false;
+            }).toList();
+
+            final newShuttles = validDocs
+                .map(
+                  (doc) => {
+                    'id': doc.id,
+                    'number': doc.data().containsKey('number')
+                        ? doc['number']
+                        : null,
+                    'lat': (doc['lat'] as num).toDouble(),
+                    'lng': (doc['lng'] as num).toDouble(),
+                    'passenger_status':
+                        doc.data().containsKey('passenger_status')
+                        ? doc['passenger_status']
+                        : 'available', // ✨ เพิ่มการดึงสถานะ
+                  },
+                )
+                .where(
+                  (shuttle) => shuttle['id'] != _shuttleDocId,
+                ) // ไม่เอาหมุดของตัวเองมาซ้ำ
+                .toList();
+
+            for (var shuttle in newShuttles) {
+              final String id = shuttle['id'];
+              final LatLng newLoc = LatLng(shuttle['lat'], shuttle['lng']);
+              final currentLoc = _otherCurrentLocations[id];
+              if (currentLoc != null && currentLoc != newLoc) {
+                _otherOldLocations[id] = currentLoc;
+                _otherTargetLocations[id] = newLoc;
+                shouldAnimate = true;
+              } else if (currentLoc == null) {
+                _otherCurrentLocations[id] = newLoc;
+                _otherTargetLocations[id] = newLoc;
+              }
+            }
+
+            final activeIds = newShuttles.map((s) => s['id'] as String).toSet();
+            _otherCurrentLocations.removeWhere(
+              (id, loc) => !activeIds.contains(id),
+            );
+            _otherOldLocations.removeWhere(
+              (id, loc) => !activeIds.contains(id),
+            );
+            _otherTargetLocations.removeWhere(
+              (id, loc) => !activeIds.contains(id),
+            );
+
+            setState(() {
+              activeShuttles = newShuttles;
+            });
+
+            if (shouldAnimate) {
+              _markerAnimationController.forward(from: 0.0);
+            }
           }
-          return false;
-        }).toList();
-
-        final newShuttles = validDocs
-            .map((doc) => {
-                  'id': doc.id,
-                  'number': doc.data().containsKey('number') ? doc['number'] : null,
-                  'lat': (doc['lat'] as num).toDouble(),
-                  'lng': (doc['lng'] as num).toDouble(),
-                  'passenger_status': doc.data().containsKey('passenger_status') ? doc['passenger_status'] : 'available', // ✨ เพิ่มการดึงสถานะ
-                })
-            .where((shuttle) => shuttle['id'] != _shuttleDocId) // ไม่เอาหมุดของตัวเองมาซ้ำ
-            .toList();
-
-        for (var shuttle in newShuttles) {
-          final String id = shuttle['id'];
-          final LatLng newLoc = LatLng(shuttle['lat'], shuttle['lng']);
-          final currentLoc = _otherCurrentLocations[id];
-          if (currentLoc != null && currentLoc != newLoc) {
-            _otherOldLocations[id] = currentLoc;
-            _otherTargetLocations[id] = newLoc;
-            shouldAnimate = true;
-          } else if (currentLoc == null) {
-            _otherCurrentLocations[id] = newLoc;
-            _otherTargetLocations[id] = newLoc;
-          }
-        }
-        
-        final activeIds = newShuttles.map((s) => s['id'] as String).toSet();
-        _otherCurrentLocations.removeWhere((id, loc) => !activeIds.contains(id));
-        _otherOldLocations.removeWhere((id, loc) => !activeIds.contains(id));
-        _otherTargetLocations.removeWhere((id, loc) => !activeIds.contains(id));
-
-        setState(() {
-          activeShuttles = newShuttles;
         });
-
-        if (shouldAnimate) {
-          _markerAnimationController.forward(from: 0.0);
-        }
-      }
-    });
   }
 
   //อัลกอริทึม Snap to Route: ล็อกตำแหน่งหมุดให้อยู่บนเส้นทางถนนเท่านั้น
@@ -413,8 +439,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       }
 
       if (!kIsWeb) {
-        await flutterTts.setSpeechRate(0.5); // Mobile ปกติคือ 0.5
-        await flutterTts.setVolume(1.0);
+        await flutterTts.setSpeechRate(0.5); // ความเร็วปกติ
+        // ✨ คงเสียงเดิมไว้ (เสียงผู้หญิง) และปรับระดับเสียงให้ดังสุด (1.0 คือสูงสุดของระบบ TTS)
+        // หากต้องการดังกว่านี้ ต้องเพิ่มเสียง Media ของตัวเครื่องมือถือครับ
+        await flutterTts.setVolume(1.0); 
         await flutterTts.setPitch(1.0);
       }
     } catch (e) {
@@ -435,7 +463,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     final now = DateTime.now();
     bool playSound = true;
 
-    // ป้องกันเสียงเคาะแก้ว (ติ๊ง) รัวเกินไป 
+    // ป้องกันเสียงเคาะแก้ว (ติ๊ง) รัวเกินไป
     if (_lastVoiceAlertTime != null && _lastVoiceAlertStopName == stopName) {
       if (now.difference(_lastVoiceAlertTime!).inSeconds < 5) {
         playSound = false; // ถ้าเพิ่งดังไปไม่เกิน 5 วิ ไม่ต้องดังซ้ำ
@@ -462,7 +490,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         String phoneticStopName = stopName
             .replaceAll('IT', 'ไอที')
             .replaceAll('ทีปวิชญ์', 'ทีปะวิช');
-        
+
         String textToSpeak;
         if (count > 1) {
           textToSpeak = "มีนักศึกษา $count คน รออยู่ที่ $phoneticStopName";
@@ -714,12 +742,22 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         .collection('ride_requests')
         .where('status', whereIn: ['waiting', 'acknowledged'])
         .snapshots()
+        .handleError((e) => print("Firestore Error (ride_requests): $e"))
         .listen((snapshot) {
           if (!mounted) return;
 
           if (snapshot.docs.isNotEmpty) {
+            // ✨ กรองเอาเฉพาะคำขอที่เจาะจงเรียกรถคันนี้เท่านั้น (หรือคำขอที่ไม่ได้ระบุเป้าหมายเพื่อให้รองรับระบบเดิม)
+            final validDocs = snapshot.docs.where((doc) {
+              final data = doc.data() as Map<String, dynamic>;
+              if (data.containsKey('target_shuttle_id') && data['target_shuttle_id'] != null) {
+                return data['target_shuttle_id'] == _shuttleDocId;
+              }
+              return true; // ถ้าระบบเก่าไม่มี target_shuttle_id ให้มองว่าเรียกได้ทุกคน
+            }).toList();
+
             // ✨ เรียงลำดับคำขอตามเวลา (เก่าสุดขึ้นก่อน - เข้าคิวก่อนได้ก่อน FIFO)
-            final docs = snapshot.docs.toList();
+            final docs = validDocs;
             docs.sort((a, b) {
               final aData = a.data() as Map<String, dynamic>;
               final bData = b.data() as Map<String, dynamic>;
@@ -733,9 +771,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
             // ✨ ดึงตำแหน่งนักศึกษาทั้งหมดที่รอหรือกำลังรอรถ
             final List<Map<String, dynamic>> students = [];
-            for (var doc in snapshot.docs) {
+            for (var doc in docs) {
               final data = doc.data() as Map<String, dynamic>;
-              if (data.containsKey('student_lat') && data.containsKey('student_lng')) {
+              if (data.containsKey('student_lat') &&
+                  data.containsKey('student_lng')) {
                 students.add({
                   'id': doc.id,
                   'lat': (data['student_lat'] as num).toDouble(),
@@ -756,11 +795,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
             if (activeDoc != null) {
               String targetStop = activeDoc['stop_name'];
-              
+
               // รวบรวมคำขอทั้งหมดที่อยู่ป้ายเดียวกันและมีสถานะ waiting
               List<String> targetIds = [];
               for (var doc in docs) {
-                if (doc['status'] == 'waiting' && doc['stop_name'] == targetStop) {
+                if (doc['status'] == 'waiting' &&
+                    doc['stop_name'] == targetStop) {
                   targetIds.add(doc.id);
                 }
               }
@@ -806,7 +846,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           }
         });
 
-    // ✨ เริ่ม Heartbeat ทุกๆ 30 วินาที เพื่ออัปเดตเวลาล่าสุดและ "เลี้ยงการเชื่อมต่อเน็ตไม่ให้หลับ" 
+    // ✨ เริ่ม Heartbeat ทุกๆ 30 วินาที เพื่ออัปเดตเวลาล่าสุดและ "เลี้ยงการเชื่อมต่อเน็ตไม่ให้หลับ"
     // พอเน็ตไม่หลับ เวลามีคนเรียกรถ มันจะเด้งขึ้นหน้าจอทันที ไม่ต้องรอหน่วง! (30 วิ ช่วยประหยัดโควต้ากว่า 15 วิ)
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
@@ -855,14 +895,16 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     if (activeRequestIds.isNotEmpty) {
       final batch = FirebaseFirestore.instance.batch();
       for (var id in activeRequestIds) {
-        final docRef = FirebaseFirestore.instance.collection('ride_requests').doc(id);
+        final docRef = FirebaseFirestore.instance
+            .collection('ride_requests')
+            .doc(id);
         batch.update(docRef, {
           'status': 'acknowledged',
           'acknowledged_at': FieldValue.serverTimestamp(),
         });
       }
       await batch.commit();
-      
+
       if (mounted) {
         setState(() {
           activeRequestIds = [];
@@ -925,8 +967,13 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               maxZoom: 18.0,
               cameraConstraint: CameraConstraint.contain(bounds: _psruBounds),
               interactionOptions: InteractionOptions(
-                flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.doubleTapZoom | InteractiveFlag.scrollWheelZoom,
-                cursorKeyboardRotationOptions: CursorKeyboardRotationOptions.disabled(), // ✨ ปิดการหมุนด้วยคีย์บอร์ด/เมาส์บน Web
+                flags:
+                    InteractiveFlag.pinchZoom |
+                    InteractiveFlag.drag |
+                    InteractiveFlag.doubleTapZoom |
+                    InteractiveFlag.scrollWheelZoom,
+                cursorKeyboardRotationOptions:
+                    CursorKeyboardRotationOptions.disabled(), // ✨ ปิดการหมุนด้วยคีย์บอร์ด/เมาส์บน Web
               ),
               // ✨ ตรวจจับเมื่อคนขับใช้นิ้วเลื่อนหรือแตะแผนที่ด้วยตัวเอง ให้ปิด Auto-Follow อัตโนมัติ
               onPositionChanged: (camera, hasGesture) {
@@ -974,10 +1021,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                       ),
                     );
                   }),
-                  
+
                   // ✨ แสดงตำแหน่งรถคันอื่นๆ ที่กำลังออนไลน์ (เพื่อให้คนขับเห็นกันเอง)
                   ...activeShuttles.map((shuttle) {
-                    final currentLoc = _otherCurrentLocations[shuttle['id']] ?? LatLng(shuttle['lat'], shuttle['lng']);
+                    final currentLoc =
+                        _otherCurrentLocations[shuttle['id']] ??
+                        LatLng(shuttle['lat'], shuttle['lng']);
                     return Marker(
                       key: ValueKey('other_shuttle_${shuttle['id']}'),
                       point: currentLoc,
@@ -985,7 +1034,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                       height: 80,
                       child: RepaintBoundary(
                         child: _buildBusMarker(
-                          shuttle.containsKey('passenger_status') ? shuttle['passenger_status'] : 'available',
+                          shuttle.containsKey('passenger_status')
+                              ? shuttle['passenger_status']
+                              : 'available',
                           shuttle['number']?.toString(),
                         ),
                       ),
@@ -1026,11 +1077,17 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                           Positioned(
                             bottom: 2,
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.blueAccent.withOpacity(0.95),
                                 borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: Colors.white, width: 1.0),
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 1.0,
+                                ),
                               ),
                               child: const Text(
                                 'นักศึกษา',
@@ -1570,7 +1627,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     }
 
     String displayNum = shuttleNumber ?? '';
-    displayNum = displayNum.replaceAll(RegExp(r'sh#|shuttle#', caseSensitive: false), '').trim();
+    displayNum = displayNum
+        .replaceAll(RegExp(r'sh#|shuttle#', caseSensitive: false), '')
+        .trim();
 
     return Stack(
       clipBehavior: Clip.none,
@@ -1592,7 +1651,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           padding: const EdgeInsets.all(3),
           child: Container(
             padding: const EdgeInsets.all(7),
-            decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: statusColor,
+              shape: BoxShape.circle,
+            ),
             child: const Icon(
               Icons.directions_bus,
               color: Colors.white,

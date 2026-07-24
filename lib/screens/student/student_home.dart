@@ -32,6 +32,7 @@ class _StudentHomeState extends State<StudentHome>
   String? selectedStopName;
   LatLng? selectedStopLatLng; // ✨ เก็บพิกัดป้ายที่เลือก
   String? estimatedArrivalText; // ✨ ข้อความแสดงเวลา ETA
+  String? targetedShuttleId; // ✨ เก็บ ID ของรถคันที่ใกล้ที่สุดเพื่อส่งคำขอเจาะจง
   LatLng? _myLocation; // ✨ ตำแหน่งปัจจุบันของนักศึกษา
 
   final MapController _mapController = MapController();
@@ -142,6 +143,7 @@ class _StudentHomeState extends State<StudentHome>
         .collection('shuttles')
         .where('status', isEqualTo: 'online')
         .snapshots()
+        .handleError((e) => print("Firestore Error (shuttles): $e"))
         .listen((snapshot) {
           if (mounted) {
             bool shouldAnimate = false;
@@ -253,6 +255,7 @@ class _StudentHomeState extends State<StudentHome>
           .collection('users')
           .doc(user.uid)
           .snapshots()
+          .handleError((e) => print("Firestore Error (users): $e"))
           .listen((doc) {
             if (doc.exists && doc.data()!.containsKey('favorite_stops')) {
               if (mounted) {
@@ -551,6 +554,7 @@ class _StudentHomeState extends State<StudentHome>
       activeShuttles.first['lat'],
       activeShuttles.first['lng'],
     );
+    String? closestBusId = activeShuttles.first['id'];
     double minDirectDist = double.infinity;
     const distCalc = Distance();
 
@@ -560,9 +564,11 @@ class _StudentHomeState extends State<StudentHome>
       if (d < minDirectDist) {
         minDirectDist = d;
         closestBusLoc = busLoc;
+        closestBusId = bus['id'];
       }
     }
 
+    targetedShuttleId = closestBusId;
     _calculateHighlightedPath(closestBusLoc, target);
   }
 
@@ -608,12 +614,13 @@ class _StudentHomeState extends State<StudentHome>
               'timestamp': FieldValue.serverTimestamp(),
               if (_myLocation != null) 'student_lat': _myLocation!.latitude,
               if (_myLocation != null) 'student_lng': _myLocation!.longitude,
+              if (targetedShuttleId != null) 'target_shuttle_id': targetedShuttleId,
             });
 
         activeRequestId = docRef.id;
 
         requestSubscription?.cancel();
-        requestSubscription = docRef.snapshots().listen((snapshot) {
+        requestSubscription = docRef.snapshots().handleError((e) => print("Firestore Error (ride_requests): $e")).listen((snapshot) {
           if (snapshot.exists) {
             final data = snapshot.data();
             if (data != null && data['status'] == 'acknowledged') {

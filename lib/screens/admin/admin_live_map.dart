@@ -96,6 +96,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
         .collection('shuttles')
         .where('status', isEqualTo: 'online')
         .snapshots()
+        .handleError((e) => print("Firestore Error (shuttles): $e"))
         .listen((snapshot) {
       if (mounted) {
         bool shouldAnimate = false;

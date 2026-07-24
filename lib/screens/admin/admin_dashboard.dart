@@ -106,7 +106,7 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
   }
 
   void _listenToShuttles() {
-    _shuttlesSub = FirebaseFirestore.instance.collection('shuttles').snapshots().listen((snapshot) {
+    _shuttlesSub = FirebaseFirestore.instance.collection('shuttles').snapshots().handleError((e) => print("Firestore Error (shuttles): $e")).listen((snapshot) {
       if (!mounted) return;
       int a = 0, f = 0, b = 0, o = 0;
       List<Map<String, dynamic>> list = [];
@@ -149,7 +149,7 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
     DateTime startOfDay = DateTime(now.year, now.month, now.day);
     _ridesSub = FirebaseFirestore.instance.collection('ride_requests')
         .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
-        .snapshots().listen((snapshot) {
+        .snapshots().handleError((e) => print("Firestore Error (ride_requests): $e")).listen((snapshot) {
       if (!mounted) return;
       int todayCount = snapshot.docs.length;
       
