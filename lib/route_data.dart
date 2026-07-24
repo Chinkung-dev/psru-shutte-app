@@ -412,29 +412,16 @@ final List<List<LatLng>> shuttleRoutes = [
   ],
   // Segment 19
   [
-    const LatLng(16.82659080, 100.20826300),
-    const LatLng(16.82644040, 100.20809600),
-    const LatLng(16.82632670, 100.20800050),
-    const LatLng(16.82617840, 100.20788950),
-    const LatLng(16.82603630, 100.20780160),
-    const LatLng(16.82534900, 100.20760000),
-    const LatLng(16.82541430, 100.20718170),
+    const LatLng(16.82655610, 100.20812040),
+    const LatLng(16.82628700, 100.20796560),
+    const LatLng(16.82596980, 100.20778980),
+    const LatLng(16.82544240, 100.20757330),
+    const LatLng(16.82551360, 100.20734340),
   ],
   // Segment 20
   [
-    const LatLng(16.82654250, 100.20806070),
-    const LatLng(16.82648850, 100.20807310),
-    const LatLng(16.82645290, 100.20810920),
-  ],
-  // Segment 21
-  [
-    const LatLng(16.82675400, 100.21518330),
-    const LatLng(16.82648210, 100.21478800),
-    const LatLng(16.82630720, 100.21451390),
-    const LatLng(16.82579020, 100.21370540),
-    const LatLng(16.82544350, 100.21307890),
-    const LatLng(16.82538100, 100.21274930),
-    const LatLng(16.82545209, 100.21213444),
+    const LatLng(16.82674810, 100.21518060),
+    const LatLng(16.82614630, 100.21425830),
   ],
   // Segment 22
   [

@@ -10,10 +10,18 @@ import 'screens/forgot_password_screen.dart'; // ✨ เพิ่ม Import ห�
 import 'screens/driver/driver_home.dart';
 import 'screens/student/student_home.dart';
 import 'screens/student/student_onboarding_screen.dart';
+import 'screens/admin/admin_dashboard.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    debugPrint("Firebase Initialized Successfully");
+  } catch (e) {
+    debugPrint("Error initializing Firebase: $e");
+  }
   runApp(const MyApp());
 }
 
@@ -51,6 +59,7 @@ class MyApp extends StatelessWidget {
         '/driverHome': (context) => const DriverHome(),
         '/studentHome': (context) => const StudentHome(),
         '/studentOnboarding': (context) => const StudentOnboardingScreen(),
+        '/adminDashboard': (context) => const AdminDashboardScreen(),
       },
     );
   }

@@ -8,6 +8,7 @@ import '../../route_data.dart';
 import 'student_profile.dart';
 import 'student_chat_list_screen.dart'; // ✨ Import หน้ารวมห้องแชท
 import 'student_live_status_screen.dart'; // ✨ Import หน้า Live Status
+import 'package:geolocator/geolocator.dart'; // ✨ เพิ่มเพื่อดึงตำแหน่งผู้ใช้
 
 class StudentHome extends StatefulWidget {
   const StudentHome({super.key});
@@ -31,6 +32,7 @@ class _StudentHomeState extends State<StudentHome>
   String? selectedStopName;
   LatLng? selectedStopLatLng; // ✨ เก็บพิกัดป้ายที่เลือก
   String? estimatedArrivalText; // ✨ ข้อความแสดงเวลา ETA
+  LatLng? _myLocation; // ✨ ตำแหน่งปัจจุบันของนักศึกษา
 
   final MapController _mapController = MapController();
 
@@ -56,6 +58,7 @@ class _StudentHomeState extends State<StudentHome>
   final Map<LatLng, List<LatLng>> _routeGraph = {};
 
   List<String> favoriteStops = [];
+  bool _isAutoFollow = true; // ✨ ตัวแปรเช็คว่ากล้องติดตามเป้าหมายอยู่หรือไม่
 
   @override
   void initState() {
@@ -64,6 +67,7 @@ class _StudentHomeState extends State<StudentHome>
     _listenToFavoriteStops();
     _buildRouteGraph();
     _listenToShuttles(); // ✨ เริ่มฟังตำแหน่งรถ
+    _zoomToUserLocation(); // ✨ ดึงตำแหน่งผู้ใช้และซูมแผนที่
 
     // ✨ Setup animation controller for smooth marker movement (1200ms สอดคล้องกับการอัปเดตจากรถคนขับทุก 1.2 วินาทีเพื่อให้ลื่นไหลสุดๆ)
     _markerAnimationController = AnimationController(
@@ -97,6 +101,39 @@ class _StudentHomeState extends State<StudentHome>
             });
           }
         });
+  }
+
+  // ✨ ดึงตำแหน่งปัจจุบันของนักศึกษาแล้วซูมแผนที่ไป
+  Future<void> _zoomToUserLocation() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
+    }
+    
+    if (permission == LocationPermission.deniedForever) return;
+
+    try {
+      Position position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 10));
+          
+      if (mounted) {
+        final loc = LatLng(position.latitude, position.longitude);
+        setState(() {
+          _myLocation = loc;
+        });
+        _mapController.move(loc, 17.0);
+      }
+    } catch (e) {
+      debugPrint("Error getting location: $e");
+    }
   }
 
   // ✨ ฟังก์ชันฟังตำแหน่งรถแบบ Real-time พร้อมอนิเมชันหมุดให้ราบรื่นและกรองรถค้าง (Timeout Filter)
@@ -135,6 +172,7 @@ class _StudentHomeState extends State<StudentHome>
                         doc.data().containsKey('passenger_status')
                         ? doc['passenger_status']
                         : 'available',
+                    'number': doc.data().containsKey('number') ? doc['number'] : '',
                   },
                 )
                 .toList();
@@ -568,6 +606,8 @@ class _StudentHomeState extends State<StudentHome>
               'stop_name': selectedStopName,
               'status': 'waiting',
               'timestamp': FieldValue.serverTimestamp(),
+              if (_myLocation != null) 'student_lat': _myLocation!.latitude,
+              if (_myLocation != null) 'student_lng': _myLocation!.longitude,
             });
 
         activeRequestId = docRef.id;
@@ -630,10 +670,15 @@ class _StudentHomeState extends State<StudentHome>
 
           // ✨ Bottom Navigation Bar สไตล์ Curved Notch โมเดิร์น
           Positioned(
-            bottom: 0,
+            bottom: MediaQuery.of(context).size.width > 800 ? 20 : 0,
             left: 0,
             right: 0,
-            child: _buildCurvedBottomNav(),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 800),
+                child: _buildCurvedBottomNav(),
+              ),
+            ),
           ),
         ],
       ),
@@ -652,6 +697,17 @@ class _StudentHomeState extends State<StudentHome>
               minZoom: 14.5,
               maxZoom: 18.0,
               cameraConstraint: CameraConstraint.contain(bounds: _psruBounds),
+              interactionOptions: InteractionOptions(
+                flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.doubleTapZoom | InteractiveFlag.scrollWheelZoom,
+                cursorKeyboardRotationOptions: CursorKeyboardRotationOptions.disabled(), // ✨ ปิดการหมุนด้วยคีย์บอร์ด/เมาส์บน Web
+              ),
+              onPositionChanged: (camera, hasGesture) {
+                if (hasGesture && _isAutoFollow) {
+                  setState(() {
+                    _isAutoFollow = false;
+                  });
+                }
+              },
               onTap: (tapPosition, point) {
                 if (isAcknowledged) {
                   setState(() {
@@ -711,6 +767,59 @@ class _StudentHomeState extends State<StudentHome>
                       ),
                     );
                   }),
+                  // ✨ แสดงตำแหน่งนักศึกษา
+                  if (_myLocation != null)
+                    Marker(
+                      point: _myLocation!,
+                      width: 80,
+                      height: 80,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        alignment: Alignment.center,
+                        children: [
+                          Container(
+                            width: 30,
+                            height: 30,
+                            decoration: BoxDecoration(
+                              color: Colors.blueAccent,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 3),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.blueAccent.withOpacity(0.5),
+                                  blurRadius: 10,
+                                  spreadRadius: 3,
+                                ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.person,
+                              color: Colors.white,
+                              size: 16, // ใส่ไอคอนรูปคนตรงกลางสีฟ้า
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 2,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.blueAccent.withOpacity(0.95),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.white, width: 1.0),
+                              ),
+                              child: const Text(
+                                'ฉัน', // ข้อความบอกว่าเป็นตัวนักศึกษาเอง
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   // ✨ แสดงหมุดรถรับส่งทุกคันที่ออนไลน์ (ขยับแบบอนิเมชันเหมือนฝั่งคนขับ)
                   ...activeShuttles.map((shuttle) {
                     final String id = shuttle['id'];
@@ -723,10 +832,10 @@ class _StudentHomeState extends State<StudentHome>
                     return Marker(
                       key: ValueKey('shuttle_$id'),
                       point: displayLoc,
-                      width: 45,
-                      height: 45,
+                      width: 80,
+                      height: 80,
                       child: RepaintBoundary(
-                        child: _buildBusMarker(shuttle['passenger_status']),
+                        child: _buildBusMarker(shuttle['passenger_status'], shuttle['number']?.toString()),
                       ),
                     );
                   }),
@@ -822,11 +931,43 @@ class _StudentHomeState extends State<StudentHome>
           ),
         ),
 
+        // ✨ ปุ่มเป้าเล็ง (แบบเดียวกับของคนขับ)
+        Positioned(
+          bottom: (selectedStopName != null) ? 230 : 100, // ขยับหลบการ์ดด้านล่างถ้ายกขึ้นมา
+          right: 20,
+          child: FloatingActionButton(
+            mini: true,
+            backgroundColor: _isAutoFollow ? const Color(0xFF176a21) : Colors.white,
+            elevation: 4,
+            onPressed: () {
+              setState(() {
+                _isAutoFollow = true;
+              });
+              if (selectedStopLatLng != null) {
+                _mapController.move(selectedStopLatLng!, 17.5);
+              } else if (_myLocation != null) {
+                _mapController.move(_myLocation!, 17.0);
+              } else {
+                _mapController.move(_psruCenter, 15.5);
+              }
+            },
+            child: Icon(
+              _isAutoFollow ? Icons.my_location : Icons.location_searching,
+              color: _isAutoFollow ? Colors.white : const Color(0xFF176a21),
+            ),
+          ),
+        ),
+
         Positioned(
           top: 150,
-          left: 20,
-          right: 20,
-          child: Autocomplete<Map<String, dynamic>>(
+          left: 0, // change from 20 to 0 to allow centering
+          right: 0, // change from 20 to 0 to allow centering
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 800),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Autocomplete<Map<String, dynamic>>(
             optionsBuilder: (TextEditingValue textEditingValue) {
               if (_isLoadingStops)
                 return const Iterable<Map<String, dynamic>>.empty();
@@ -1010,6 +1151,9 @@ class _StudentHomeState extends State<StudentHome>
               );
             },
           ),
+              ),
+            ),
+          ),
         ),
         if (selectedStopName != null)
           Positioned(
@@ -1052,6 +1196,9 @@ class _StudentHomeState extends State<StudentHome>
         final double width = constraints.maxWidth;
         final double itemWidth = width / navItems.length;
         final double targetX = itemWidth * _selectedIndex + itemWidth / 2;
+        
+        // เช็คว่าหน้าจอโดยรวมกว้างกว่า 800 หรือไม่ (iPad/Desktop)
+        final bool isDesktop = MediaQuery.of(context).size.width > 800;
 
         return SizedBox(
           height: 85,
@@ -1069,7 +1216,10 @@ class _StudentHomeState extends State<StudentHome>
                     children: [
                       CustomPaint(
                         size: Size(width, 85),
-                        painter: _CurvedNavPainter(notchCenter: animatedX),
+                        painter: _CurvedNavPainter(
+                          notchCenter: animatedX, 
+                          isDesktop: isDesktop,
+                        ),
                       ),
                       // ปุ่มวงกลมสีเขียวลอยในรอยบาก
                       Positioned(
@@ -1226,7 +1376,7 @@ class _StudentHomeState extends State<StudentHome>
     );
   }
 
-  Widget _buildBusMarker(String? status) {
+  Widget _buildBusMarker(String? status, String? shuttleNumber) {
     Color statusColor = const Color(0xFF176a21); // Default available
     if (status == 'full') {
       statusColor = const Color(0xFF757778); // Grey
@@ -1236,23 +1386,59 @@ class _StudentHomeState extends State<StudentHome>
       statusColor = Colors.red; // Red
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: statusColor.withOpacity(0.6),
-            blurRadius: 12,
-            spreadRadius: 4,
+    String displayNum = shuttleNumber ?? '';
+    displayNum = displayNum.replaceAll(RegExp(r'sh#|shuttle#', caseSensitive: false), '').trim();
+
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        // วงกลมไอคอนรถบัส (จะอยู่ตรงกลาง LatLng พอดี)
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: statusColor.withOpacity(0.6),
+                blurRadius: 12,
+                spreadRadius: 4,
+              ),
+            ],
           ),
-        ],
-      ),
-      padding: const EdgeInsets.all(4),
-      child: Container(
-        decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
-        child: const Icon(Icons.directions_bus, color: Colors.white, size: 20),
-      ),
+          padding: const EdgeInsets.all(3), // ลดความหนาขอบขาวลง
+          child: Container(
+            padding: const EdgeInsets.all(7), // ระยะห่างขอบสีถึงไอคอน
+            decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+            child: const Icon(
+              Icons.directions_bus,
+              color: Colors.white,
+              size: 22,
+            ), // ปรับขนาดไอคอนรถบัสตามที่ต้องการ
+          ),
+        ),
+        // ป้ายเบอร์รถ (จะห้อยอยู่ด้านล่างวงกลม)
+        if (displayNum.isNotEmpty)
+          Positioned(
+            bottom: -4, // ขยับลงมาด้านล่างวงกลม
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF176a21).withOpacity(0.95),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.white, width: 1.0), // ลดความหนาขอบขาวของป้ายเบอร์
+              ),
+              child: Text(
+                displayNum,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900, // ปรับให้หนาพิเศษ
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -1609,19 +1795,25 @@ class _StudentHomeState extends State<StudentHome>
 // ✨ CustomPainter สำหรับวาด Bottom Navigation Bar โค้งเว้า (Curved Notch) ตามสไตล์โมเดิร์น
 class _CurvedNavPainter extends CustomPainter {
   final double notchCenter;
+  final bool isDesktop;
 
-  _CurvedNavPainter({required this.notchCenter});
+  _CurvedNavPainter({required this.notchCenter, this.isDesktop = false});
 
   @override
   void paint(Canvas canvas, Size size) {
     const double barTop = 18.0;
     const double notchDepth = 30.0;
     const double notchHalfWidth = 42.0;
+    
+    // ถ้าเป็นหน้าจอใหญ่ ให้มีขอบมน (radius = 30) ไม่งั้นให้ขอบตรง (radius = 0)
+    double radius = isDesktop ? 30.0 : 0.0;
 
     Path path = Path();
-    path.moveTo(0, barTop);
+    path.moveTo(radius, barTop);
 
-    if (notchCenter - notchHalfWidth > 0) {
+    if (notchCenter - notchHalfWidth > radius) {
+      path.lineTo(notchCenter - notchHalfWidth, barTop);
+    } else {
       path.lineTo(notchCenter - notchHalfWidth, barTop);
     }
 
@@ -1645,9 +1837,44 @@ class _CurvedNavPainter extends CustomPainter {
       barTop,
     );
 
-    path.lineTo(size.width, barTop);
-    path.lineTo(size.width, size.height);
-    path.lineTo(0, size.height);
+    path.lineTo(size.width - radius, barTop);
+
+    if (radius > 0) {
+      // มุมขวาบน
+      path.arcToPoint(
+        Offset(size.width, barTop + radius),
+        radius: Radius.circular(radius),
+        clockwise: true,
+      );
+      // เส้นลงมามุมขวาล่าง
+      path.lineTo(size.width, size.height - radius);
+      // มุมขวาล่าง
+      path.arcToPoint(
+        Offset(size.width - radius, size.height),
+        radius: Radius.circular(radius),
+        clockwise: true,
+      );
+      // เส้นไปมุมซ้ายล่าง
+      path.lineTo(radius, size.height);
+      // มุมซ้ายล่าง
+      path.arcToPoint(
+        Offset(0, size.height - radius),
+        radius: Radius.circular(radius),
+        clockwise: true,
+      );
+      // เส้นไปมุมซ้ายบน
+      path.lineTo(0, barTop + radius);
+      // มุมซ้ายบน
+      path.arcToPoint(
+        Offset(radius, barTop),
+        radius: Radius.circular(radius),
+        clockwise: true,
+      );
+    } else {
+      path.lineTo(size.width, size.height);
+      path.lineTo(0, size.height);
+    }
+    
     path.close();
 
     // วาดเงาให้บาร์ด้านล่าง
@@ -1660,6 +1887,6 @@ class _CurvedNavPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CurvedNavPainter oldDelegate) {
-    return oldDelegate.notchCenter != notchCenter;
+    return oldDelegate.notchCenter != notchCenter || oldDelegate.isDesktop != isDesktop;
   }
 }
