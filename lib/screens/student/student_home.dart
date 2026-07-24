@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:math' as math;
+import '../../widgets/top_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -28,8 +30,10 @@ class _StudentHomeState extends State<StudentHome>
 
   bool isWaiting = false;
   bool isAcknowledged = false; // ✨ เพิ่มสถานะเมื่อคนขับกดรับทราบแล้ว
+  bool isOnBoard = false; // ✨ เพิ่มสถานะเมื่อนักศึกษาขึ้นรถแล้ว
   bool isCardMinimized = false; // ✨ ย่อการ์ดเหลือแค่ปุ่มเมื่อกดที่แผนที่
   String? selectedStopName;
+  String? selectedDropOffName; // ✨ จุดลงรถ
   LatLng? selectedStopLatLng; // ✨ เก็บพิกัดป้ายที่เลือก
   String? estimatedArrivalText; // ✨ ข้อความแสดงเวลา ETA
   String? targetedShuttleId; // ✨ เก็บ ID ของรถคันที่ใกล้ที่สุดเพื่อส่งคำขอเจาะจง
@@ -479,9 +483,11 @@ class _StudentHomeState extends State<StudentHome>
       for (var doc in snapshot.docs) {
         final data = doc.data();
         loadedStops.add({
+          'id': doc.id, // ใช้สำหรับ Key ของ Marker
           'name': data['name'],
           'lat': (data['lat'] as num).toDouble(),
           'lng': (data['lng'] as num).toDouble(),
+          'order': data['order'], // ✨ สำคัญสำหรับคำนวณเส้นทาง
         });
       }
 
@@ -536,9 +542,9 @@ class _StudentHomeState extends State<StudentHome>
     FocusManager.instance.primaryFocus?.unfocus();
   }
 
-  // ✨ คำนวณเส้นทางและเวลา ETA จากรถคันที่ใกล้ป้ายที่สุด
+  // ✨ คำนวณเส้นทางและเวลา ETA จากรถคันที่ใกล้ป้ายที่สุดด้วย Modulo Route Index
   void _updateRouteAndETA() {
-    if (selectedStopLatLng == null) return;
+    if (selectedStopLatLng == null || selectedStopName == null) return;
 
     LatLng target = selectedStopLatLng!;
     if (activeShuttles.isEmpty) {
@@ -550,26 +556,79 @@ class _StudentHomeState extends State<StudentHome>
       return;
     }
 
-    LatLng closestBusLoc = LatLng(
-      activeShuttles.first['lat'],
-      activeShuttles.first['lng'],
+    // หาระบบ order ของป้ายที่นักศึกษาเลือก
+    final targetStopMap = busStops.firstWhere(
+      (s) => s['name'] == selectedStopName,
+      orElse: () => {},
     );
-    String? closestBusId = activeShuttles.first['id'];
-    double minDirectDist = double.infinity;
-    const distCalc = Distance();
+    int targetOrder = (targetStopMap['order'] as int?) ?? 1;
+
+    String? closestBusId;
+    LatLng? closestBusLoc;
+    int minIndexDistance = 999;
+    double minDirectDistFallback = double.infinity; // เผื่อกรณีรถเพิ่งออนไลน์และยังไม่มี last_passed_stop
 
     for (var bus in activeShuttles) {
       LatLng busLoc = LatLng(bus['lat'], bus['lng']);
-      double d = distCalc.distance(busLoc, target);
-      if (d < minDirectDist) {
-        minDirectDist = d;
-        closestBusLoc = busLoc;
-        closestBusId = bus['id'];
+      int? lastPassed = bus['last_passed_stop'] as int?;
+
+      if (lastPassed != null) {
+        // ใช้ลอจิก Modulo (1-Way Loop)
+        // สมมติว่ามีป้ายทั้งหมด N ป้าย (ในที่นี้คือหาค่า order สูงสุด หรือ 23)
+        int maxOrder = 23;
+        if (busStops.isNotEmpty) {
+           maxOrder = busStops.map((s) => (s['order'] ?? 0) as int).reduce((a, b) => a > b ? a : b);
+           if (maxOrder == 0) maxOrder = 23;
+        }
+
+        int distIndex = targetOrder - lastPassed;
+        if (distIndex <= 0) { // ถ้ารถวิ่งเลยป้ายเป้าหมายไปแล้ว หรืออยู่ที่ป้ายพอดี (ถ้าอยู่พอดีตีว่าเลยไปแล้ว ต้องวนใหม่)
+           distIndex += maxOrder;
+        }
+
+        if (distIndex < minIndexDistance) {
+          minIndexDistance = distIndex;
+          closestBusId = bus['id'];
+          closestBusLoc = busLoc;
+        }
+      } else {
+        // Fallback ไปใช้หาระยะกระจัดแบบเดิมถ้ารถเพิ่งออนไลน์
+        double d = const Distance().distance(busLoc, target);
+        if (d < minDirectDistFallback && minIndexDistance == 999) {
+          minDirectDistFallback = d;
+          closestBusId = bus['id'];
+          closestBusLoc = busLoc;
+        }
       }
     }
 
+    // กรณีไม่มีรถคันไหนมี last_passed_stop เลย หรือ loop พลาด
+    if (closestBusId == null) {
+      closestBusId = activeShuttles.first['id'];
+      closestBusLoc = LatLng(activeShuttles.first['lat'], activeShuttles.first['lng']);
+    }
+
     targetedShuttleId = closestBusId;
-    _calculateHighlightedPath(closestBusLoc, target);
+    _calculateHighlightedPath(closestBusLoc!, target);
+  }
+
+  // ✨ ฟังก์ชันเมื่อนักศึกษากด "ขึ้นรถเรียบร้อยแล้ว"
+  Future<void> _boardShuttle() async {
+    if (activeRequestId != null) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('ride_requests')
+            .doc(activeRequestId)
+            .update({'status': 'on_board'});
+      } catch (e) {
+        print("Error updating request status to on_board: $e");
+      }
+    }
+    if (mounted) {
+      setState(() {
+        isOnBoard = true;
+      });
+    }
   }
 
   Future<void> _toggleWaitState() async {
@@ -589,15 +648,22 @@ class _StudentHomeState extends State<StudentHome>
         setState(() {
           isWaiting = false;
           isAcknowledged = false;
+          isOnBoard = false;
           isCardMinimized = false;
           activeRequestId = null;
           selectedStopName = null;
+          selectedDropOffName = null;
           selectedStopLatLng = null;
           estimatedArrivalText = null;
           highlightedPath.clear();
         });
       }
     } else {
+      if (selectedDropOffName == null) {
+        TopToast.show(context, 'กรุณาเลือกจุดลงรถก่อนกดเรียกรถครับ', isError: true);
+        return;
+      }
+
       setState(() {
         isWaiting = true;
         isAcknowledged = false;
@@ -615,6 +681,7 @@ class _StudentHomeState extends State<StudentHome>
               if (_myLocation != null) 'student_lat': _myLocation!.latitude,
               if (_myLocation != null) 'student_lng': _myLocation!.longitude,
               if (targetedShuttleId != null) 'target_shuttle_id': targetedShuttleId,
+              if (selectedDropOffName != null) 'dropoff_stop': selectedDropOffName,
             });
 
         activeRequestId = docRef.id;
@@ -625,16 +692,7 @@ class _StudentHomeState extends State<StudentHome>
             final data = snapshot.data();
             if (data != null && data['status'] == 'acknowledged') {
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'คนขับรับทราบแล้ว! กำลังเดินทางไปรับที่ป้ายครับ 🚌',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    backgroundColor: Colors.green,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+                TopToast.show(context, 'คนขับรับทราบแล้ว! กำลังเดินทางไปรับที่ป้ายครับ 🚌', isError: false);
                 setState(() {
                   isWaiting = false;
                   isAcknowledged =
@@ -642,6 +700,13 @@ class _StudentHomeState extends State<StudentHome>
                   isCardMinimized = false;
                 });
                 _updateRouteAndETA();
+              }
+            } else if (data != null && data['status'] == 'on_board') {
+              // ถ้าสถานะถูกเปลี่ยนจากที่อื่น
+              if (mounted) {
+                setState(() {
+                  isOnBoard = true;
+                });
               }
             }
           }
@@ -653,6 +718,144 @@ class _StudentHomeState extends State<StudentHome>
         }
       }
     }
+  }
+
+  void _showDropOffSelectionSheet(BuildContext context) {
+    String searchQuery = '';
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final availableStops = busStops.where((stop) => stop['name'] != selectedStopName).toList();
+            
+            var filteredStops = availableStops;
+            if (searchQuery.isNotEmpty) {
+              filteredStops = availableStops.where((stop) => 
+                stop['name'].toString().toLowerCase().contains(searchQuery.toLowerCase())
+              ).toList();
+            }
+
+            filteredStops.sort((a, b) {
+              bool aIsFav = favoriteStops.contains(a['name']);
+              bool bIsFav = favoriteStops.contains(b['name']);
+              if (aIsFav && !bIsFav) return -1;
+              if (!aIsFav && bIsFav) return 1;
+              return 0;
+            });
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.7,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.symmetric(vertical: 12),
+                    width: 40,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'เลือกลงที่ป้าย',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2C2F30)),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: TextField(
+                        onChanged: (value) {
+                          setModalState(() {
+                            searchQuery = value;
+                          });
+                        },
+                        decoration: const InputDecoration(
+                          hintText: 'ค้นหาจุดลงรถ...',
+                          hintStyle: TextStyle(color: Color(0xFF757778), fontSize: 14),
+                          prefixIcon: Icon(Icons.search, color: Color(0xFF757778)),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Divider(height: 1, color: Colors.grey.shade200),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: filteredStops.length,
+                      itemBuilder: (context, index) {
+                        final option = filteredStops[index];
+                        final bool isFav = favoriteStops.contains(option['name']);
+
+                        return Material(
+                          color: index % 2 == 0 ? Colors.grey.shade50 : Colors.white,
+                          child: InkWell(
+                            onTap: () {
+                              setState(() {
+                                selectedDropOffName = option['name'];
+                              });
+                              Navigator.pop(context);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.location_on_outlined, color: Color(0xFF176a21), size: 22),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Text(
+                                      option['name'],
+                                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: Color(0xFF2C2F30)),
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () async {
+                                      await _toggleFavorite(option['name']);
+                                      setModalState(() {});
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.all(4),
+                                      child: Icon(
+                                        isFav ? Icons.star : Icons.star_border,
+                                        color: isFav ? Colors.amber : Colors.grey.shade400,
+                                        size: 24,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -759,7 +962,7 @@ class _StudentHomeState extends State<StudentHome>
                   ...busStops.map((stop) {
                     bool isSelected = selectedStopName == stop['name'];
                     return Marker(
-                      key: ValueKey('stop_${stop['name']}'),
+                      key: ValueKey('stop_${stop['id'] ?? stop['name']}'),
                       point: LatLng(stop['lat'], stop['lng']),
                       width: isSelected ? 150 : 130,
                       height: isSelected ? 75 : 65,
@@ -965,203 +1168,7 @@ class _StudentHomeState extends State<StudentHome>
           ),
         ),
 
-        Positioned(
-          top: 150,
-          left: 0, // change from 20 to 0 to allow centering
-          right: 0, // change from 20 to 0 to allow centering
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 800),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Autocomplete<Map<String, dynamic>>(
-            optionsBuilder: (TextEditingValue textEditingValue) {
-              if (_isLoadingStops)
-                return const Iterable<Map<String, dynamic>>.empty();
-              if (textEditingValue.text.isEmpty) return busStops;
-              return busStops.where(
-                (stop) => stop['name'].toString().toLowerCase().contains(
-                  textEditingValue.text.toLowerCase(),
-                ),
-              );
-            },
-            displayStringForOption: (option) => option['name'],
-            onSelected: (selection) => _moveToStop(selection),
-            fieldViewBuilder:
-                (context, controller, focusNode, onEditingComplete) {
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(30),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
-                          blurRadius: 20,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: TextField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      decoration: InputDecoration(
-                        hintText: _isLoadingStops
-                            ? 'กำลังโหลดข้อมูล...'
-                            : 'ค้นหาจุดจอดรถ...',
-                        hintStyle: const TextStyle(
-                          color: Color(0xFF757778),
-                          fontSize: 14,
-                        ),
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          color: Color(0xFF757778),
-                        ),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 15,
-                        ),
-                        suffixIcon:
-                            controller.text.isNotEmpty &&
-                                !isWaiting &&
-                                !isAcknowledged
-                            ? IconButton(
-                                icon: const Icon(
-                                  Icons.clear,
-                                  color: Color(0xFF757778),
-                                  size: 20,
-                                ),
-                                onPressed: () {
-                                  controller.clear();
-                                  setState(() {
-                                    selectedStopName = null;
-                                    selectedStopLatLng = null;
-                                    estimatedArrivalText = null;
-                                    highlightedPath.clear();
-                                  });
-                                },
-                              )
-                            : null,
-                      ),
-                      onChanged: (value) => setState(() {}),
-                      enabled:
-                          !_isLoadingStops && !isWaiting && !isAcknowledged,
-                    ),
-                  );
-                },
-            optionsViewBuilder: (context, onSelected, options) {
-              List<Map<String, dynamic>> sortedOptions = options.toList();
-              sortedOptions.sort((a, b) {
-                bool aIsFav = favoriteStops.contains(a['name']);
-                bool bIsFav = favoriteStops.contains(b['name']);
-                if (aIsFav && !bIsFav) return -1;
-                if (!aIsFav && bIsFav) return 1;
-                return 0;
-              });
 
-              return Align(
-                alignment: Alignment.topLeft,
-                child: Material(
-                  elevation: 8,
-                  borderRadius: BorderRadius.circular(24),
-                  child: Container(
-                    width: MediaQuery.of(context).size.width - 40,
-                    constraints: const BoxConstraints(maxHeight: 350),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-                          child: Text(
-                            '#จุดเรียกรถทั้งหมด',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey.shade500,
-                            ),
-                          ),
-                        ),
-                        Divider(height: 1, color: Colors.grey.shade200),
-                        Flexible(
-                          child: ListView.builder(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            shrinkWrap: true,
-                            itemCount: sortedOptions.length,
-                            itemBuilder: (context, index) {
-                              final option = sortedOptions[index];
-                              final bool isFav = favoriteStops.contains(
-                                option['name'],
-                              );
-
-                              return Material(
-                                color: index % 2 == 0
-                                    ? Colors.grey.shade50
-                                    : Colors.white,
-                                child: InkWell(
-                                  onTap: () => onSelected(option),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 20,
-                                      vertical: 16,
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.location_on_outlined,
-                                          color: Color(0xFF176a21),
-                                          size: 22,
-                                        ),
-                                        const SizedBox(width: 16),
-                                        Expanded(
-                                          child: Text(
-                                            option['name'],
-                                            style: const TextStyle(
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w500,
-                                              color: Color(0xFF2C2F30),
-                                            ),
-                                          ),
-                                        ),
-                                        GestureDetector(
-                                          onTap: () =>
-                                              _toggleFavorite(option['name']),
-                                          child: Container(
-                                            padding: const EdgeInsets.all(4),
-                                            child: Icon(
-                                              isFav
-                                                  ? Icons.star
-                                                  : Icons.star_border,
-                                              color: isFav
-                                                  ? Colors.amber
-                                                  : Colors.grey.shade400,
-                                              size: 24,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-              ),
-            ),
-          ),
-        ),
         if (selectedStopName != null)
           Positioned(
             bottom: 90,
@@ -1319,42 +1326,11 @@ class _StudentHomeState extends State<StudentHome>
   }
 
   Widget _buildStopMarker({required bool isSelected, required String name}) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
       children: [
-        // ป้ายชื่อจุดจอดรถ
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF176a21) : Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelected ? Colors.white : const Color(0xFF176a21),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.15),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Text(
-            name,
-            style: TextStyle(
-              fontSize: isSelected ? 11 : 10,
-              fontWeight: FontWeight.bold,
-              color: isSelected ? Colors.white : const Color(0xFF2C2F30),
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
-        ),
-        const SizedBox(height: 3),
-        // หมุดไอคอนจุดจอด
+        // หมุดไอคอนจุดจอด (อยู่ตรงกลาง LatLng พอดีเป๊ะ)
         Container(
           width: isSelected ? 34 : 28,
           height: isSelected ? 34 : 28,
@@ -1377,6 +1353,39 @@ class _StudentHomeState extends State<StudentHome>
             Icons.hail,
             color: isSelected ? Colors.white : const Color(0xFF757778),
             size: isSelected ? 18 : 15,
+          ),
+        ),
+        // ป้ายชื่อจุดจอดรถ (ลอยอยู่ด้านบน)
+        Positioned(
+          bottom: isSelected ? 48 : 40,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: isSelected ? const Color(0xFF176a21) : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isSelected ? Colors.white : const Color(0xFF176a21),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Text(
+              name,
+              style: TextStyle(
+                fontSize: isSelected ? 11 : 10,
+                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.white : const Color(0xFF2C2F30),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
           ),
         ),
       ],
@@ -1451,14 +1460,14 @@ class _StudentHomeState extends State<StudentHome>
 
   Widget _buildStopDetailsCard() {
     // ✨ ถ้าอยู่ในสถานะคนขับรับทราบแล้ว และถูกย่อจากการกดที่แผนที่ ให้แสดงเหลือแค่ปุ่ม "ขึ้นรถเรียบร้อยแล้ว"
-    if (isAcknowledged && isCardMinimized) {
+    if ((isAcknowledged || isOnBoard) && isCardMinimized) {
       return Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 380),
           child: Container(
             margin: const EdgeInsets.symmetric(horizontal: 28),
             child: GestureDetector(
-              onTap: _toggleWaitState,
+              onTap: isOnBoard ? _toggleWaitState : _boardShuttle,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
                 width: double.infinity,
@@ -1478,15 +1487,15 @@ class _StudentHomeState extends State<StudentHome>
                     ),
                   ],
                 ),
-                child: const Center(
+                child: Center(
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.check, color: Colors.white, size: 18),
-                      SizedBox(width: 8),
+                      const Icon(Icons.check, color: Colors.white, size: 18),
+                      const SizedBox(width: 8),
                       Text(
-                        'ขึ้นรถเรียบร้อยแล้ว (เสร็จสิ้น)',
-                        style: TextStyle(
+                        isOnBoard ? 'ถึงที่หมายแล้ว (เสร็จสิ้น)' : 'ขึ้นรถเรียบร้อยแล้ว',
+                        style: const TextStyle(
                           fontSize: 15.5,
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
@@ -1562,9 +1571,11 @@ class _StudentHomeState extends State<StudentHome>
                           setState(() {
                             isWaiting = false;
                             isAcknowledged = false;
+                            isOnBoard = false;
                             isCardMinimized = false;
                             activeRequestId = null;
                             selectedStopName = null;
+                            selectedDropOffName = null;
                             selectedStopLatLng = null;
                             estimatedArrivalText = null;
                             highlightedPath.clear();
@@ -1613,22 +1624,24 @@ class _StudentHomeState extends State<StudentHome>
                     ),
                   ],
                 )
-              else if (isAcknowledged)
+              else if (isAcknowledged || isOnBoard)
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Row(
+                    Row(
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.check_circle,
                           size: 18,
                           color: Color(0xFF176a21),
                         ),
-                        SizedBox(width: 8),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'คนขับรับทราบแล้ว! รถกำลังเดินทางมารับคุณที่ป้าย',
-                            style: TextStyle(
+                            isOnBoard 
+                                ? 'กำลังเดินทางไปยังจุดหมายของคุณ 🚌'
+                                : 'คนขับรับทราบแล้ว! รถกำลังเดินทางมารับคุณที่ป้าย',
+                            style: const TextStyle(
                               fontSize: 13,
                               color: Color(0xFF176a21),
                               fontWeight: FontWeight.bold,
@@ -1735,8 +1748,50 @@ class _StudentHomeState extends State<StudentHome>
 
               const SizedBox(height: 14),
 
+              // ✨ Dropdown เลือกจุดลงรถ (แสดงเฉพาะตอนยังไม่กดเรียกรถ)
+              if (!isWaiting && !isAcknowledged) ...[
+                const Text(
+                  'เลือกลงที่ป้าย:',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF595C5D),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                GestureDetector(
+                  onTap: () => _showDropOffSelectionSheet(context),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.location_on_outlined, color: selectedDropOffName == null ? Colors.grey.shade500 : const Color(0xFF176a21)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            selectedDropOffName ?? 'ต้องการลงที่ป้ายไหน?',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: selectedDropOffName == null ? Colors.grey.shade600 : const Color(0xFF2C2F30),
+                              fontWeight: selectedDropOffName == null ? FontWeight.normal : FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const Icon(Icons.search, color: Color(0xFF176a21), size: 20),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
+
               GestureDetector(
-                onTap: _toggleWaitState,
+                onTap: isOnBoard ? _toggleWaitState : (isAcknowledged ? _boardShuttle : _toggleWaitState),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
                   width: double.infinity,
@@ -1767,9 +1822,11 @@ class _StudentHomeState extends State<StudentHome>
                         Icon(
                           isWaiting
                               ? Icons.cancel
-                              : (isAcknowledged
-                                    ? Icons.check
-                                    : Icons.waving_hand),
+                              : (isOnBoard 
+                                    ? Icons.check_circle_outline
+                                    : (isAcknowledged
+                                          ? Icons.directions_walk
+                                          : Icons.waving_hand)),
                           color: Colors.white,
                           size: 18,
                         ),
@@ -1777,9 +1834,11 @@ class _StudentHomeState extends State<StudentHome>
                         Text(
                           isWaiting
                               ? 'ยกเลิกการรอรถ'
-                              : (isAcknowledged
-                                    ? 'ขึ้นรถเรียบร้อยแล้ว (เสร็จสิ้น)'
-                                    : 'แจ้งรอรถที่จุดนี้'),
+                              : (isOnBoard 
+                                    ? 'ถึงที่หมายแล้ว (เสร็จสิ้น)'
+                                    : (isAcknowledged
+                                          ? 'ขึ้นรถเรียบร้อยแล้ว'
+                                          : 'แจ้งรอรถที่จุดนี้')),
                           style: const TextStyle(
                             fontSize: 15.5,
                             color: Colors.white,

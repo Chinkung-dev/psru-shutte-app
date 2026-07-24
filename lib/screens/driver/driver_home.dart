@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
+import '../../widgets/top_toast.dart';
 import 'package:flutter_tts/flutter_tts.dart'; // ✨ สำหรับเสียง AI พูดภาษาไทย
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'; // ✨ สำหรับเล่นเสียงแจ้งเตือนมือถือ
 import 'package:audioplayers/audioplayers.dart'; // ✨ สำหรับเล่นไฟล์เสียง MP3 จุดจอด
@@ -75,6 +76,13 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   // ✨ ตัวแปรจำกัดเวลาส่งข้อมูล (Throttling 3 วินาที) และพิกัดล่าสุด (Distance Check 5 เมตร) เพื่อประหยัดโควตาและแบตเตอรี่
   DateTime? _lastFirebaseUpdate;
   LatLng? _lastUploadedLocation;
+
+  // ✨ ตัวแปรสำหรับ Smart Routing และ Drop-off TTS
+  int? _lastPassedStopOrder;
+  int _currentTargetStopOrder = 1; // เริ่มที่ป้าย order 1
+  final Set<String> _announcedDropOffStops = {}; // กัน TTS พูดซ้ำ
+  Set<String> _activeDropOffStops = {}; // รายชื่อป้ายที่มีคนจะลง
+
 
   @override
   void initState() {
@@ -380,6 +388,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           'name': data['name'] ?? 'จุดจอด',
           'lat': (data['lat'] as num).toDouble(),
           'lng': (data['lng'] as num).toDouble(),
+          'order': data['order'],
         });
       }
 
@@ -504,17 +513,37 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     });
   }
 
+  // ✨ ฟังก์ชันเล่นเสียงแจ้งเตือนจุดลงรถ
+  Future<void> _triggerDropOffVoiceAlert(String stopName) async {
+    if (!mounted || !isOnline) return;
+
+    try {
+      HapticFeedback.heavyImpact();
+      final AudioPlayer alertPlayer = AudioPlayer();
+      await alertPlayer.play(AssetSource('voice/glass_1.mp3')); // ใช้เสียงเดียวกับตอนเรียก หรือเปลี่ยนได้
+
+      await Future.delayed(const Duration(milliseconds: 1500)); // รอให้เสียงแจ้งเตือนจบ
+      
+      await flutterTts.stop();
+      String phoneticStopName = stopName
+          .replaceAll('IT', 'ไอที')
+          .replaceAll('ทีปวิชญ์', 'ทีปะวิช')
+          .replaceAll('(ขาเข้า)', '')
+          .replaceAll('(ขาออก)', '')
+          .trim();
+
+      await flutterTts.speak("มีนักศึกษาลงที่ $phoneticStopName");
+    } catch (e) {
+      print("❌ Error triggering drop-off TTS: $e");
+    }
+  }
+
   Future<void> _startShift() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!mounted) return;
 
     if (!serviceEnabled) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('⚠️ กรุณาเปิด GPS ในอุปกรณ์ของคุณ'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      TopToast.show(context, '⚠️ กรุณาเปิด GPS ในอุปกรณ์ของคุณ', isError: true);
       return;
     }
 
@@ -522,24 +551,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('⚠️ สิทธิ์การเข้าถึงตำแหน่งถูกปฏิเสธ'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        TopToast.show(context, '⚠️ สิทธิ์การเข้าถึงตำแหน่งถูกปฏิเสธ', isError: true);
         return;
       }
     }
     if (permission == LocationPermission.deniedForever) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            '⚠️ สิทธิ์การเข้าถึงตำแหน่งถูกบล็อก กรุณาเปิดสิทธิ์ในตั้งค่า',
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
+      TopToast.show(context, '⚠️ สิทธิ์การเข้าถึงตำแหน่งถูกบล็อก กรุณาเปิดสิทธิ์ในตั้งค่า', isError: true);
       return;
     }
 
@@ -610,11 +627,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         if (_psruBounds.contains(newLoc)) {
           _mapController.move(newLoc, 16.5);
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('⚠️ ตำแหน่ง GPS ของคุณอยู่นอกพื้นที่มหาวิทยาลัย'),
-            ),
-          );
+          TopToast.show(context, '⚠️ ตำแหน่ง GPS ของคุณอยู่นอกพื้นที่มหาวิทยาลัย', isError: true);
         }
 
         if (_shuttleDocId != null) {
@@ -635,13 +648,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       print("❌ Error getting initial location (Using Fallback): $e");
       // หาก _currentLocation ยังเป็นค่าเริ่มต้นอยู่ (หอประชุมฯ) หรือดึงพิกัดล่าสุดสำเร็จแล้วก็ให้ค้างค่านั้นไว้
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('⚠️ ดึงพิกัดจริงล่าช้า ($e) ระบบใช้พิกัดที่มีล่าสุด'),
-            backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 3),
-          ),
-        );
+        TopToast.show(context, '⚠️ ดึงพิกัดจริงล่าช้า ระบบใช้พิกัดที่มีล่าสุด', isError: true);
 
         if (_shuttleDocId != null && _currentLocation != null) {
           _lastFirebaseUpdate = DateTime.now();
@@ -715,6 +722,46 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 ? 999.0
                 : const Distance().distance(_lastUploadedLocation!, newLoc);
 
+            // ✨ Smart Routing: ตรวจสอบการผ่านป้าย (รัศมี 30 เมตร) เพื่ออัปเดต last_passed_stop
+            if (busStops.isNotEmpty) {
+              try {
+                final targetStop = busStops.firstWhere(
+                  (s) => s['order'] == _currentTargetStopOrder,
+                  orElse: () => busStops.first,
+                );
+                if (targetStop['lat'] != null && targetStop['lng'] != null) {
+                  final targetLoc = LatLng(targetStop['lat'], targetStop['lng']);
+                  final distanceToTarget = const Distance().distance(newLoc, targetLoc);
+                  
+                  if (distanceToTarget <= 30.0) { // เข้าใกล้ป้ายในรัศมี 30 เมตร
+                    print("🚌 Passed Stop: ${targetStop['name']} (Order: $_currentTargetStopOrder)");
+                    _lastPassedStopOrder = _currentTargetStopOrder;
+                    
+                    // ปรับเป้าหมายไปป้ายถัดไป (1 ถึง 23)
+                    int maxOrder = busStops.map((s) => (s['order'] ?? 0) as int).reduce((a, b) => a > b ? a : b);
+                    if (maxOrder == 0) maxOrder = 23; // fallback
+                    
+                    _currentTargetStopOrder = (_currentTargetStopOrder % maxOrder) + 1;
+                    
+                    // รีเซ็ตประวัติ TTS เมื่อวนรอบใหม่
+                    if (_currentTargetStopOrder == 1) {
+                      _announcedDropOffStops.clear();
+                    }
+                  }
+                  
+                  // ✨ Drop-off TTS Alert (แจ้งเตือนล่วงหน้า 150 เมตร)
+                  if (distanceToTarget <= 150.0 && _activeDropOffStops.contains(targetStop['name'])) {
+                    if (!_announcedDropOffStops.contains(targetStop['name'])) {
+                      _announcedDropOffStops.add(targetStop['name']);
+                      _triggerDropOffVoiceAlert(targetStop['name']);
+                    }
+                  }
+                }
+              } catch (e) {
+                print("Error checking stop distance: $e");
+              }
+            }
+
             if (_shuttleDocId != null &&
                 distanceMoved >= 3.0 &&
                 (_lastFirebaseUpdate == null ||
@@ -722,15 +769,22 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                         3000)) {
               _lastFirebaseUpdate = now;
               _lastUploadedLocation = newLoc;
+              
+              final updateData = {
+                'lat': newLoc.latitude,
+                'lng': newLoc.longitude,
+                'status': 'online',
+                'last_updated': FieldValue.serverTimestamp(),
+              };
+              // ✨ แนบ last_passed_stop ไปด้วย
+              if (_lastPassedStopOrder != null) {
+                updateData['last_passed_stop'] = _lastPassedStopOrder as Object;
+              }
+
               FirebaseFirestore.instance
                   .collection('shuttles')
                   .doc(_shuttleDocId)
-                  .set({
-                    'lat': newLoc.latitude,
-                    'lng': newLoc.longitude,
-                    'status': 'online',
-                    'last_updated': FieldValue.serverTimestamp(),
-                  }, SetOptions(merge: true));
+                  .set(updateData, SetOptions(merge: true));
             }
           },
           onError: (error) {
@@ -740,7 +794,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
     requestStream = FirebaseFirestore.instance
         .collection('ride_requests')
-        .where('status', whereIn: ['waiting', 'acknowledged'])
+        .where('status', whereIn: ['waiting', 'acknowledged', 'on_board']) // ✨ เพิ่ม on_board
         .snapshots()
         .handleError((e) => print("Firestore Error (ride_requests): $e"))
         .listen((snapshot) {
@@ -783,6 +837,17 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 });
               }
             }
+
+            // ✨ อัปเดตรายชื่อจุดลงรถของคนที่อยู่บนรถ (on_board)
+            final Set<String> dropOffStops = {};
+            for (var doc in docs) {
+              final data = doc.data() as Map<String, dynamic>;
+              if (data['status'] == 'on_board' && data.containsKey('dropoff_stop') && data['dropoff_stop'] != null) {
+                dropOffStops.add(data['dropoff_stop']);
+              }
+            }
+            _activeDropOffStops = dropOffStops;
+
 
             // ✨ ค้นหาคำขอที่มีสถานะ 'waiting' เพื่อเป็นป้ายหลัก (active)
             QueryDocumentSnapshot? activeDoc;

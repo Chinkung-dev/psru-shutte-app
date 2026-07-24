@@ -76,6 +76,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
       for (var doc in snapshot.docs) {
         final data = doc.data();
         loadedStops.add({
+          'id': doc.id,
           'name': data['name'],
           'lat': (data['lat'] as num).toDouble(),
           'lng': (data['lng'] as num).toDouble(),
@@ -153,40 +154,10 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
   }
 
   Widget _buildStopMarker({required String name}) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: const Color(0xFF176a21),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.15),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Text(
-            name,
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF2C2F30),
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
-        ),
-        const SizedBox(height: 3),
         Container(
           width: 28,
           height: 28,
@@ -209,6 +180,38 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
             Icons.hail,
             color: Color(0xFF757778),
             size: 15,
+          ),
+        ),
+        Positioned(
+          bottom: 40,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFF176a21),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.15),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Text(
+              name,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF2C2F30),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
           ),
         ),
       ],
@@ -307,11 +310,12 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
               strokeWidth: 5.0,
               color: const Color(0xFF176a21).withOpacity(0.4),
             );
-          }).toList(),
+        }).toList(),
         ),
         MarkerLayer(
           markers: [
             ...busStops.map((stop) => Marker(
+              key: ValueKey('stop_${stop['id'] ?? stop['name']}'),
               point: LatLng(stop['lat'], stop['lng']),
               width: 130,
               height: 65,

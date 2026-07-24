@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../widgets/top_toast.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -21,26 +22,14 @@ class _LoginScreenState extends State<LoginScreen> {
     final password = _passwordController.text.trim();
 
     if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('กรุณากรอกอีเมลและรหัสผ่านให้ครบถ้วน'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      TopToast.show(context, 'กรุณากรอกอีเมลและรหัสผ่านให้ครบถ้วน', isError: true);
       return;
     }
 
     if (!RegExp(
       r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
     ).hasMatch(email)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'กรุณากรอกรูปแบบอีเมลให้ถูกต้อง (เช่น user@example.com)',
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
+      TopToast.show(context, 'กรุณากรอกรูปแบบอีเมลให้ถูกต้อง (เช่น user@example.com)', isError: true);
       return;
     }
 
@@ -100,17 +89,10 @@ class _LoginScreenState extends State<LoginScreen> {
         message =
             'ไม่สามารถเชื่อมต่ออินเทอร์เน็ตได้ กรุณาตรวจสอบการเชื่อมต่อของคุณ';
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.red),
-      );
+      TopToast.show(context, message, isError: true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('เกิดข้อผิดพลาด: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      TopToast.show(context, 'เกิดข้อผิดพลาด: $e', isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -254,9 +236,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
           // 📄 Layer 3: ส่วนการ์ดฟอร์มเข้าสู่ระบบ (Login Form Card)
           SafeArea(
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 500),
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: Column(
                 children: [
                   const SizedBox(
@@ -473,6 +458,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 40),
                 ],
+                  ),
+                ),
               ),
             ),
           ),

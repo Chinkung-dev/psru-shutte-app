@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // ✨ เพิ่ม Import Firestore เข้ามา
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../widgets/top_toast.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -15,13 +16,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   // 🛠️ Helper Function สำหรับแสดงแจ้งเตือน (ลดโค้ดซ้ำ)
   void _showSnackBar(String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold)), 
-        backgroundColor: color,
-        behavior: SnackBarBehavior.floating, // ให้ป๊อปอัปเด้งลอยขึ้นมาสวยๆ
-      ),
-    );
+    TopToast.show(context, message, isError: color != Colors.green);
   }
 
   Future<void> _resetPassword() async {
@@ -89,12 +84,21 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Color(0xFF176a21)),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            } else {
+              Navigator.pushReplacementNamed(context, '/login');
+            }
+          },
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 500),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -168,6 +172,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               ),
               const SizedBox(height: 40), 
             ],
+          ),
+        ),
           ),
         ),
       ),

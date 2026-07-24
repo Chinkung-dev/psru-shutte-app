@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'add_driver_dialog.dart';
 
 class AdminDriversTab extends StatelessWidget {
   const AdminDriversTab({super.key});
@@ -215,7 +216,27 @@ class DriversTableCard extends StatelessWidget {
                   onPressed: () {},
                   icon: const Icon(Icons.filter_list, color: Color(0xFF176a21), size: 20),
                   label: const Text('ตัวกรองเพิ่มเติม', style: TextStyle(color: Color(0xFF176a21), fontWeight: FontWeight.bold)),
-                )
+                ),
+                const SizedBox(width: 16),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => const AddDriverDialog(),
+                    ).then((result) {
+                      if (result == true) {
+                        // Refresh drivers logic if needed
+                      }
+                    });
+                  },
+                  icon: const Icon(Icons.add, color: Colors.white, size: 20),
+                  label: const Text('เพิ่มคนขับรถ', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF176a21),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  ),
+                ),
               ],
             ),
           ),

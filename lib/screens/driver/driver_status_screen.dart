@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../widgets/top_toast.dart';
 
 class DriverStatusScreen extends StatefulWidget {
   const DriverStatusScreen({super.key});
@@ -78,13 +79,7 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
           }, SetOptions(merge: true));
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('อัปเดตสถานะสำเร็จ'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 1),
-          ),
-        );
+        TopToast.show(context, 'อัปเดตสถานะสำเร็จ', isError: false);
       }
     } catch (e) {
       print("Error updating status: $e");
