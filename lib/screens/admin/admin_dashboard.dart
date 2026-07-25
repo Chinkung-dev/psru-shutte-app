@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart' hide Path;
 import '../../route_data.dart';
 import 'admin_live_map.dart';
 import 'admin_drivers_tab.dart';
+import 'admin_students_tab.dart';
 import 'admin_analytics_tab.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // ✨ เพิ่ม Import FirebaseAuth สำหรับล็อกเอาต์
 
@@ -70,6 +71,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 ? const AdminLiveMapTab()
                 : _selectedIndex == 2
                 ? const AdminDriversTab()
+                : _selectedIndex == 3
+                ? const AdminStudentsTab()
                 : const AdminAnalyticsTab(),
           ),
         ],
@@ -290,10 +293,11 @@ class AdminSidebar extends StatelessWidget {
           _buildNavItem(Icons.dashboard_rounded, 'Overview', 0),
           _buildNavItem(Icons.map_outlined, 'Live Map', 1),
           _buildNavItem(Icons.people_outline, 'Drivers', 2),
-          _buildNavItem(Icons.analytics_outlined, 'Analytics', 3),
+          _buildNavItem(Icons.school_outlined, 'Students', 3),
+          _buildNavItem(Icons.analytics_outlined, 'Analytics', 4),
           const Spacer(),
-          _buildNavItem(Icons.settings_outlined, 'Settings', 4),
-          _buildNavItem(Icons.help_outline, 'Support', 5),
+          _buildNavItem(Icons.settings_outlined, 'Settings', 5),
+          _buildNavItem(Icons.help_outline, 'Support', 6),
           const SizedBox(height: 16),
           // ✨ เพิ่มปุ่มออกจากระบบ (Logout)
           Container(

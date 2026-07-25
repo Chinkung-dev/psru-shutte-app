@@ -100,6 +100,11 @@ class _AddDriverDialogState extends State<AddDriverDialog> {
       return;
     }
 
+    if (!RegExp(r'^\d{10}$').hasMatch(employeeId)) {
+      _showSnackBar('รหัสพนักงานต้องเป็นตัวเลข 10 หลักเท่านั้น', Colors.red);
+      return;
+    }
+
     if (!RegExp(r'^0\d{9}$').hasMatch(phone)) {
       _showSnackBar('เบอร์โทรศัพท์ต้องเป็นตัวเลข 10 หลักและขึ้นต้นด้วยเลข 0', Colors.red);
       return;
@@ -233,9 +238,11 @@ class _AddDriverDialogState extends State<AddDriverDialog> {
 
               _buildInputField(
                 label: 'รหัสพนักงาน',
-                hint: 'DRV-001',
+                hint: 'กรอกรหัสพนักงาน 10 หลัก',
                 icon: Icons.badge_outlined,
                 controller: _employeeIdController,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)],
               ),
               const SizedBox(height: 16),
 
