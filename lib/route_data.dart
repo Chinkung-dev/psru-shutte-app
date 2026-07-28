@@ -425,14 +425,9 @@ final List<List<LatLng>> shuttleRoutes = [
     const LatLng(16.82674810, 100.21518060),
     const LatLng(16.82614630, 100.21425830),
   ],
-  // Segment 22
+  // Segment 22 (อัปเดตใหม่ตาม GeoJSON)
   [
-    const LatLng(16.82924660, 100.20720880),
-    const LatLng(16.82932540, 100.20734030),
-    const LatLng(16.82938000, 100.20733550),
-    const LatLng(16.82944520, 100.20731970),
-    const LatLng(16.82953960, 100.20726350),
-    const LatLng(16.82974350, 100.20713860),
-    const LatLng(16.82986330, 100.20706410),
+    const LatLng(16.82924650, 100.20720980),
+    const LatLng(16.82932810, 100.20734120),
   ],
 ];

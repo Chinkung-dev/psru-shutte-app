@@ -11,6 +11,7 @@ import 'student_profile.dart';
 import 'student_chat_list_screen.dart'; // ✨ Import หน้ารวมห้องแชท
 import 'student_live_status_screen.dart'; // ✨ Import หน้า Live Status
 import 'package:geolocator/geolocator.dart'; // ✨ เพิ่มเพื่อดึงตำแหน่งผู้ใช้
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'; // ✨ สำหรับแจ้งเตือนเสียงแชท
 
 class StudentHome extends StatefulWidget {
   const StudentHome({super.key});
@@ -52,6 +53,8 @@ class _StudentHomeState extends State<StudentHome>
   List<Map<String, dynamic>> activeShuttles =
       []; // ✨ เก็บรายการรถที่กำลังออนไลน์
 
+  final Map<String, StreamSubscription<QuerySnapshot>> _chatSubscriptions = {}; // ✨ จัดการตัวฟังแชทหลายห้อง
+  final Timestamp _chatListenerStartTime = Timestamp.now(); // ✨ เวลาเริ่มฟังแชท  List<Map<String, dynamic>> busStops = [];
   List<Map<String, dynamic>> busStops = [];
   bool _isLoadingStops = true;
 
@@ -76,15 +79,15 @@ class _StudentHomeState extends State<StudentHome>
     _listenToShuttles(); // ✨ เริ่มฟังตำแหน่งรถ
     _zoomToUserLocation(); // ✨ ดึงตำแหน่งผู้ใช้และซูมแผนที่
 
-    // ✨ Setup animation controller for smooth marker movement (1200ms สอดคล้องกับการอัปเดตจากรถคนขับทุก 1.2 วินาทีเพื่อให้ลื่นไหลสุดๆ)
+    // ✨ Setup animation controller for smooth marker movement (ตั้งเป็น 3200ms เพื่อให้สอดคล้องกับฝั่งคนขับที่ส่งข้อมูลทุก 3 วินาที ทำให้รถไหลลื่นตลอดเวลา)
     _markerAnimationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 3000),
+      duration: const Duration(milliseconds: 3200),
     );
     _markerAnimation =
         CurvedAnimation(
           parent: _markerAnimationController,
-          curve: Curves.easeInOut,
+          curve: Curves.linear, // ใช้ linear เพื่อให้วิ่งต่อเนื่องแบบไม่กระตุกเมื่อรีเซ็ตบ่อยๆ
         )..addListener(() {
           if (mounted) {
             setState(() {
@@ -202,24 +205,38 @@ class _StudentHomeState extends State<StudentHome>
 
               // เช็คว่าสถานะผู้โดยสารเปลี่ยนหรือไม่
               bool statusChanged = true;
+              String? oldPassengerStatus;
               for (var oldS in activeShuttles) {
-                if (oldS['id'] == id &&
-                    oldS['passenger_status'] == newPassengerStatus) {
-                  statusChanged = false;
+                if (oldS['id'] == id) {
+                  oldPassengerStatus = oldS['passenger_status'];
+                  if (oldS['passenger_status'] == newPassengerStatus) {
+                    statusChanged = false;
+                  }
                   break;
                 }
               }
               if (statusChanged) {
                 hasMeaningfulChange = true;
+                
+                // ✨ แจ้งเตือนถ้ารถเป้าหมายเปลี่ยนสถานะเป็นเต็มหรือพัก
+                if (targetedShuttleId == id && (isWaiting || isAcknowledged || selectedStopLatLng != null)) {
+                   if (newPassengerStatus == 'full' && oldPassengerStatus != 'full') {
+                     TopToast.show(context, 'แจ้งเตือน: รถรับส่งคันเป้าหมาย "ผู้โดยสารเต็ม" แล้วครับ', isError: true);
+                   } else if (newPassengerStatus == 'break' && oldPassengerStatus != 'break') {
+                     TopToast.show(context, 'แจ้งเตือน: รถรับส่งคันเป้าหมายกำลัง "พักเบรก" ครับ', isError: true);
+                   }
+                }
               }
+
+              final targetLoc = _targetShuttleLocations[id];
 
               if (currentLoc == null) {
                 _currentShuttleLocations[id] = newLoc;
                 _targetShuttleLocations[id] = newLoc;
+                _oldShuttleLocations[id] = newLoc; // ✨ ป้องกันบั๊กเริ่มต้น
                 hasMeaningfulChange = true;
-              } else if (currentLoc.latitude != newLoc.latitude ||
-                  currentLoc.longitude != newLoc.longitude) {
-                _oldShuttleLocations[id] = currentLoc;
+              } else if (targetLoc == null || targetLoc.latitude != newLoc.latitude ||
+                  targetLoc.longitude != newLoc.longitude) {
                 _targetShuttleLocations[id] = newLoc;
                 shouldAnimate = true;
                 hasMeaningfulChange = true;
@@ -229,6 +246,15 @@ class _StudentHomeState extends State<StudentHome>
             final activeIds = newShuttles.map((s) => s['id'] as String).toSet();
             if (activeIds.length != activeShuttles.length) {
               hasMeaningfulChange = true;
+            }
+
+            // ✨ แจ้งเตือนถ้ารถเป้าหมายออฟไลน์/เลิกงาน
+            if (targetedShuttleId != null && (isWaiting || isAcknowledged || selectedStopLatLng != null)) {
+              bool wasActive = activeShuttles.any((s) => s['id'] == targetedShuttleId);
+              bool isStillActive = activeIds.contains(targetedShuttleId);
+              if (wasActive && !isStillActive) {
+                TopToast.show(context, 'แจ้งเตือน: รถรับส่งคันเป้าหมาย "เลิกงาน/ออฟไลน์" แล้วครับ ระบบจะหาคันใหม่ให้', isError: true);
+              }
             }
 
             _currentShuttleLocations.removeWhere(
@@ -246,8 +272,15 @@ class _StudentHomeState extends State<StudentHome>
               setState(() {
                 activeShuttles = newShuttles;
               });
+              _syncChatListeners(); // ✨ ซิงค์ตัวฟังแชทเมื่อมีรถอัปเดต
 
               if (shouldAnimate) {
+                // ✨ อัปเดตพิกัดเริ่มต้นใหม่ให้กับรถทุกคัน ป้องกันบั๊กหมุดเด้งถอยหลังเวลาอนิเมชันเริ่มใหม่กลางคัน
+                for (var keyId in _targetShuttleLocations.keys) {
+                  if (_currentShuttleLocations.containsKey(keyId)) {
+                    _oldShuttleLocations[keyId] = _currentShuttleLocations[keyId]!;
+                  }
+                }
                 _markerAnimationController.forward(from: 0.0);
               }
 
@@ -258,6 +291,43 @@ class _StudentHomeState extends State<StudentHome>
             }
           }
         });
+  }
+
+  // ✨ ฟังข้อความแชทของทุกรถที่ออนไลน์ เพื่อแจ้งเตือนเสียง
+  void _syncChatListeners() {
+    final activeIds = activeShuttles.map((s) => s['id'] as String).toSet();
+    
+    // ลบตัวฟังของรถที่ไม่ออนไลน์แล้ว
+    _chatSubscriptions.removeWhere((id, sub) {
+      if (!activeIds.contains(id)) {
+        sub.cancel();
+        return true;
+      }
+      return false;
+    });
+
+    // เพิ่มตัวฟังสำหรับรถคันใหม่
+    for (var id in activeIds) {
+      if (!_chatSubscriptions.containsKey(id)) {
+        _chatSubscriptions[id] = FirebaseFirestore.instance
+            .collection('chats')
+            .doc(id)
+            .collection('messages')
+            .where('timestamp', isGreaterThan: _chatListenerStartTime)
+            .snapshots()
+            .listen((snapshot) {
+          for (var change in snapshot.docChanges) {
+            if (change.type == DocumentChangeType.added) {
+              final data = change.doc.data() as Map<String, dynamic>?;
+              // เล่นเสียงเฉพาะถ้าคนส่งไม่ใช่ตัวเรา
+              if (data != null && data['senderId'] != FirebaseAuth.instance.currentUser?.uid) {
+                FlutterRingtonePlayer().playNotification();
+              }
+            }
+          }
+        });
+      }
+    }
   }
 
   void _listenToFavoriteStops() {
@@ -342,72 +412,92 @@ class _StudentHomeState extends State<StudentHome>
     return closest;
   }
 
-  void _calculateHighlightedPath(LatLng startLoc, LatLng endLoc) {
-    LatLng? startNode = _getClosestNode(startLoc);
-    LatLng? endNode = _getClosestNode(endLoc);
-
-    if (startNode == null || endNode == null) {
+  void _calculateHighlightedPath(List<LatLng> waypoints) {
+    if (waypoints.length < 2) {
       setState(() => highlightedPath.clear());
       return;
     }
 
-    Set<LatLng> unvisited = Set.from(_routeGraph.keys);
-    Map<LatLng, double> distances = {};
-    Map<LatLng, LatLng> previous = {};
+    List<LatLng> fullPath = [];
+    double totalMeters = 0;
     const distanceCalc = Distance();
 
-    for (var node in _routeGraph.keys) {
-      distances[node] = double.infinity;
-    }
-    distances[startNode] = 0;
+    for (int i = 0; i < waypoints.length - 1; i++) {
+      LatLng startLoc = waypoints[i];
+      LatLng endLoc = waypoints[i + 1];
 
-    while (unvisited.isNotEmpty) {
-      LatLng? current;
-      double minDist = double.infinity;
-      for (var node in unvisited) {
-        if (distances[node]! < minDist) {
-          minDist = distances[node]!;
-          current = node;
+      LatLng? startNode = _getClosestNode(startLoc);
+      LatLng? endNode = _getClosestNode(endLoc);
+
+      if (startNode == null || endNode == null) continue;
+
+      Set<LatLng> unvisited = Set.from(_routeGraph.keys);
+      Map<LatLng, double> distances = {};
+      Map<LatLng, LatLng> previous = {};
+
+      for (var node in _routeGraph.keys) {
+        distances[node] = double.infinity;
+      }
+      distances[startNode] = 0;
+
+      while (unvisited.isNotEmpty) {
+        LatLng? current;
+        double minDist = double.infinity;
+        for (var node in unvisited) {
+          if (distances[node]! < minDist) {
+            minDist = distances[node]!;
+            current = node;
+          }
+        }
+
+        if (current == null || current == endNode) break;
+        unvisited.remove(current);
+
+        for (var neighbor in _routeGraph[current] ?? []) {
+          if (!unvisited.contains(neighbor)) continue;
+          double alt =
+              distances[current]! + distanceCalc.distance(current, neighbor);
+          if (alt < distances[neighbor]!) {
+            distances[neighbor] = alt;
+            previous[neighbor] = current;
+          }
         }
       }
 
-      if (current == null || current == endNode) break;
-      unvisited.remove(current);
-
-      for (var neighbor in _routeGraph[current] ?? []) {
-        if (!unvisited.contains(neighbor)) continue;
-        double alt =
-            distances[current]! + distanceCalc.distance(current, neighbor);
-        if (alt < distances[neighbor]!) {
-          distances[neighbor] = alt;
-          previous[neighbor] = current;
+      List<LatLng> path = [];
+      LatLng? curr = endNode;
+      if (previous.containsKey(curr) || curr == startNode) {
+        while (curr != null) {
+          path.insert(0, curr);
+          curr = previous[curr];
         }
       }
-    }
 
-    List<LatLng> path = [];
-    LatLng? curr = endNode;
-    if (previous.containsKey(curr) || curr == startNode) {
-      while (curr != null) {
-        path.insert(0, curr);
-        curr = previous[curr];
+      if (path.isNotEmpty) {
+        if (i == 0) {
+          path.insert(0, startLoc);
+        } else {
+          if (fullPath.isNotEmpty && fullPath.last == path.first) {
+            path.removeAt(0);
+          }
+        }
+        if (i == waypoints.length - 2) {
+          path.add(endLoc);
+        }
+        fullPath.addAll(path);
+      } else {
+        if (i == 0) fullPath.add(startLoc);
+        fullPath.add(endLoc);
       }
-    }
 
-    if (path.isNotEmpty) {
-      path.insert(0, startLoc);
-      path.add(endLoc);
-    }
-
-    // ✨ คำนวณระยะทางรวมตามถนนจริงเป็นเมตร
-    double totalMeters = 0;
-    if (distances[endNode] != null && distances[endNode] != double.infinity) {
-      totalMeters =
-          distanceCalc.distance(startLoc, startNode) +
-          distances[endNode]! +
-          distanceCalc.distance(endNode, endLoc);
-    } else {
-      totalMeters = distanceCalc.distance(startLoc, endLoc);
+      if (distances[endNode] != null && distances[endNode] != double.infinity) {
+        totalMeters +=
+            distanceCalc.distance(startLoc, startNode) +
+            distances[endNode]! +
+            distanceCalc.distance(endNode, endLoc);
+      } else {
+        totalMeters += distanceCalc.distance(startLoc, endLoc);
+      }
     }
 
     String eta;
@@ -426,7 +516,7 @@ class _StudentHomeState extends State<StudentHome>
     }
 
     setState(() {
-      highlightedPath = path;
+      highlightedPath = fullPath;
       estimatedArrivalText = eta;
     });
   }
@@ -514,6 +604,10 @@ class _StudentHomeState extends State<StudentHome>
   @override
   void dispose() {
     _markerAnimationController.dispose();
+    for (var sub in _chatSubscriptions.values) {
+      sub.cancel();
+    }
+    _chatSubscriptions.clear();
     requestSubscription?.cancel();
     userSubscription?.cancel();
     shuttleSubscription?.cancel(); // ✨ ยกเลิกฟังตำแหน่งรถ
@@ -531,7 +625,7 @@ class _StudentHomeState extends State<StudentHome>
   }
 
   void _moveToStop(Map<String, dynamic> stop) {
-    if (isAcknowledged) {
+    if (isAcknowledged || isOnBoard) {
       if (isCardMinimized) {
         setState(() => isCardMinimized = false);
       }
@@ -586,6 +680,7 @@ class _StudentHomeState extends State<StudentHome>
 
     String? closestBusId;
     LatLng? closestBusLoc;
+    int? closestBusLastPassed;
     int minIndexDistance = 999;
     double minDirectDistFallback = double.infinity;
 
@@ -598,6 +693,7 @@ class _StudentHomeState extends State<StudentHome>
         
         int? lastPassed = trackedBus['last_passed_stop'] as int?;
         if (lastPassed != null) {
+          closestBusLastPassed = lastPassed;
           int maxOrder = 23;
           if (busStops.isNotEmpty) {
             maxOrder = busStops
@@ -606,7 +702,7 @@ class _StudentHomeState extends State<StudentHome>
             if (maxOrder == 0) maxOrder = 23;
           }
           int distIndex = targetOrder - lastPassed;
-          if (distIndex <= 0) {
+          if (distIndex < 0) {
             distIndex += maxOrder;
           }
           minIndexDistance = distIndex;
@@ -631,7 +727,7 @@ class _StudentHomeState extends State<StudentHome>
           }
 
           int distIndex = targetOrder - lastPassed;
-          if (distIndex <= 0) {
+          if (distIndex < 0) {
             distIndex += maxOrder;
           }
 
@@ -639,6 +735,7 @@ class _StudentHomeState extends State<StudentHome>
             minIndexDistance = distIndex;
             closestBusId = bus['id'];
             closestBusLoc = busLoc;
+            closestBusLastPassed = lastPassed;
           }
         } else {
           double d = const Distance().distance(busLoc, target);
@@ -661,8 +758,50 @@ class _StudentHomeState extends State<StudentHome>
 
     targetedShuttleId = closestBusId;
     remainingStops = (minIndexDistance != 999) ? minIndexDistance : null;
+
+    List<LatLng> waypoints = [closestBusLoc!];
+
+    if (busStops.isNotEmpty) {
+      int maxOrder = busStops
+          .map((s) => (s['order'] ?? 0) as int)
+          .reduce((a, b) => a > b ? a : b);
+      if (maxOrder == 0) maxOrder = 23;
+
+      // ✨ หาป้ายที่ใกล้รถที่สุดในปัจจุบัน เพื่อเป็นจุดเริ่มต้นการคำนวณ (แก้ปัญหา last_passed_stop อัปเดตไม่ทัน)
+      int currentOrder = 1;
+      double minBusDist = double.infinity;
+      for (var stop in busStops) {
+        double dist = const Distance().distance(closestBusLoc!, LatLng(stop['lat'], stop['lng']));
+        if (dist < minBusDist) {
+          minBusDist = dist;
+          currentOrder = stop['order'] ?? 1;
+        }
+      }
+
+      int stepCount = targetOrder - currentOrder;
+      if (stepCount < 0) stepCount += maxOrder;
+
+      // ✨ เพิ่ม intermediate stops เพื่อบังคับเส้นทางให้วิ่งตามลำดับป้าย
+      for (int i = 1; i < stepCount; i++) {
+        int nextOrder = currentOrder + i;
+        if (nextOrder > maxOrder) nextOrder -= maxOrder;
+
+        try {
+          final stop = busStops.firstWhere((s) => s['order'] == nextOrder);
+          LatLng stopLoc = LatLng(stop['lat'], stop['lng']);
+          
+          if (const Distance().distance(closestBusLoc!, stopLoc) > 40.0 &&
+              const Distance().distance(target, stopLoc) > 40.0) {
+            waypoints.add(stopLoc);
+          }
+        } catch (e) {
+          // ข้ามถ้าไม่เจอป้าย
+        }
+      }
+    }
+    waypoints.add(target);
     
-    _calculateHighlightedPath(closestBusLoc!, target);
+    _calculateHighlightedPath(waypoints);
   }
 
   // ✨ ฟังก์ชันเมื่อนักศึกษากด "ขึ้นรถเรียบร้อยแล้ว"
@@ -1043,7 +1182,7 @@ class _StudentHomeState extends State<StudentHome>
                 }
               },
               onTap: (tapPosition, point) {
-                if (isAcknowledged) {
+                if (isAcknowledged || isOnBoard) {
                   setState(() {
                     isCardMinimized =
                         true; // ✨ ย่อกรอบรายละเอียดออก ให้เหลือแค่ปุ่ม "ขึ้นรถเรียบร้อย"
@@ -1084,7 +1223,9 @@ class _StudentHomeState extends State<StudentHome>
               MarkerLayer(
                 markers: [
                   ...busStops.map((stop) {
-                    bool isSelected = selectedStopName == stop['name'];
+                    bool isSelected = isOnBoard
+                        ? selectedDropOffName == stop['name']
+                        : selectedStopName == stop['name'];
                     return Marker(
                       key: ValueKey('stop_${stop['id'] ?? stop['name']}'),
                       point: LatLng(stop['lat'], stop['lng']),

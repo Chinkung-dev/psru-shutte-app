@@ -42,6 +42,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   _heartbeatTimer; // ✨ Heartbeat สำหรับอัปเดตเวลาให้สดใหม่อยู่เสมอตอนจอดรอรับส่ง
   String _currentPassengerStatus = 'available';
 
+  StreamSubscription<QuerySnapshot>? _chatNotificationSub; // ✨ ฟังข้อความแชทใหม่
+  Timestamp? _chatListenerStartTime; // ✨ เวลาเริ่มฟังแชท
+
   final MapController _mapController = MapController();
 
   final LatLng _psruCenter = const LatLng(16.83017, 100.21046);
@@ -203,6 +206,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             setState(() {
               _shuttleDocId = docId;
             });
+            _listenToChatMessages(); // ✨ เริ่มฟังเสียงแจ้งเตือนข้อความแชทใหม่
 
             // ✨ บันทึกชื่อและรูป Avatar คนขับลงในเอกสารรถเพื่อให้หน้านักศึกษาดึงไปแสดงผล
             final driverName = userDoc.data()?['name'] ?? 'คนขับรถประจำคัน';
@@ -239,6 +243,29 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     } catch (e) {
       print("Error fetching driver shuttle: $e");
     }
+  }
+
+  // ✨ ฟังก์ชันฟังสัญญาณข้อความแชทใหม่ เพื่อเล่นเสียงแจ้งเตือน
+  void _listenToChatMessages() {
+    if (_shuttleDocId == null) return;
+    _chatListenerStartTime = Timestamp.now();
+    _chatNotificationSub?.cancel();
+    _chatNotificationSub = FirebaseFirestore.instance
+        .collection('chats')
+        .doc(_shuttleDocId)
+        .collection('messages')
+        .where('timestamp', isGreaterThan: _chatListenerStartTime)
+        .snapshots()
+        .listen((snapshot) {
+      for (var change in snapshot.docChanges) {
+        if (change.type == DocumentChangeType.added) {
+          final data = change.doc.data() as Map<String, dynamic>?;
+          if (data != null && data['senderId'] != FirebaseAuth.instance.currentUser?.uid) {
+            FlutterRingtonePlayer().playNotification();
+          }
+        }
+      }
+    });
   }
 
   // ✨ ฟังก์ชันฟังสัญญาณรถทุกคันที่กำลังออนไลน์ (เพื่อนำมาแสดงจุดบนแผนที่ให้คนขับเห็นกันเอง)
@@ -409,6 +436,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     _markerAnimationController.dispose();
     positionStream?.cancel();
     requestStream?.cancel();
+    _chatNotificationSub?.cancel(); // ✨ ปิดตัวฟังแชท
     myShuttleSubscription?.cancel();
     allShuttlesSubscription?.cancel();
     super.dispose();
@@ -506,6 +534,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         } else {
           textToSpeak = "มีนักศึกษารออยู่ที่ $phoneticStopName";
         }
+        // ✨ ย้ำการตั้งค่าภาษาไทยอีกครั้งบน Web ก่อนพูด (เผื่อตอนโหลดแอปครั้งแรก Browser ยังดึง Voice มาไม่เสร็จ)
+        await flutterTts.setLanguage("th-TH");
         await flutterTts.speak(textToSpeak);
       } catch (e) {
         print("❌ Error triggering TTS: $e");
@@ -532,6 +562,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           .replaceAll('(ขาออก)', '')
           .trim();
 
+      // ✨ ย้ำการตั้งค่าภาษาไทยอีกครั้งบน Web ก่อนพูด
+      await flutterTts.setLanguage("th-TH");
       await flutterTts.speak("มีนักศึกษาลงที่ $phoneticStopName");
     } catch (e) {
       print("❌ Error triggering drop-off TTS: $e");
@@ -539,6 +571,25 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   }
 
   Future<void> _startShift() async {
+    // ✨ เพื่อแก้ปัญหา Web Browser (Mobile) บล็อกเสียง (Autoplay Policy)
+    // เราต้องกระตุ้นการเล่นเสียง 1 ครั้ง ทันทีที่ผู้ใช้กดปุ่ม (User Gesture) เพื่อปลดล็อก Audio Context
+    if (kIsWeb) {
+      try {
+        // 1. ปลดล็อก TTS
+        await flutterTts.setVolume(0.0);
+        await flutterTts.speak(" ");
+        await Future.delayed(const Duration(milliseconds: 500));
+        await flutterTts.setVolume(1.0);
+        
+        // 2. ปลดล็อก AudioPlayer (เสียง mp3)
+        final AudioPlayer dummyPlayer = AudioPlayer();
+        await dummyPlayer.setVolume(0.0);
+        await dummyPlayer.play(AssetSource('voice/glass_1.mp3'));
+      } catch (e) {
+        print("Error unlocking web audio context: $e");
+      }
+    }
+
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!mounted) return;
 
@@ -622,6 +673,26 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           _currentLocation = newLoc;
           _targetLocation = newLoc;
         });
+
+        // ✨ ค้นหาป้ายที่ใกล้ที่สุดเมื่อเปิดแอป เพื่อเซ็ตเริ่มต้นให้ระบบ Routing (ป้องกันบั๊ก ETA เริ่มที่ป้าย 1 เสมอ)
+        if (busStops.isNotEmpty) {
+          double minDist = double.infinity;
+          int closestOrder = 1;
+          for (var stop in busStops) {
+            if (stop['lat'] != null && stop['lng'] != null) {
+              final loc = LatLng(stop['lat'], stop['lng']);
+              final d = const Distance().distance(newLoc, loc);
+              if (d < minDist) {
+                minDist = d;
+                closestOrder = stop['order'] ?? 1;
+              }
+            }
+          }
+          _lastPassedStopOrder = closestOrder;
+          int maxOrder = busStops.map((s) => (s['order'] ?? 0) as int).reduce((a, b) => a > b ? a : b);
+          if (maxOrder == 0) maxOrder = 23;
+          _currentTargetStopOrder = (closestOrder % maxOrder) + 1;
+        }
 
         // เช็คว่าพิกัดอยู่ในเขตมหาลัยหรือไม่
         if (_psruBounds.contains(newLoc)) {
@@ -801,9 +872,17 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           if (!mounted) return;
 
           if (snapshot.docs.isNotEmpty) {
-            // ✨ กรองเอาเฉพาะคำขอที่เจาะจงเรียกรถคันนี้เท่านั้น (หรือคำขอที่ไม่ได้ระบุเป้าหมายเพื่อให้รองรับระบบเดิม)
+            // ✨ กรองเอาเฉพาะคำขอที่เจาะจงเรียกรถคันนี้เท่านั้น และต้องไม่เก่าเกิน 2 ชั่วโมง (ป้องกันข้อมูลค้างในระบบ)
             final validDocs = snapshot.docs.where((doc) {
               final data = doc.data() as Map<String, dynamic>;
+
+              if (data.containsKey('timestamp') && data['timestamp'] != null) {
+                final requestTime = (data['timestamp'] as Timestamp).toDate();
+                if (DateTime.now().difference(requestTime).inHours >= 2) {
+                  return false; // ข้อมูลเก่าเกิน 2 ชั่วโมง ไม่นำมาแสดง
+                }
+              }
+
               if (data.containsKey('target_shuttle_id') && data['target_shuttle_id'] != null) {
                 return data['target_shuttle_id'] == _shuttleDocId;
               }
@@ -1753,42 +1832,11 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   }
 
   Widget _buildStopMarker({required bool isSelected, required String name}) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
       children: [
-        // ป้ายชื่อจุดจอดรถ
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF176a21) : Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelected ? Colors.white : const Color(0xFF176a21),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.15),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Text(
-            name,
-            style: TextStyle(
-              fontSize: isSelected ? 11 : 10,
-              fontWeight: FontWeight.bold,
-              color: isSelected ? Colors.white : const Color(0xFF2C2F30),
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
-        ),
-        const SizedBox(height: 3),
-        // หมุดไอคอนจุดจอด
+        // หมุดไอคอนจุดจอด (อยู่ตรงกลาง LatLng พอดีเป๊ะ)
         Container(
           width: isSelected ? 34 : 28,
           height: isSelected ? 34 : 28,
@@ -1811,6 +1859,39 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             Icons.hail,
             color: isSelected ? Colors.white : const Color(0xFF757778),
             size: isSelected ? 18 : 15,
+          ),
+        ),
+        // ป้ายชื่อจุดจอดรถ (ลอยอยู่ด้านบน)
+        Positioned(
+          bottom: isSelected ? 48 : 40,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: isSelected ? const Color(0xFF176a21) : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isSelected ? Colors.white : const Color(0xFF176a21),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.15),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Text(
+              name,
+              style: TextStyle(
+                fontSize: isSelected ? 11 : 10,
+                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.white : const Color(0xFF2C2F30),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
           ),
         ),
       ],
