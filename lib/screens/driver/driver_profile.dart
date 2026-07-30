@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
 import 'driver_edit_profile_screen.dart';
 
 class DriverProfileScreen extends StatefulWidget {
@@ -13,32 +14,53 @@ class DriverProfileScreen extends StatefulWidget {
 class _DriverProfileScreenState extends State<DriverProfileScreen> {
   Map<String, dynamic>? userData;
   bool isLoading = true;
+  StreamSubscription<DocumentSnapshot>? _userSubscription;
 
   @override
   void initState() {
     super.initState();
-    _fetchUserData();
+    _startListeningUserData();
   }
 
-  Future<void> _fetchUserData() async {
+  @override
+  void dispose() {
+    _userSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _startListeningUserData() {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-        if (doc.exists) {
-          setState(() {
-            userData = doc.data();
-            isLoading = false;
-          });
-        } else {
+        _userSubscription = FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .snapshots()
+            .listen((doc) {
+          if (doc.exists && mounted) {
+            setState(() {
+              userData = doc.data();
+              isLoading = false;
+            });
+          } else if (mounted) {
+            setState(() => isLoading = false);
+          }
+        }, onError: (e) {
+          print("Error listening to user data: $e");
+          if (mounted) {
+            setState(() => isLoading = false);
+          }
+        });
+      } else {
+        if (mounted) {
           setState(() => isLoading = false);
         }
-      } else {
-        setState(() => isLoading = false);
       }
     } catch (e) {
-      print("Error fetching user data: $e");
-      setState(() => isLoading = false);
+      print("Error starting listener: $e");
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
@@ -50,13 +72,11 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   }
 
   Future<void> _navigateToEditProfile() async {
-    final result = await Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const DriverEditProfileScreen()),
     );
-    if (result == true || mounted) {
-      _fetchUserData();
-    }
+    // ไม่ต้องเรียก _fetchUserData() แล้ว เพราะใช้ Stream ฟังการเปลี่ยนแปลงอัตโนมัติ
   }
 
   @override
@@ -75,6 +95,24 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     final String shuttleName = userData?['shuttle_name'] ?? '-';
     final String shuttleNumber = userData?['shuttle_number'] ?? '-';
     final String avatarPath = userData?['avatar'] ?? 'assets/images/man1.png';
+
+    // ✨ คำนวณคะแนนดาวเฉลี่ยจากฐานข้อมูล
+    final double totalScore = (userData?['total_rating_score'] ?? 0.0).toDouble();
+    final int ratingCount = (userData?['rating_count'] ?? 0).toInt();
+    
+    String averageRatingStr = '-';
+    if (ratingCount > 0) {
+      double avg = totalScore / ratingCount;
+      averageRatingStr = avg.toStringAsFixed(2); // ทศนิยม 2 ตำแหน่ง
+    }
+
+    // ✨ คำนวณจำนวนรอบที่วิ่งวันนี้
+    int dailyRoundCount = 0;
+    final now = DateTime.now();
+    final String todayStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    if (userData?['last_round_date'] == todayStr) {
+      dailyRoundCount = (userData?['daily_round_count'] ?? 0).toInt();
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FA),
@@ -142,12 +180,12 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Column(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('จำนวนรอบที่วิ่งวันนี้', style: TextStyle(color: Colors.grey, fontSize: 13)),
-                        SizedBox(height: 8),
-                        Text('5', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF2C2F30))),
+                        const Text('จำนวนรอบที่วิ่งวันนี้', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                        const SizedBox(height: 8),
+                        Text('$dailyRoundCount', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF2C2F30))),
                       ],
                     ),
                   ),
@@ -160,16 +198,16 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Column(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('คะแนน', style: TextStyle(color: Colors.grey, fontSize: 13)),
-                        SizedBox(height: 8),
+                        const Text('คะแนน', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                        const SizedBox(height: 8),
                         Row(
                           children: [
-                            Text('4.95', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF2C2F30))),
-                            SizedBox(width: 8),
-                            Icon(Icons.star_border, color: Colors.amber),
+                            Text(averageRatingStr, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF2C2F30))),
+                            const SizedBox(width: 8),
+                            const Icon(Icons.star, color: Colors.amber),
                           ],
                         )
                       ],

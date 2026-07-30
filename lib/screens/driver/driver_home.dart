@@ -33,6 +33,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   LatLng? _targetLocation;
   late AnimationController _markerAnimationController;
   late Animation<double> _markerAnimation;
+  late AnimationController _otherMarkersAnimationController;
+  late Animation<double> _otherMarkersAnimation;
   late FlutterTts flutterTts; // ✨ ตัวอ่านเสียง AI ภาษาไทย
   StreamSubscription<Position>? positionStream;
   StreamSubscription<QuerySnapshot>? requestStream;
@@ -42,7 +44,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   _heartbeatTimer; // ✨ Heartbeat สำหรับอัปเดตเวลาให้สดใหม่อยู่เสมอตอนจอดรอรับส่ง
   String _currentPassengerStatus = 'available';
 
-  StreamSubscription<QuerySnapshot>? _chatNotificationSub; // ✨ ฟังข้อความแชทใหม่
+  StreamSubscription<QuerySnapshot>?
+  _chatNotificationSub; // ✨ ฟังข้อความแชทใหม่
   Timestamp? _chatListenerStartTime; // ✨ เวลาเริ่มฟังแชท
 
   final MapController _mapController = MapController();
@@ -86,7 +89,6 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   final Set<String> _announcedDropOffStops = {}; // กัน TTS พูดซ้ำ
   Set<String> _activeDropOffStops = {}; // รายชื่อป้ายที่มีคนจะลง
 
-
   @override
   void initState() {
     super.initState();
@@ -125,7 +127,25 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               }
             }
 
-            // ✨ อัปเดตพิกัดรถคันอื่นๆ แบบสมูท
+            if (needsUpdate) {
+              setState(() {});
+            }
+          }
+        });
+
+    _otherMarkersAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(
+        milliseconds: 3200,
+      ), // สอดคล้องกับการส่งข้อมูลทุก 3 วินาทีของคันอื่น
+    );
+    _otherMarkersAnimation =
+        CurvedAnimation(
+          parent: _otherMarkersAnimationController,
+          curve: Curves.linear, // เคลื่อนที่สม่ำเสมอ
+        )..addListener(() {
+          if (mounted) {
+            bool needsUpdate = false;
             for (var id in _otherTargetLocations.keys) {
               final oldLoc = _otherOldLocations[id];
               final targetLoc = _otherTargetLocations[id];
@@ -133,16 +153,15 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 final lat =
                     oldLoc.latitude +
                     (targetLoc.latitude - oldLoc.latitude) *
-                        _markerAnimation.value;
+                        _otherMarkersAnimation.value;
                 final lng =
                     oldLoc.longitude +
                     (targetLoc.longitude - oldLoc.longitude) *
-                        _markerAnimation.value;
+                        _otherMarkersAnimation.value;
                 _otherCurrentLocations[id] = LatLng(lat, lng);
                 needsUpdate = true;
               }
             }
-
             if (needsUpdate) {
               setState(() {});
             }
@@ -257,15 +276,45 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         .where('timestamp', isGreaterThan: _chatListenerStartTime)
         .snapshots()
         .listen((snapshot) {
-      for (var change in snapshot.docChanges) {
-        if (change.type == DocumentChangeType.added) {
-          final data = change.doc.data() as Map<String, dynamic>?;
-          if (data != null && data['senderId'] != FirebaseAuth.instance.currentUser?.uid) {
-            FlutterRingtonePlayer().playNotification();
+          for (var change in snapshot.docChanges) {
+            if (change.type == DocumentChangeType.added) {
+              final data = change.doc.data() as Map<String, dynamic>?;
+              if (data != null &&
+                  data['senderId'] != FirebaseAuth.instance.currentUser?.uid) {
+                FlutterRingtonePlayer().playNotification();
+              }
+            }
           }
+        });
+  }
+
+  // ✨ ฟังก์ชันสำหรับเพิ่มจำนวนรอบการวิ่งในวันนี้
+  Future<void> _incrementDailyRound() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      
+      final now = DateTime.now();
+      final String todayStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (userDoc.exists) {
+        final data = userDoc.data() as Map<String, dynamic>;
+        int currentRounds = 0;
+        if (data['last_round_date'] == todayStr) {
+          currentRounds = (data['daily_round_count'] ?? 0) as int;
         }
+        
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'last_round_date': todayStr,
+          'daily_round_count': currentRounds + 1,
+        }, SetOptions(merge: true));
+        
+        print("🎯 Round Completed! Total today: ${currentRounds + 1}");
       }
-    });
+    } catch (e) {
+      print("Error incrementing daily round: $e");
+    }
   }
 
   // ✨ ฟังก์ชันฟังสัญญาณรถทุกคันที่กำลังออนไลน์ (เพื่อนำมาแสดงจุดบนแผนที่ให้คนขับเห็นกันเอง)
@@ -316,7 +365,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               final LatLng newLoc = LatLng(shuttle['lat'], shuttle['lng']);
               final currentLoc = _otherCurrentLocations[id];
               if (currentLoc != null && currentLoc != newLoc) {
-                _otherOldLocations[id] = currentLoc;
+                // _otherOldLocations จะถูกอัปเดตแบบ sync พร้อมกันใน _restartMarkerAnimation
                 _otherTargetLocations[id] = newLoc;
                 shouldAnimate = true;
               } else if (currentLoc == null) {
@@ -341,10 +390,28 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             });
 
             if (shouldAnimate) {
-              _markerAnimationController.forward(from: 0.0);
+              _restartOtherMarkersAnimation();
             }
           }
         });
+  }
+
+  // ✨ ฟังก์ชันเริ่มแอนิเมชันใหม่สำหรับหมุดรถตัวเอง (900ms)
+  void _restartMarkerAnimation() {
+    if (_currentLocation != null) {
+      _oldLocation = _currentLocation;
+    }
+    _markerAnimationController.forward(from: 0.0);
+  }
+
+  // ✨ ฟังก์ชันเริ่มแอนิเมชันใหม่สำหรับหมุดรถคันอื่น (3200ms)
+  void _restartOtherMarkersAnimation() {
+    for (var id in _otherCurrentLocations.keys) {
+      if (_otherCurrentLocations[id] != null) {
+        _otherOldLocations[id] = _otherCurrentLocations[id]!;
+      }
+    }
+    _otherMarkersAnimationController.forward(from: 0.0);
   }
 
   //อัลกอริทึม Snap to Route: ล็อกตำแหน่งหมุดให้อยู่บนเส้นทางถนนเท่านั้น
@@ -434,6 +501,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     flutterTts.stop();
     _heartbeatTimer?.cancel();
     _markerAnimationController.dispose();
+    _otherMarkersAnimationController.dispose();
     positionStream?.cancel();
     requestStream?.cancel();
     _chatNotificationSub?.cancel(); // ✨ ปิดตัวฟังแชท
@@ -479,7 +547,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         await flutterTts.setSpeechRate(0.5); // ความเร็วปกติ
         // ✨ คงเสียงเดิมไว้ (เสียงผู้หญิง) และปรับระดับเสียงให้ดังสุด (1.0 คือสูงสุดของระบบ TTS)
         // หากต้องการดังกว่านี้ ต้องเพิ่มเสียง Media ของตัวเครื่องมือถือครับ
-        await flutterTts.setVolume(1.0); 
+        await flutterTts.setVolume(1.0);
         await flutterTts.setPitch(1.0);
       }
     } catch (e) {
@@ -550,10 +618,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     try {
       HapticFeedback.heavyImpact();
       final AudioPlayer alertPlayer = AudioPlayer();
-      await alertPlayer.play(AssetSource('voice/glass_1.mp3')); // ใช้เสียงเดียวกับตอนเรียก หรือเปลี่ยนได้
+      await alertPlayer.play(
+        AssetSource('voice/glass_1.mp3'),
+      ); // ใช้เสียงเดียวกับตอนเรียก หรือเปลี่ยนได้
 
-      await Future.delayed(const Duration(milliseconds: 1500)); // รอให้เสียงแจ้งเตือนจบ
-      
+      await Future.delayed(
+        const Duration(milliseconds: 1500),
+      ); // รอให้เสียงแจ้งเตือนจบ
+
       await flutterTts.stop();
       String phoneticStopName = stopName
           .replaceAll('IT', 'ไอที')
@@ -580,7 +652,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         await flutterTts.speak(" ");
         await Future.delayed(const Duration(milliseconds: 500));
         await flutterTts.setVolume(1.0);
-        
+
         // 2. ปลดล็อก AudioPlayer (เสียง mp3)
         final AudioPlayer dummyPlayer = AudioPlayer();
         await dummyPlayer.setVolume(0.0);
@@ -602,12 +674,20 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        TopToast.show(context, '⚠️ สิทธิ์การเข้าถึงตำแหน่งถูกปฏิเสธ', isError: true);
+        TopToast.show(
+          context,
+          '⚠️ สิทธิ์การเข้าถึงตำแหน่งถูกปฏิเสธ',
+          isError: true,
+        );
         return;
       }
     }
     if (permission == LocationPermission.deniedForever) {
-      TopToast.show(context, '⚠️ สิทธิ์การเข้าถึงตำแหน่งถูกบล็อก กรุณาเปิดสิทธิ์ในตั้งค่า', isError: true);
+      TopToast.show(
+        context,
+        '⚠️ สิทธิ์การเข้าถึงตำแหน่งถูกบล็อก กรุณาเปิดสิทธิ์ในตั้งค่า',
+        isError: true,
+      );
       return;
     }
 
@@ -689,7 +769,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             }
           }
           _lastPassedStopOrder = closestOrder;
-          int maxOrder = busStops.map((s) => (s['order'] ?? 0) as int).reduce((a, b) => a > b ? a : b);
+          int maxOrder = busStops
+              .map((s) => (s['order'] ?? 0) as int)
+              .reduce((a, b) => a > b ? a : b);
           if (maxOrder == 0) maxOrder = 23;
           _currentTargetStopOrder = (closestOrder % maxOrder) + 1;
         }
@@ -698,7 +780,11 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         if (_psruBounds.contains(newLoc)) {
           _mapController.move(newLoc, 16.5);
         } else {
-          TopToast.show(context, '⚠️ ตำแหน่ง GPS ของคุณอยู่นอกพื้นที่มหาวิทยาลัย', isError: true);
+          TopToast.show(
+            context,
+            '⚠️ ตำแหน่ง GPS ของคุณอยู่นอกพื้นที่มหาวิทยาลัย',
+            isError: true,
+          );
         }
 
         if (_shuttleDocId != null) {
@@ -719,7 +805,11 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       print("❌ Error getting initial location (Using Fallback): $e");
       // หาก _currentLocation ยังเป็นค่าเริ่มต้นอยู่ (หอประชุมฯ) หรือดึงพิกัดล่าสุดสำเร็จแล้วก็ให้ค้างค่านั้นไว้
       if (mounted) {
-        TopToast.show(context, '⚠️ ดึงพิกัดจริงล่าช้า ระบบใช้พิกัดที่มีล่าสุด', isError: true);
+        TopToast.show(
+          context,
+          '⚠️ ดึงพิกัดจริงล่าช้า ระบบใช้พิกัดที่มีล่าสุด',
+          isError: true,
+        );
 
         if (_shuttleDocId != null && _currentLocation != null) {
           _lastFirebaseUpdate = DateTime.now();
@@ -762,110 +852,141 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       );
     }
 
-    positionStream =
-        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-          (Position position) {
-            if (!mounted) return;
+    positionStream = Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+      (Position position) {
+        if (!mounted) return;
 
-            LatLng rawLoc = LatLng(position.latitude, position.longitude);
-            LatLng newLoc = _snapToRoute(rawLoc);
-            print(
-              "📍 GPS Updated: ${position.latitude}, ${position.longitude} -> Snapped: ${newLoc.latitude}, ${newLoc.longitude}",
-            );
-
-            if (_currentLocation == null) {
-              setState(() {
-                _currentLocation = newLoc;
-                _targetLocation = newLoc;
-              });
-              if (_isAutoFollow) {
-                _mapController.move(newLoc, 16.5);
-              }
-            } else {
-              _oldLocation = _currentLocation;
-              _targetLocation = newLoc;
-              _markerAnimationController.forward(from: 0.0);
-            }
-
-            // ✨ Smart Throttling & Distance Check: ส่งข้อมูลขึ้น Firestore ต่อเมื่อรถขยับไปอย่างน้อย 3 เมตร และเว้นระยะเวลาอย่างน้อย 1.2 วินาที (พอดีกับความเร็ว 20-30 กม./ชม.)
-            final now = DateTime.now();
-            final double distanceMoved = _lastUploadedLocation == null
-                ? 999.0
-                : const Distance().distance(_lastUploadedLocation!, newLoc);
-
-            // ✨ Smart Routing: ตรวจสอบการผ่านป้าย (รัศมี 30 เมตร) เพื่ออัปเดต last_passed_stop
-            if (busStops.isNotEmpty) {
-              try {
-                final targetStop = busStops.firstWhere(
-                  (s) => s['order'] == _currentTargetStopOrder,
-                  orElse: () => busStops.first,
-                );
-                if (targetStop['lat'] != null && targetStop['lng'] != null) {
-                  final targetLoc = LatLng(targetStop['lat'], targetStop['lng']);
-                  final distanceToTarget = const Distance().distance(newLoc, targetLoc);
-                  
-                  if (distanceToTarget <= 30.0) { // เข้าใกล้ป้ายในรัศมี 30 เมตร
-                    print("🚌 Passed Stop: ${targetStop['name']} (Order: $_currentTargetStopOrder)");
-                    _lastPassedStopOrder = _currentTargetStopOrder;
-                    
-                    // ปรับเป้าหมายไปป้ายถัดไป (1 ถึง 23)
-                    int maxOrder = busStops.map((s) => (s['order'] ?? 0) as int).reduce((a, b) => a > b ? a : b);
-                    if (maxOrder == 0) maxOrder = 23; // fallback
-                    
-                    _currentTargetStopOrder = (_currentTargetStopOrder % maxOrder) + 1;
-                    
-                    // รีเซ็ตประวัติ TTS เมื่อวนรอบใหม่
-                    if (_currentTargetStopOrder == 1) {
-                      _announcedDropOffStops.clear();
-                    }
-                  }
-                  
-                  // ✨ Drop-off TTS Alert (แจ้งเตือนล่วงหน้า 150 เมตร)
-                  if (distanceToTarget <= 150.0 && _activeDropOffStops.contains(targetStop['name'])) {
-                    if (!_announcedDropOffStops.contains(targetStop['name'])) {
-                      _announcedDropOffStops.add(targetStop['name']);
-                      _triggerDropOffVoiceAlert(targetStop['name']);
-                    }
-                  }
-                }
-              } catch (e) {
-                print("Error checking stop distance: $e");
-              }
-            }
-
-            if (_shuttleDocId != null &&
-                distanceMoved >= 3.0 &&
-                (_lastFirebaseUpdate == null ||
-                    now.difference(_lastFirebaseUpdate!).inMilliseconds >=
-                        3000)) {
-              _lastFirebaseUpdate = now;
-              _lastUploadedLocation = newLoc;
-              
-              final updateData = {
-                'lat': newLoc.latitude,
-                'lng': newLoc.longitude,
-                'status': 'online',
-                'last_updated': FieldValue.serverTimestamp(),
-              };
-              // ✨ แนบ last_passed_stop ไปด้วย
-              if (_lastPassedStopOrder != null) {
-                updateData['last_passed_stop'] = _lastPassedStopOrder as Object;
-              }
-
-              FirebaseFirestore.instance
-                  .collection('shuttles')
-                  .doc(_shuttleDocId)
-                  .set(updateData, SetOptions(merge: true));
-            }
-          },
-          onError: (error) {
-            print("❌ GPS Stream Error: $error");
-          },
+        LatLng rawLoc = LatLng(position.latitude, position.longitude);
+        LatLng newLoc = _snapToRoute(rawLoc);
+        print(
+          "📍 GPS Updated: ${position.latitude}, ${position.longitude} -> Snapped: ${newLoc.latitude}, ${newLoc.longitude}",
         );
+
+        if (_currentLocation == null) {
+          setState(() {
+            _currentLocation = newLoc;
+            _targetLocation = newLoc;
+          });
+          if (_isAutoFollow) {
+            _mapController.move(newLoc, 16.5);
+          }
+        } else {
+          _targetLocation = newLoc;
+          _restartMarkerAnimation();
+        }
+
+        // ✨ Smart Throttling & Distance Check: ส่งข้อมูลขึ้น Firestore ต่อเมื่อรถขยับไปอย่างน้อย 3 เมตร และเว้นระยะเวลาอย่างน้อย 1.2 วินาที (พอดีกับความเร็ว 20-30 กม./ชม.)
+        final now = DateTime.now();
+        final double distanceMoved = _lastUploadedLocation == null
+            ? 999.0
+            : const Distance().distance(_lastUploadedLocation!, newLoc);
+
+        // ✨ Smart Routing: ตรวจสอบการผ่านป้าย (รัศมี 30 เมตร) เพื่ออัปเดต last_passed_stop
+        if (busStops.isNotEmpty) {
+          try {
+            int maxOrder = busStops
+                .map((s) => (s['order'] ?? 0) as int)
+                .reduce((a, b) => a > b ? a : b);
+            if (maxOrder == 0) maxOrder = 23;
+
+            // ✨ Smart Window Routing: คาดการณ์ป้ายล่วงหน้า 8 ป้าย เพื่อรองรับกรณีขับข้ามป้าย (ลัดคิว)
+            List<int> upcomingStops = [];
+            for (int i = 0; i < 8; i++) {
+              int nextOrder = ((_currentTargetStopOrder - 1 + i) % maxOrder) + 1;
+              upcomingStops.add(nextOrder);
+            }
+
+            int detectedStopOrder = -1;
+            double minDistance = 30.0;
+            Map<String, dynamic>? detectedStopData;
+
+            // ตรวจจับว่าเข้าใกล้ป้ายใดใน Window หรือไม่
+            for (var stop in busStops) {
+              int order = (stop['order'] ?? 0) as int;
+              if (upcomingStops.contains(order) && stop['lat'] != null && stop['lng'] != null) {
+                final targetLoc = LatLng(stop['lat'], stop['lng']);
+                final distanceToTarget = const Distance().distance(newLoc, targetLoc);
+                if (distanceToTarget <= minDistance) {
+                  minDistance = distanceToTarget;
+                  detectedStopOrder = order;
+                  detectedStopData = stop;
+                }
+              }
+            }
+
+            if (detectedStopOrder != -1 && detectedStopData != null) {
+              print("🚌 Passed Stop: ${detectedStopData['name']} (Order: $detectedStopOrder)");
+
+              // ตรวจสอบว่าขับครบรอบหรือไม่ (ถ้าป้ายล่าสุดที่ผ่านอยู่ท้ายซอย แล้วป้ายใหม่โผล่มาต้นซอย)
+              if (_lastPassedStopOrder != null) {
+                int thresholdHigh = maxOrder > 10 ? maxOrder - 5 : maxOrder - 2;
+                int thresholdLow = maxOrder > 10 ? 5 : 2;
+                if (_lastPassedStopOrder! >= thresholdHigh && detectedStopOrder <= thresholdLow) {
+                  print("🎯 วนกลับมาเริ่มต้นรอบใหม่!");
+                  _announcedDropOffStops.clear();
+                  _incrementDailyRound(); // ✨ นับว่าจบรอบ 1 รอบและบันทึกลง Firestore
+                }
+              }
+
+              _lastPassedStopOrder = detectedStopOrder;
+              _currentTargetStopOrder = (detectedStopOrder % maxOrder) + 1;
+            }
+
+            // ✨ Drop-off TTS Alert (แจ้งเตือนล่วงหน้า 150 เมตร) - โฟกัสป้ายเป้าหมายปัจจุบันเสมอ
+            final currentTargetStop = busStops.firstWhere(
+              (s) => s['order'] == _currentTargetStopOrder,
+              orElse: () => busStops.first,
+            );
+            if (currentTargetStop['lat'] != null && currentTargetStop['lng'] != null) {
+              final targetLoc = LatLng(currentTargetStop['lat'], currentTargetStop['lng']);
+              final distanceToCurrentTarget = const Distance().distance(newLoc, targetLoc);
+              if (distanceToCurrentTarget <= 150.0 && _activeDropOffStops.contains(currentTargetStop['name'])) {
+                if (!_announcedDropOffStops.contains(currentTargetStop['name'])) {
+                  _announcedDropOffStops.add(currentTargetStop['name']);
+                  _triggerDropOffVoiceAlert(currentTargetStop['name']);
+                }
+              }
+            }
+          } catch (e) {
+            print("Error checking stop distance: $e");
+          }
+        }
+
+        if (_shuttleDocId != null &&
+            distanceMoved >= 3.0 &&
+            (_lastFirebaseUpdate == null ||
+                now.difference(_lastFirebaseUpdate!).inMilliseconds >= 3000)) {
+          _lastFirebaseUpdate = now;
+          _lastUploadedLocation = newLoc;
+
+          final updateData = {
+            'lat': newLoc.latitude,
+            'lng': newLoc.longitude,
+            'status': 'online',
+            'last_updated': FieldValue.serverTimestamp(),
+          };
+          // ✨ แนบ last_passed_stop ไปด้วย
+          if (_lastPassedStopOrder != null) {
+            updateData['last_passed_stop'] = _lastPassedStopOrder as Object;
+          }
+
+          FirebaseFirestore.instance
+              .collection('shuttles')
+              .doc(_shuttleDocId)
+              .set(updateData, SetOptions(merge: true));
+        }
+      },
+      onError: (error) {
+        print("❌ GPS Stream Error: $error");
+      },
+    );
 
     requestStream = FirebaseFirestore.instance
         .collection('ride_requests')
-        .where('status', whereIn: ['waiting', 'acknowledged', 'on_board']) // ✨ เพิ่ม on_board
+        .where(
+          'status',
+          whereIn: ['waiting', 'acknowledged', 'on_board'],
+        ) // ✨ เพิ่ม on_board
         .snapshots()
         .handleError((e) => print("Firestore Error (ride_requests): $e"))
         .listen((snapshot) {
@@ -883,7 +1004,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 }
               }
 
-              if (data.containsKey('target_shuttle_id') && data['target_shuttle_id'] != null) {
+              if (data.containsKey('target_shuttle_id') &&
+                  data['target_shuttle_id'] != null) {
                 return data['target_shuttle_id'] == _shuttleDocId;
               }
               return true; // ถ้าระบบเก่าไม่มี target_shuttle_id ให้มองว่าเรียกได้ทุกคน
@@ -921,12 +1043,13 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             final Set<String> dropOffStops = {};
             for (var doc in docs) {
               final data = doc.data() as Map<String, dynamic>;
-              if (data['status'] == 'on_board' && data.containsKey('dropoff_stop') && data['dropoff_stop'] != null) {
+              if (data['status'] == 'on_board' &&
+                  data.containsKey('dropoff_stop') &&
+                  data['dropoff_stop'] != null) {
                 dropOffStops.add(data['dropoff_stop']);
               }
             }
             _activeDropOffStops = dropOffStops;
-
 
             // ✨ ค้นหาคำขอที่มีสถานะ 'waiting' เพื่อเป็นป้ายหลัก (active)
             QueryDocumentSnapshot? activeDoc;

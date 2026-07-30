@@ -49,9 +49,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
       ),
-
       initialRoute: '/login', // ✨ แก้เป็นหน้านี้ชั่วคราวเพื่อล้างข้อมูลเก่า
-
       routes: {
         '/migration': (context) =>
             const MigrationPage(), // ✨ เพิ่มหน้า Migration

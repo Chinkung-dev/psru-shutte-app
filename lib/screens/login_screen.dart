@@ -54,12 +54,12 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (userDoc.exists) {
-        String role = userDoc.get('role');
+        final data = userDoc.data() as Map<String, dynamic>?;
+        String role = (data != null && data.containsKey('role')) ? data['role'] : 'student';
 
         if (role == 'driver') {
           Navigator.pushReplacementNamed(context, '/driverHome');
         } else {
-          final data = userDoc.data() as Map<String, dynamic>?;
           final bool hasSeenOnboarding =
               data != null &&
               data.containsKey('hasSeenOnboarding') &&

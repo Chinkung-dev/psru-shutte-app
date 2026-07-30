@@ -39,7 +39,10 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
   }
 
   void _initChatStream() {
-    _currentRoomId = widget.shuttleDocId ?? 'shuttle_line_a';
+    final String baseRoom = widget.shuttleDocId ?? 'shuttle_line_a';
+    final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
+    _currentRoomId = '${baseRoom}_$todayDate';
+    
     _messagesStream = FirebaseFirestore.instance
         .collection('chats')
         .doc(_currentRoomId)
@@ -55,7 +58,9 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
     final String text = _messageController.text.trim();
     _messageController.clear(); // ล้างช่องพิมพ์ทันที
 
-    final String targetRoom = widget.shuttleDocId ?? 'shuttle_line_a'; // แยกห้องตาม ID รถคันนั้นๆ
+    final String baseRoom = widget.shuttleDocId ?? 'shuttle_line_a'; // แยกห้องตาม ID รถคันนั้นๆ
+    final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
+    final String targetRoom = '${baseRoom}_$todayDate';
 
     try {
       await FirebaseFirestore.instance
@@ -208,12 +213,13 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
             final String senderRole = data['senderRole'] ?? 'student';
             final String text = data['text'] ?? '';
             final Timestamp? timestamp = data['timestamp'] as Timestamp?;
+            final String? imageUrl = data['imageUrl'] as String?;
 
             final String timeString = timestamp != null
                 ? DateFormat('HH:mm').format(timestamp.toDate())
                 : 'กำลังส่ง...';
 
-            return _buildMessageBubble(text, timeString, isMe, senderRole);
+            return _buildMessageBubble(text, timeString, isMe, senderRole, imageUrl);
           },
         );
       },
@@ -222,7 +228,7 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
 
   // ส่วนกล่องข้อความแชท
   Widget _buildMessageBubble(
-      String text, String time, bool isMe, String senderRole) {
+      String text, String time, bool isMe, String senderRole, String? imageUrl) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(
@@ -274,12 +280,40 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
                 )
               ],
             ),
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 15,
-                color: isMe ? Colors.white : const Color(0xFF2C2F30),
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (imageUrl != null)
+                  Padding(
+                    padding: EdgeInsets.only(bottom: text.isNotEmpty ? 8.0 : 0),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(
+                        imageUrl,
+                        width: 200,
+                        fit: BoxFit.cover,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Container(
+                            width: 200,
+                            height: 200,
+                            color: Colors.black12,
+                            child: const Center(child: CircularProgressIndicator(color: Color(0xFF176a21))),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                      ),
+                    ),
+                  ),
+                if (text.isNotEmpty)
+                  Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: isMe ? Colors.white : const Color(0xFF2C2F30),
+                    ),
+                  ),
+              ],
             ),
           ),
           const SizedBox(height: 6),

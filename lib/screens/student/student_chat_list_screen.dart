@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'student_chat_screen.dart';
 
 class StudentChatListScreen extends StatefulWidget {
@@ -36,12 +37,23 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
       body: Column(
         children: [
           _buildHeader(context),
-          _buildMessagesTitle(),
+          Expanded(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 800),
+                child: Column(
+                  children: [
+                    _buildMessagesTitle(),
           _buildSearchBar(),
           Expanded(child: _buildShuttleList()),
           const SizedBox(
             height: 80,
           ), // เว้นที่ด้านล่างเผื่อ Bottom Navigation Bar
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -220,7 +232,19 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
                     dMap?['avatar'] ??
                     '';
 
-                final bool isOnline = data['status'] == 'online';
+                bool isOnline = data['status'] == 'online';
+
+                // ✨ ตรวจสอบ Timeout 5 นาทีว่ารถยังออนอยู่จริงไหม
+                final Timestamp? lastUpdated = data['last_updated'] as Timestamp?;
+                if (lastUpdated != null) {
+                  final now = DateTime.now();
+                  final updatedTime = lastUpdated.toDate();
+                  if (now.difference(updatedTime).inMinutes > 5) {
+                    isOnline = false;
+                  }
+                } else if (isOnline) {
+                  isOnline = false; // เผื่อกรณีค้าง
+                }
 
                 // จัดการตัวเลขให้สวยงาม ไม่ให้ซ้ำซ้อน เช่น SH#03 -> 03
                 String cleanNum = shuttleNumber.replaceAll(
@@ -258,10 +282,13 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
     required String badgeText,
     required bool isOnline,
   }) {
+    final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
+    final String targetRoom = '${shuttleId}_$todayDate';
+
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('chats')
-          .doc(shuttleId)
+          .doc(targetRoom)
           .collection('messages')
           .orderBy('timestamp', descending: true)
           .limit(1)
@@ -273,8 +300,16 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
         if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
           final lastDoc =
               snapshot.data!.docs.first.data() as Map<String, dynamic>;
+          
           final String text = lastDoc['text'] ?? '';
-          lastMessage = '"$text"'; // ใส่เครื่องหมายคำพูดตามแบบภาพ
+          final String? imageUrl = lastDoc['imageUrl'] as String?;
+          final String senderRole = lastDoc['senderRole'] ?? 'student';
+          
+          if (imageUrl != null) {
+            lastMessage = text.isNotEmpty ? '"$text" [ส่งรูปภาพ]' : '[ส่งรูปภาพ]';
+          } else {
+            lastMessage = '"$text"'; // ใส่เครื่องหมายคำพูดตามแบบภาพ
+          }
 
           final Timestamp? timestamp = lastDoc['timestamp'] as Timestamp?;
           if (timestamp != null) {
@@ -290,156 +325,197 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
           }
         }
 
-        return GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => StudentChatScreen(
-                  shuttleId: shuttleId,
-                  shuttleName: shuttleName,
-                  driverName: driverName,
-                  driverAvatar: driverAvatar,
-                ),
-              ),
-            );
-          },
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // รูป Avatar พร้อมจุดสถานะออนไลน์
-                Stack(
-                  children: [
-                    CircleAvatar(
-                      radius: 28,
-                      backgroundColor: const Color(0xFF176a21).withOpacity(0.1),
-                      backgroundImage: driverAvatar.isNotEmpty
-                          ? (driverAvatar.startsWith('http')
-                                ? NetworkImage(driverAvatar) as ImageProvider
-                                : AssetImage(driverAvatar))
-                          : null,
-                      child: driverAvatar.isEmpty
-                          ? const Icon(
-                              Icons.person,
-                              color: Color(0xFF176a21),
-                              size: 34,
-                            )
-                          : null,
+        // ห่อด้วย FutureBuilder เพื่อเช็คว่าอ่านหรือยัง
+        return FutureBuilder<SharedPreferences>(
+          future: SharedPreferences.getInstance(),
+          builder: (context, prefSnapshot) {
+            bool isUnread = false;
+            if (prefSnapshot.hasData && snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+              final lastDoc = snapshot.data!.docs.first.data() as Map<String, dynamic>;
+              final senderRole = lastDoc['senderRole'] ?? 'student';
+              final Timestamp? msgTimestamp = lastDoc['timestamp'] as Timestamp?;
+              
+              if (senderRole == 'driver' && msgTimestamp != null) {
+                final int lastReadTime = prefSnapshot.data!.getInt('last_read_$targetRoom') ?? 0;
+                if (msgTimestamp.millisecondsSinceEpoch > lastReadTime) {
+                  isUnread = true;
+                }
+              }
+            }
+
+            return GestureDetector(
+              onTap: () {
+                // อัปเดต state ของ local ให้เป็นอ่านแล้วทันทีเพื่อความสมูท
+                if (prefSnapshot.hasData) {
+                  prefSnapshot.data!.setInt('last_read_$targetRoom', DateTime.now().millisecondsSinceEpoch);
+                  setState(() {});
+                }
+                
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => StudentChatScreen(
+                      shuttleId: shuttleId,
+                      shuttleName: shuttleName,
+                      driverName: driverName,
+                      driverAvatar: driverAvatar,
                     ),
-                    Positioned(
-                      bottom: 2,
-                      right: 2,
-                      child: Container(
-                        width: 14,
-                        height: 14,
-                        decoration: BoxDecoration(
-                          color: isOnline
-                              ? const Color(0xFF2E7D32)
-                              : Colors.grey,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2.5),
+                  ),
+                ).then((_) {
+                  // รีเฟรชหน้าจอนี้เมื่อกลับมาจากหน้าแชท เพื่อล้างตัวหนา
+                  setState(() {});
+                });
+              },
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // รูป Avatar พร้อมจุดสถานะออนไลน์
+                    Stack(
+                      children: [
+                        CircleAvatar(
+                          radius: 28,
+                          backgroundColor: const Color(0xFF176a21).withOpacity(0.1),
+                          backgroundImage: driverAvatar.isNotEmpty
+                              ? (driverAvatar.startsWith('http')
+                                    ? NetworkImage(driverAvatar) as ImageProvider
+                                    : AssetImage(driverAvatar))
+                              : null,
+                          child: driverAvatar.isEmpty
+                              ? const Icon(
+                                  Icons.person,
+                                  color: Color(0xFF176a21),
+                                  size: 34,
+                                )
+                              : null,
                         ),
+                        Positioned(
+                          bottom: 2,
+                          right: 2,
+                          child: Container(
+                            width: 14,
+                            height: 14,
+                            decoration: BoxDecoration(
+                              color: isOnline
+                                  ? const Color(0xFF2E7D32)
+                                  : Colors.grey,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2.5),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 16),
+                    // รายละเอียดคนขับและข้อความ
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Driver: $driverName',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF2C2F30),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Text(
+                                timeString,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: isUnread ? FontWeight.bold : FontWeight.normal,
+                                  color: isUnread ? Colors.black : Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          // ป้าย Badge บอกเบอร์รถ (สีเขียวอ่อนตามภาพ)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE8F5E9),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              badgeText,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF2E7D32),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          // ตัวอย่างข้อความล่าสุด
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  lastMessage,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: isUnread ? FontWeight.bold : FontWeight.normal,
+                                    color: isUnread ? Colors.black : const Color(0xFF5A6065),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (isUnread)
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  margin: const EdgeInsets.only(left: 8),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.redAccent,
+                                    shape: BoxShape.circle,
+                                  ),
+                                )
+                              else if (isOnline)
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  margin: const EdgeInsets.only(left: 8),
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF2E7D32),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(width: 16),
-                // รายละเอียดคนขับและข้อความ
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'Driver: $driverName',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF2C2F30),
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Text(
-                            timeString,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      // ป้าย Badge บอกเบอร์รถ (สีเขียวอ่อนตามภาพ)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE8F5E9),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          badgeText,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF2E7D32),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      // ตัวอย่างข้อความล่าสุด
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              lastMessage,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: Color(0xFF5A6065),
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (isOnline)
-                            Container(
-                              width: 8,
-                              height: 8,
-                              margin: const EdgeInsets.only(left: 8),
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF2E7D32),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          }
         );
       },
     );

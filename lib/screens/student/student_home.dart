@@ -53,10 +53,56 @@ class _StudentHomeState extends State<StudentHome>
   List<Map<String, dynamic>> activeShuttles =
       []; // ✨ เก็บรายการรถที่กำลังออนไลน์
 
-  final Map<String, StreamSubscription<QuerySnapshot>> _chatSubscriptions = {}; // ✨ จัดการตัวฟังแชทหลายห้อง
-  final Timestamp _chatListenerStartTime = Timestamp.now(); // ✨ เวลาเริ่มฟังแชท  List<Map<String, dynamic>> busStops = [];
+  final Map<String, StreamSubscription<QuerySnapshot>> _chatSubscriptions =
+      {}; // ✨ จัดการตัวฟังแชทหลายห้อง
+  final Timestamp _chatListenerStartTime = Timestamp.now(); // ✨ เวลาเริ่มฟังแชท
   List<Map<String, dynamic>> busStops = [];
   bool _isLoadingStops = true;
+
+  // ✨ จัดกลุ่มจุดจอดที่อยู่ใกล้กันให้แสดงเป็นหมุดเดียว
+  final Map<String, List<String>> _groupedStops = {
+    '7-Eleven PSRU และตึก IT': ['7-Eleven PSRU', 'ตึก IT '],
+    'คณะสังคมศาสตร์ และคณะพยาบาลศาสตร์': ['คณะสังคมศาสตร์', 'คณะพยาบาลศาสตร์'],
+  };
+
+  // ✨ ข้อมูลจุดจอดสำหรับแสดงบนแผนที่ (ยุบรวมจุดที่จัดกลุ่มแล้ว)
+  List<Map<String, dynamic>> get _visualStops {
+    List<Map<String, dynamic>> result = [];
+    Set<String> groupedNames = {};
+
+    _groupedStops.forEach((groupName, memberNames) {
+      var members = busStops
+          .where((s) => memberNames.contains(s['name']))
+          .toList();
+      if (members.isNotEmpty) {
+        double avgLat =
+            members
+                .map((e) => (e['lat'] as num).toDouble())
+                .reduce((a, b) => a + b) /
+            members.length;
+        double avgLng =
+            members
+                .map((e) => (e['lng'] as num).toDouble())
+                .reduce((a, b) => a + b) /
+            members.length;
+        result.add({
+          'isGroup': true,
+          'name': groupName,
+          'lat': avgLat,
+          'lng': avgLng,
+          'members': members,
+        });
+        groupedNames.addAll(memberNames);
+      }
+    });
+
+    for (var stop in busStops) {
+      if (!groupedNames.contains(stop['name'])) {
+        result.add(stop);
+      }
+    }
+    return result;
+  }
 
   String? activeRequestId;
   StreamSubscription<DocumentSnapshot>? requestSubscription;
@@ -87,7 +133,8 @@ class _StudentHomeState extends State<StudentHome>
     _markerAnimation =
         CurvedAnimation(
           parent: _markerAnimationController,
-          curve: Curves.linear, // ใช้ linear เพื่อให้วิ่งต่อเนื่องแบบไม่กระตุกเมื่อรีเซ็ตบ่อยๆ
+          curve: Curves
+              .linear, // ใช้ linear เพื่อให้วิ่งต่อเนื่องแบบไม่กระตุกเมื่อรีเซ็ตบ่อยๆ
         )..addListener(() {
           if (mounted) {
             setState(() {
@@ -187,7 +234,8 @@ class _StudentHomeState extends State<StudentHome>
                     'number': doc.data().containsKey('number')
                         ? doc['number']
                         : '',
-                    'last_passed_stop': doc.data().containsKey('last_passed_stop')
+                    'last_passed_stop':
+                        doc.data().containsKey('last_passed_stop')
                         ? doc['last_passed_stop']
                         : null,
                   },
@@ -217,14 +265,27 @@ class _StudentHomeState extends State<StudentHome>
               }
               if (statusChanged) {
                 hasMeaningfulChange = true;
-                
+
                 // ✨ แจ้งเตือนถ้ารถเป้าหมายเปลี่ยนสถานะเป็นเต็มหรือพัก
-                if (targetedShuttleId == id && (isWaiting || isAcknowledged || selectedStopLatLng != null)) {
-                   if (newPassengerStatus == 'full' && oldPassengerStatus != 'full') {
-                     TopToast.show(context, 'แจ้งเตือน: รถรับส่งคันเป้าหมาย "ผู้โดยสารเต็ม" แล้วครับ', isError: true);
-                   } else if (newPassengerStatus == 'break' && oldPassengerStatus != 'break') {
-                     TopToast.show(context, 'แจ้งเตือน: รถรับส่งคันเป้าหมายกำลัง "พักเบรก" ครับ', isError: true);
-                   }
+                if (targetedShuttleId == id &&
+                    (isWaiting ||
+                        isAcknowledged ||
+                        selectedStopLatLng != null)) {
+                  if (newPassengerStatus == 'full' &&
+                      oldPassengerStatus != 'full') {
+                    TopToast.show(
+                      context,
+                      'แจ้งเตือน: รถรับส่งคันเป้าหมาย "ผู้โดยสารเต็ม" แล้วครับ',
+                      isError: true,
+                    );
+                  } else if (newPassengerStatus == 'break' &&
+                      oldPassengerStatus != 'break') {
+                    TopToast.show(
+                      context,
+                      'แจ้งเตือน: รถรับส่งคันเป้าหมายกำลัง "พักเบรก" ครับ',
+                      isError: true,
+                    );
+                  }
                 }
               }
 
@@ -235,7 +296,8 @@ class _StudentHomeState extends State<StudentHome>
                 _targetShuttleLocations[id] = newLoc;
                 _oldShuttleLocations[id] = newLoc; // ✨ ป้องกันบั๊กเริ่มต้น
                 hasMeaningfulChange = true;
-              } else if (targetLoc == null || targetLoc.latitude != newLoc.latitude ||
+              } else if (targetLoc == null ||
+                  targetLoc.latitude != newLoc.latitude ||
                   targetLoc.longitude != newLoc.longitude) {
                 _targetShuttleLocations[id] = newLoc;
                 shouldAnimate = true;
@@ -249,11 +311,18 @@ class _StudentHomeState extends State<StudentHome>
             }
 
             // ✨ แจ้งเตือนถ้ารถเป้าหมายออฟไลน์/เลิกงาน
-            if (targetedShuttleId != null && (isWaiting || isAcknowledged || selectedStopLatLng != null)) {
-              bool wasActive = activeShuttles.any((s) => s['id'] == targetedShuttleId);
+            if (targetedShuttleId != null &&
+                (isWaiting || isAcknowledged || selectedStopLatLng != null)) {
+              bool wasActive = activeShuttles.any(
+                (s) => s['id'] == targetedShuttleId,
+              );
               bool isStillActive = activeIds.contains(targetedShuttleId);
               if (wasActive && !isStillActive) {
-                TopToast.show(context, 'แจ้งเตือน: รถรับส่งคันเป้าหมาย "เลิกงาน/ออฟไลน์" แล้วครับ ระบบจะหาคันใหม่ให้', isError: true);
+                TopToast.show(
+                  context,
+                  'แจ้งเตือน: รถรับส่งคันเป้าหมาย "เลิกงาน/ออฟไลน์" แล้วครับ ระบบจะหาคันใหม่ให้',
+                  isError: true,
+                );
               }
             }
 
@@ -278,7 +347,8 @@ class _StudentHomeState extends State<StudentHome>
                 // ✨ อัปเดตพิกัดเริ่มต้นใหม่ให้กับรถทุกคัน ป้องกันบั๊กหมุดเด้งถอยหลังเวลาอนิเมชันเริ่มใหม่กลางคัน
                 for (var keyId in _targetShuttleLocations.keys) {
                   if (_currentShuttleLocations.containsKey(keyId)) {
-                    _oldShuttleLocations[keyId] = _currentShuttleLocations[keyId]!;
+                    _oldShuttleLocations[keyId] =
+                        _currentShuttleLocations[keyId]!;
                   }
                 }
                 _markerAnimationController.forward(from: 0.0);
@@ -296,7 +366,7 @@ class _StudentHomeState extends State<StudentHome>
   // ✨ ฟังข้อความแชทของทุกรถที่ออนไลน์ เพื่อแจ้งเตือนเสียง
   void _syncChatListeners() {
     final activeIds = activeShuttles.map((s) => s['id'] as String).toSet();
-    
+
     // ลบตัวฟังของรถที่ไม่ออนไลน์แล้ว
     _chatSubscriptions.removeWhere((id, sub) {
       if (!activeIds.contains(id)) {
@@ -316,16 +386,18 @@ class _StudentHomeState extends State<StudentHome>
             .where('timestamp', isGreaterThan: _chatListenerStartTime)
             .snapshots()
             .listen((snapshot) {
-          for (var change in snapshot.docChanges) {
-            if (change.type == DocumentChangeType.added) {
-              final data = change.doc.data() as Map<String, dynamic>?;
-              // เล่นเสียงเฉพาะถ้าคนส่งไม่ใช่ตัวเรา
-              if (data != null && data['senderId'] != FirebaseAuth.instance.currentUser?.uid) {
-                FlutterRingtonePlayer().playNotification();
+              for (var change in snapshot.docChanges) {
+                if (change.type == DocumentChangeType.added) {
+                  final data = change.doc.data() as Map<String, dynamic>?;
+                  // เล่นเสียงเฉพาะถ้าคนส่งไม่ใช่ตัวเรา
+                  if (data != null &&
+                      data['senderId'] !=
+                          FirebaseAuth.instance.currentUser?.uid) {
+                    FlutterRingtonePlayer().playNotification();
+                  }
+                }
               }
-            }
-          }
-        });
+            });
       }
     }
   }
@@ -687,10 +759,12 @@ class _StudentHomeState extends State<StudentHome>
     // ถ้านักศึกษาเรียกไปแล้ว หรือขึ้นรถแล้ว ให้ track รถคันที่รับงาน
     if ((isAcknowledged || isOnBoard) && targetedShuttleId != null) {
       try {
-        final trackedBus = activeShuttles.firstWhere((bus) => bus['id'] == targetedShuttleId);
+        final trackedBus = activeShuttles.firstWhere(
+          (bus) => bus['id'] == targetedShuttleId,
+        );
         closestBusId = trackedBus['id'];
         closestBusLoc = LatLng(trackedBus['lat'], trackedBus['lng']);
-        
+
         int? lastPassed = trackedBus['last_passed_stop'] as int?;
         if (lastPassed != null) {
           closestBusLastPassed = lastPassed;
@@ -771,7 +845,10 @@ class _StudentHomeState extends State<StudentHome>
       int currentOrder = 1;
       double minBusDist = double.infinity;
       for (var stop in busStops) {
-        double dist = const Distance().distance(closestBusLoc!, LatLng(stop['lat'], stop['lng']));
+        double dist = const Distance().distance(
+          closestBusLoc!,
+          LatLng(stop['lat'], stop['lng']),
+        );
         if (dist < minBusDist) {
           minBusDist = dist;
           currentOrder = stop['order'] ?? 1;
@@ -789,7 +866,7 @@ class _StudentHomeState extends State<StudentHome>
         try {
           final stop = busStops.firstWhere((s) => s['order'] == nextOrder);
           LatLng stopLoc = LatLng(stop['lat'], stop['lng']);
-          
+
           if (const Distance().distance(closestBusLoc!, stopLoc) > 40.0 &&
               const Distance().distance(target, stopLoc) > 40.0) {
             waypoints.add(stopLoc);
@@ -800,7 +877,7 @@ class _StudentHomeState extends State<StudentHome>
       }
     }
     waypoints.add(target);
-    
+
     _calculateHighlightedPath(waypoints);
   }
 
@@ -824,33 +901,169 @@ class _StudentHomeState extends State<StudentHome>
     }
   }
 
-  Future<void> _toggleWaitState() async {
-    if (isWaiting || isAcknowledged || isOnBoard) {
-      if (activeRequestId != null) {
-        try {
-          await FirebaseFirestore.instance
-              .collection('ride_requests')
-              .doc(activeRequestId)
-              .delete();
-        } catch (e) {
-          print("Error deleting request: $e");
-        }
-        requestSubscription?.cancel();
+  Future<void> _resetRideState() async {
+    if (activeRequestId != null) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('ride_requests')
+            .doc(activeRequestId)
+            .delete();
+      } catch (e) {
+        print("Error deleting request: $e");
       }
-      if (mounted) {
-        setState(() {
-          isWaiting = false;
-          isAcknowledged = false;
-          isOnBoard = false;
-          isCardMinimized = false;
-          activeRequestId = null;
-          selectedStopName = null;
-          selectedDropOffName = null;
-          selectedStopLatLng = null;
-          estimatedArrivalText = null;
-          highlightedPath.clear();
+      requestSubscription?.cancel();
+    }
+    if (mounted) {
+      setState(() {
+        isWaiting = false;
+        isAcknowledged = false;
+        isOnBoard = false;
+        isCardMinimized = false;
+        activeRequestId = null;
+        selectedStopName = null;
+        selectedDropOffName = null;
+        selectedStopLatLng = null;
+        estimatedArrivalText = null;
+        highlightedPath.clear();
+      });
+    }
+  }
+
+  void _showRatingDialog() {
+    int _rating = 0;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: const Text(
+                'ให้คะแนนคนขับรถ',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF176a21),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'คุณมีความพึงพอใจต่อการเดินทางครั้งนี้อย่างไรบ้าง?',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(5, (index) {
+                      return IconButton(
+                        icon: Icon(
+                          index < _rating ? Icons.star : Icons.star_border,
+                          color: Colors.amber,
+                          size: 40,
+                        ),
+                        onPressed: () {
+                          setDialogState(() {
+                            _rating = index + 1;
+                          });
+                        },
+                      );
+                    }),
+                  ),
+                ],
+              ),
+              actionsAlignment: MainAxisAlignment.spaceEvenly,
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _resetRideState();
+                  },
+                  child: const Text(
+                    'ข้าม',
+                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                  ),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF176a21),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onPressed: _rating > 0
+                      ? () async {
+                          Navigator.pop(context);
+                          await _submitRating(_rating);
+                          _resetRideState();
+                        }
+                      : null,
+                  child: const Text(
+                    'ส่งคะแนน',
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _submitRating(int score) async {
+    if (targetedShuttleId == null) return;
+    try {
+      final shuttleDoc = await FirebaseFirestore.instance
+          .collection('shuttles')
+          .doc(targetedShuttleId)
+          .get();
+      if (!shuttleDoc.exists) return;
+      final data = shuttleDoc.data();
+      if (data != null &&
+          data.containsKey('driver_uid') &&
+          data['driver_uid'] != null) {
+        final String driverUid = data['driver_uid'];
+
+        final userDocRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(driverUid);
+        await FirebaseFirestore.instance.runTransaction((transaction) async {
+          final snapshot = await transaction.get(userDocRef);
+          if (!snapshot.exists) return;
+
+          double currentTotal = (snapshot.data()?['total_rating_score'] ?? 0.0)
+              .toDouble();
+          int currentCount = (snapshot.data()?['rating_count'] ?? 0).toInt();
+
+          transaction.update(userDocRef, {
+            'total_rating_score': currentTotal + score,
+            'rating_count': currentCount + 1,
+          });
         });
+
+        if (mounted) {
+          TopToast.show(context, 'ขอบคุณสำหรับคะแนนครับ! 🌟', isError: false);
+        }
       }
+    } catch (e) {
+      print("Error submitting rating: $e");
+    }
+  }
+
+  Future<void> _toggleWaitState() async {
+    if (isOnBoard) {
+      // ✨ ถ้านักศึกษาอยู่บนรถ และกดเสร็จสิ้น ให้เด้ง Popup ให้คะแนน
+      _showRatingDialog();
+      return;
+    }
+
+    if (isWaiting || isAcknowledged) {
+      await _resetRideState();
     } else {
       if (selectedDropOffName == null) {
         TopToast.show(
@@ -1222,28 +1435,55 @@ class _StudentHomeState extends State<StudentHome>
               ),
               MarkerLayer(
                 markers: [
-                  ...busStops.map((stop) {
-                    bool isSelected = isOnBoard
-                        ? selectedDropOffName == stop['name']
-                        : selectedStopName == stop['name'];
+                  ..._visualStops.map((vStop) {
+                    bool isSelected = false;
+                    if (vStop['isGroup'] == true) {
+                      isSelected = isOnBoard
+                          ? (vStop['members'] as List).any(
+                              (m) => m['name'] == selectedDropOffName,
+                            )
+                          : (vStop['members'] as List).any(
+                              (m) => m['name'] == selectedStopName,
+                            );
+                    } else {
+                      isSelected = isOnBoard
+                          ? selectedDropOffName == vStop['name']
+                          : selectedStopName == vStop['name'];
+                    }
+
                     return Marker(
-                      key: ValueKey('stop_${stop['id'] ?? stop['name']}'),
-                      point: LatLng(stop['lat'], stop['lng']),
+                      key: ValueKey('stop_${vStop['id'] ?? vStop['name']}'),
+                      point: LatLng(vStop['lat'], vStop['lng']),
                       width: isSelected ? 150 : 130,
                       height: isSelected ? 75 : 65,
                       child: RepaintBoundary(
                         child: GestureDetector(
-                          onTap: () => _moveToStop(stop),
+                          onTap: () {
+                            if (vStop['isGroup'] == true) {
+                              if (!isSelected) {
+                                _moveToStop(vStop['members'][0]);
+                              } else {
+                                _moveToStop(
+                                  busStops.firstWhere(
+                                    (s) => s['name'] == selectedStopName,
+                                    orElse: () => vStop['members'][0],
+                                  ),
+                                );
+                              }
+                            } else {
+                              _moveToStop(vStop);
+                            }
+                          },
                           child: _buildStopMarker(
                             isSelected: isSelected,
-                            name: stop['name'] ?? '',
+                            name: vStop['name'] ?? '',
                           ),
                         ),
                       ),
                     );
                   }),
-                  // ✨ แสดงตำแหน่งนักศึกษา
-                  if (_myLocation != null)
+                  // ✨ แสดงตำแหน่งนักศึกษา (ซ่อนเมื่ออยู่บนรถแล้ว เพื่อใช้หมุดรถแทน)
+                  if (_myLocation != null && !isOnBoard)
                     Marker(
                       point: _myLocation!,
                       width: 80,
@@ -1743,7 +1983,116 @@ class _StudentHomeState extends State<StudentHome>
     );
   }
 
+  Widget _buildStopTitleArea() {
+    String? currentName = isOnBoard ? selectedDropOffName : selectedStopName;
+    if (currentName == null) return const SizedBox.shrink();
+
+    String? groupName;
+    List<String> groupMembers = [];
+    _groupedStops.forEach((gName, members) {
+      if (members.contains(currentName)) {
+        groupName = gName;
+        groupMembers = members;
+      }
+    });
+
+    if (groupName != null && !isOnBoard) {
+      if (!isWaiting && !isAcknowledged) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'ฝั่ง :',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF595C5D),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: groupMembers.map((mName) {
+                bool isSubSelected = currentName == mName;
+                return GestureDetector(
+                  onTap: () {
+                    final stop = busStops.firstWhere((s) => s['name'] == mName);
+                    _moveToStop(stop);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSubSelected
+                          ? const Color(0xFF176a21)
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: const Color(0xFF176a21),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Text(
+                      mName.trim(),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: isSubSelected
+                            ? Colors.white
+                            : const Color(0xFF176a21),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        );
+      } else {
+        return Text(
+          currentName,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF2C2F30),
+            height: 1.2,
+          ),
+        );
+      }
+    }
+
+    return Text(
+      currentName,
+      style: const TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.w800,
+        color: Color(0xFF2C2F30),
+        height: 1.2,
+      ),
+    );
+  }
+
   Widget _buildStopDetailsCard() {
+    // ✨ ดึงชื่อ/หมายเลขรถที่กำลังเดินทางมารับ หรือรถที่เราขึ้นไปแล้ว
+    String? assignedShuttleName;
+    if ((isAcknowledged || isOnBoard) && targetedShuttleId != null) {
+      try {
+        final trackedBus = activeShuttles.firstWhere(
+          (bus) => bus['id'] == targetedShuttleId,
+        );
+        assignedShuttleName = trackedBus['number']?.toString();
+        if (assignedShuttleName == null || assignedShuttleName.trim().isEmpty) {
+          assignedShuttleName = trackedBus['name']?.toString();
+        }
+      } catch (e) {
+        assignedShuttleName = null;
+      }
+    }
+
     // ✨ ถ้าอยู่ในสถานะคนขับรับทราบแล้ว และถูกย่อจากการกดที่แผนที่ ให้แสดงเหลือแค่ปุ่ม "ขึ้นรถเรียบร้อยแล้ว"
     if ((isAcknowledged || isOnBoard) && isCardMinimized) {
       return Center(
@@ -1822,23 +2171,61 @@ class _StudentHomeState extends State<StudentHome>
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEFF1F2),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Text(
-                      'จุดจอดรถรับส่ง',
-                      style: TextStyle(
-                        color: Color(0xFF595C5D),
-                        fontWeight: FontWeight.bold,
-                        fontSize: 11.5,
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF1F2),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Text(
+                          'จุดจอดรถรับส่ง',
+                          style: TextStyle(
+                            color: Color(0xFF595C5D),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11.5,
+                          ),
+                        ),
                       ),
-                    ),
+                      if (assignedShuttleName != null) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF176a21).withOpacity(0.1),
+                            border: Border.all(
+                              color: const Color(0xFF176a21).withOpacity(0.5),
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.directions_bus,
+                                size: 12,
+                                color: Color(0xFF176a21),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'รถเบอร์ $assignedShuttleName',
+                                style: const TextStyle(
+                                  color: Color(0xFF176a21),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   if (!isWaiting)
                     GestureDetector(
@@ -1878,15 +2265,7 @@ class _StudentHomeState extends State<StudentHome>
                 ],
               ),
               const SizedBox(height: 10),
-              Text(
-                (isOnBoard ? selectedDropOffName : selectedStopName) ?? '',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF2C2F30),
-                  height: 1.2,
-                ),
-              ),
+              _buildStopTitleArea(),
               const SizedBox(height: 6),
 
               if (isWaiting)
@@ -1927,8 +2306,8 @@ class _StudentHomeState extends State<StudentHome>
                           child: Text(
                             isOnBoard
                                 ? (remainingStops != null
-                                    ? 'กำลังเดินทางไปยังจุดหมายของคุณ อีก $remainingStops จุดจอดจะถึงจุดหมายคุณ 🚌'
-                                    : 'กำลังเดินทางไปยังจุดหมายของคุณ 🚌')
+                                      ? 'กำลังเดินทางไปยังจุดหมายของคุณ อีก $remainingStops จุดจอดจะถึงจุดหมายคุณ 🚌'
+                                      : 'กำลังเดินทางไปยังจุดหมายของคุณ 🚌')
                                 : 'คนขับรับทราบแล้ว! รถกำลังเดินทางมารับคุณที่ป้าย',
                             style: const TextStyle(
                               fontSize: 13,
@@ -1958,8 +2337,8 @@ class _StudentHomeState extends State<StudentHome>
                               activeShuttles.isEmpty
                                   ? estimatedArrivalText!
                                   : (isOnBoard
-                                      ? 'เวลาที่จะถึงจุดหมาย: $estimatedArrivalText'
-                                      : 'รถจะมาถึง: $estimatedArrivalText'),
+                                        ? 'เวลาที่จะถึงจุดหมาย: $estimatedArrivalText'
+                                        : 'รถจะมาถึง: $estimatedArrivalText'),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(

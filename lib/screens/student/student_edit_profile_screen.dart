@@ -149,10 +149,13 @@ class _StudentEditProfileScreenState extends State<StudentEditProfileScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF176a21)))
-          : SafeArea(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10.0),
-                child: Column(
+          : Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 800),
+                child: SafeArea(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10.0),
+                    child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
@@ -304,6 +307,8 @@ class _StudentEditProfileScreenState extends State<StudentEditProfileScreen> {
                 ),
               ),
             ),
+          ),
+        ),
     );
   }
 

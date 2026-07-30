@@ -33,7 +33,10 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
         children: [
           _buildHeader(),
           Expanded(
-              child: StreamBuilder<QuerySnapshot>(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 800),
+                child: StreamBuilder<QuerySnapshot>(
                 stream: _shuttlesStream,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
@@ -58,8 +61,20 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
               final String shuttleId = doc.id;
               final String name = (data['name'] ?? shuttleId).toString();
               final String number = (data['number'] ?? '').toString();
-              final String status = data['status'] ?? 'offline'; // 'online' หรือ 'offline'
+              String status = data['status'] ?? 'offline'; // 'online' หรือ 'offline'
               
+              // ✨ เช็คว่าอัปเดตล่าสุดเกิน 5 นาทีหรือไม่ (กรองรถที่ปิดแอปไปแล้วแต่สถานะยังค้าง)
+              final Timestamp? lastUpdated = data['last_updated'] as Timestamp?;
+              if (lastUpdated != null) {
+                final now = DateTime.now();
+                final updatedTime = lastUpdated.toDate();
+                if (now.difference(updatedTime).inMinutes > 5) {
+                  status = 'offline';
+                }
+              } else if (status == 'online') {
+                status = 'offline'; // ถ้าไม่มี last_updated ก็ถือว่า offline ไว้ก่อนเพื่อความชัวร์
+              }
+
               // สถานะผู้โดยสาร: 'available', 'full', 'break', 'offline'
               String passengerStatus = data['passenger_status'] ?? 
                   (status == 'online' ? 'available' : 'offline');
@@ -179,9 +194,11 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
             );
           },
         ),
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
     );
   }
 

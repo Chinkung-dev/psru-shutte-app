@@ -85,7 +85,10 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
         children: [
           _buildHeader(context),
           Expanded(
-            child: SingleChildScrollView(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 800),
+                child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 100),
               child: Column(
                 children: [
@@ -240,11 +243,13 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
             ),
           ],
         ),
-      ),
+              ),
+            ),
+          ),
+        ),
+      ],
     ),
-  ],
-),
-);
+  );
 }
 
   // ส่วนหัวข้อแบบแถบสีขาวเหมือน student_home
