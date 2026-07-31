@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import '../../widgets/top_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tutorial_coach_mark/tutorial_coach_mark.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
@@ -110,6 +112,17 @@ class _StudentHomeState extends State<StudentHome>
   StreamSubscription<QuerySnapshot>?
   shuttleSubscription; // ✨ เพิ่ม Subscription สำหรับฟังตำแหน่งรถ
 
+  // ✨ Tutorial GlobalKeys
+  final GlobalKey keyStopMarker = GlobalKey();
+  final GlobalKey keyCardTopSection = GlobalKey();
+  final GlobalKey keyCardBottomSection = GlobalKey();
+  final GlobalKey keySelectedStopMarker = GlobalKey();
+  final GlobalKey keyMyLocationButton = GlobalKey();
+  final GlobalKey keyMyLocationDot = GlobalKey();
+  final GlobalKey keyBottomNav = GlobalKey();
+
+  late TutorialCoachMark tutorialCoachMark;
+
   List<LatLng> highlightedPath = [];
   final Map<LatLng, List<LatLng>> _routeGraph = {};
 
@@ -188,6 +201,13 @@ class _StudentHomeState extends State<StudentHome>
           _myLocation = loc;
         });
         _mapController.move(loc, 17.0);
+
+        // ✨ เช็คและแสดง Tutorial หลังจากซูมเสร็จ
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (mounted) {
+            _checkAndShowTutorial();
+          }
+        });
       }
     } catch (e) {
       debugPrint("Error getting location: $e");
@@ -1422,7 +1442,9 @@ class _StudentHomeState extends State<StudentHome>
                     return Polyline(
                       points: segment,
                       strokeWidth: 5.0,
-                      color: const Color(0xFF176a21).withOpacity(0.3),
+                      color: const Color(0xFF176a21).withValues(
+                        alpha: 0.5,
+                      ), // ปรับให้เข้มขึ้นเพื่อให้มองเห็นชัด
                     );
                   }),
                   if (highlightedPath.isNotEmpty)
@@ -1434,8 +1456,12 @@ class _StudentHomeState extends State<StudentHome>
                 ],
               ),
               MarkerLayer(
-                markers: [
-                  ..._visualStops.map((vStop) {
+                markers: (() {
+                  List<Marker> allMarkers = [];
+                  Marker? selectedMarker;
+
+                  // 1. หมุดจุดจอดรถ (ที่ไม่ได้เลือก)
+                  for (var vStop in _visualStops) {
                     bool isSelected = false;
                     if (vStop['isGroup'] == true) {
                       isSelected = isOnBoard
@@ -1451,13 +1477,18 @@ class _StudentHomeState extends State<StudentHome>
                           : selectedStopName == vStop['name'];
                     }
 
-                    return Marker(
+                    final marker = Marker(
                       key: ValueKey('stop_${vStop['id'] ?? vStop['name']}'),
                       point: LatLng(vStop['lat'], vStop['lng']),
                       width: isSelected ? 150 : 130,
                       height: isSelected ? 75 : 65,
                       child: RepaintBoundary(
                         child: GestureDetector(
+                          key: isSelected
+                              ? keySelectedStopMarker
+                              : (_visualStops.isNotEmpty && vStop == _visualStops.first
+                                  ? keyStopMarker
+                                  : null),
                           onTap: () {
                             if (vStop['isGroup'] == true) {
                               if (!isSelected) {
@@ -1481,68 +1512,81 @@ class _StudentHomeState extends State<StudentHome>
                         ),
                       ),
                     );
-                  }),
-                  // ✨ แสดงตำแหน่งนักศึกษา (ซ่อนเมื่ออยู่บนรถแล้ว เพื่อใช้หมุดรถแทน)
-                  if (_myLocation != null && !isOnBoard)
-                    Marker(
-                      point: _myLocation!,
-                      width: 80,
-                      height: 80,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        alignment: Alignment.center,
-                        children: [
-                          Container(
-                            width: 30,
-                            height: 30,
-                            decoration: BoxDecoration(
-                              color: Colors.blueAccent,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 3),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.blueAccent.withOpacity(0.5),
-                                  blurRadius: 10,
-                                  spreadRadius: 3,
-                                ),
-                              ],
-                            ),
-                            child: const Icon(
-                              Icons.person,
-                              color: Colors.white,
-                              size: 16, // ใส่ไอคอนรูปคนตรงกลางสีฟ้า
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 2,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
+
+                    if (isSelected) {
+                      selectedMarker = marker;
+                    } else {
+                      allMarkers.add(marker);
+                    }
+                  }
+
+                  // 2. แสดงตำแหน่งนักศึกษา (ซ่อนเมื่ออยู่บนรถแล้ว เพื่อใช้หมุดรถแทน)
+                  if (_myLocation != null && !isOnBoard) {
+                    allMarkers.add(
+                      Marker(
+                        point: _myLocation!,
+                        width: 80,
+                        height: 80,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          alignment: Alignment.center,
+                          children: [
+                            Container(
+                              key: keyMyLocationDot,
+                              width: 30,
+                              height: 30,
                               decoration: BoxDecoration(
-                                color: Colors.blueAccent.withOpacity(0.95),
-                                borderRadius: BorderRadius.circular(6),
+                                color: Colors.blueAccent,
+                                shape: BoxShape.circle,
                                 border: Border.all(
-                                  color: Colors.white,
-                                  width: 1.0,
-                                ),
+                                    color: Colors.white, width: 3),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.blueAccent.withOpacity(0.5),
+                                    blurRadius: 10,
+                                    spreadRadius: 3,
+                                  ),
+                                ],
                               ),
-                              child: const Text(
-                                'ฉัน', // ข้อความบอกว่าเป็นตัวนักศึกษาเอง
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
+                              child: const Icon(
+                                Icons.person,
+                                color: Colors.white,
+                                size: 16, // ใส่ไอคอนรูปคนตรงกลางสีฟ้า
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 2,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.blueAccent.withOpacity(0.95),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: Colors.white,
+                                    width: 1.0,
+                                  ),
+                                ),
+                                child: const Text(
+                                  'ฉัน', // ข้อความบอกว่าเป็นตัวนักศึกษาเอง
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  // ✨ แสดงหมุดรถรับส่งทุกคันที่ออนไลน์ (ขยับแบบอนิเมชันเหมือนฝั่งคนขับ)
-                  ...activeShuttles.map((shuttle) {
+                    );
+                  }
+
+                  // 3. แสดงหมุดรถรับส่งทุกคันที่ออนไลน์ (ขยับแบบอนิเมชันเหมือนฝั่งคนขับ)
+                  allMarkers.addAll(activeShuttles.map((shuttle) {
                     final String id = shuttle['id'];
                     final LatLng displayLoc =
                         _currentShuttleLocations[id] ??
@@ -1562,21 +1606,32 @@ class _StudentHomeState extends State<StudentHome>
                         ),
                       ),
                     );
-                  }),
-                  // ✨ แสดงป้ายเวลาประมาณการ (ETA Badge) ข้างเส้นทางไฮไลท์บนแผนที่
+                  }));
+
+                  // 4. แสดงหมุดจุดจอดที่ถูกเลือกเป็น Layer บนสุด! 
+                  if (selectedMarker != null) {
+                    allMarkers.add(selectedMarker);
+                  }
+
+                  // 5. แสดงป้ายเวลาประมาณการ (ETA Badge) ข้างเส้นทางไฮไลท์บนแผนที่
                   if (highlightedPath.isNotEmpty &&
                       estimatedArrivalText != null &&
-                      _getPathMidpoint() != null)
-                    Marker(
-                      key: const ValueKey('eta_badge'),
-                      point: _getPathMidpoint()!,
-                      width: 170,
-                      height: 40,
-                      child: RepaintBoundary(
-                        child: _buildRouteEtaBadge(estimatedArrivalText!),
+                      _getPathMidpoint() != null) {
+                    allMarkers.add(
+                      Marker(
+                        key: const ValueKey('eta_badge'),
+                        point: _getPathMidpoint()!,
+                        width: 170,
+                        height: 40,
+                        child: RepaintBoundary(
+                          child: _buildRouteEtaBadge(estimatedArrivalText!),
+                        ),
                       ),
-                    ),
-                ],
+                    );
+                  }
+
+                  return allMarkers;
+                })(),
               ),
             ],
           ),
@@ -1657,11 +1712,12 @@ class _StudentHomeState extends State<StudentHome>
 
         // ✨ ปุ่มเป้าเล็ง (แบบเดียวกับของคนขับ)
         Positioned(
-          bottom: (selectedStopName != null)
-              ? 230
-              : 100, // ขยับหลบการ์ดด้านล่างถ้ายกขึ้นมา
+          bottom: (selectedStopName != null && isCardMinimized)
+              ? 150 // ขยับหลบปุ่มตอนย่อเล็กน้อย
+              : 100, // ปล่อยให้การ์ดทับไปเลย หรือกลับสู่ปกติเวลาปิด
           right: 20,
           child: FloatingActionButton(
+            key: keyMyLocationButton,
             mini: true,
             backgroundColor: _isAutoFollow
                 ? const Color(0xFF176a21)
@@ -1701,6 +1757,418 @@ class _StudentHomeState extends State<StudentHome>
     );
   }
 
+  // ✨ ตรวจสอบและแสดง Tutorial
+  Future<void> _checkAndShowTutorial() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // 💡 ลบคอมเมนต์บรรทัดล่างนี้ออกเพื่อ "บังคับรีเซ็ต" ให้ Tutorial กลับมาแสดงอีกครั้ง (สำหรับการทดสอบ)
+    await prefs.setBool('hasSeenTutorial', false);
+
+    final bool hasSeenTutorial = prefs.getBool('hasSeenTutorial') ?? false;
+
+    if (!hasSeenTutorial) {
+      if (_visualStops.isEmpty) {
+        // ถ้ารอโหลดป้ายรถยังไม่เสร็จ ให้รออีกครึ่งวินาทีแล้วเช็คใหม่
+        Future.delayed(const Duration(milliseconds: 500), _checkAndShowTutorial);
+        return;
+      }
+      
+      bool openedForTutorial = false;
+      // เราลบโค้ดบังคับเปิดการ์ดออก เพื่อให้ Tutorial เริ่มทำงานที่ Phase 1 (Card ปิดอยู่) ได้อย่างถูกต้อง
+      
+      // รอให้ Layout และ Marker สร้างเสร็จก่อนโชว์ Tutorial (ประมาณ 350ms)
+      Future.delayed(const Duration(milliseconds: 350), () {
+        if (mounted) {
+          _showTutorial(openedForTutorial);
+        }
+      });
+    }
+  }
+
+  void _showTutorial(bool closeCardOnFinish, {bool isPhase2 = false}) {
+    bool isPhase1 = !isPhase2 && selectedStopName == null && _visualStops.isNotEmpty;
+
+    final targets = _createTutorialTargets(
+      phase1Only: isPhase1,
+      startingStep: isPhase1 ? 1 : (isPhase2 ? 4 : 1),
+    );
+    if (targets.isEmpty) return;
+
+    tutorialCoachMark = TutorialCoachMark(
+      targets: targets,
+      colorShadow: const Color(0xFF176a21),
+      textSkip: "ข้าม",
+      paddingFocus: 10,
+      opacityShadow: 0.85,
+      onFinish: () {
+        if (isPhase1) {
+          // 💡 จบ Phase 1 (คลิกที่หมุดแล้ว) -> ให้จำลองการเปิดการ์ดและเข้าสู่ Phase 2
+          var firstStop = _visualStops.first;
+          if (firstStop['isGroup'] == true && firstStop['members'] != null && firstStop['members'].isNotEmpty) {
+            _moveToStop(firstStop['members'][0]);
+          } else {
+            _moveToStop(firstStop);
+          }
+          Future.delayed(const Duration(milliseconds: 400), () {
+            if (mounted) _showTutorial(closeCardOnFinish, isPhase2: true);
+          });
+        } else {
+          // 💡 จบ Tutorial ทั้งหมดจริงๆ
+          SharedPreferences.getInstance().then((prefs) {
+            prefs.setBool('hasSeenTutorial', true);
+          });
+          if (mounted) {
+            setState(() {
+              selectedStopName = null;
+            });
+          }
+        }
+      },
+      onSkip: () {
+        SharedPreferences.getInstance().then((prefs) {
+          prefs.setBool('hasSeenTutorial', true);
+        });
+        if (mounted) {
+          setState(() {
+            selectedStopName = null;
+          });
+        }
+        return true;
+      },
+    );
+
+    tutorialCoachMark.show(context: context);
+  }
+
+  Widget _buildTutorialContent(
+    String title,
+    String description,
+    int currentStep,
+    int totalSteps,
+    TutorialCoachMarkController controller, {
+    bool canGoBack = false,
+  }) {
+    bool isLast = currentStep == totalSteps;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                "$currentStep / $totalSteps",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          description,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          mainAxisAlignment: canGoBack ? MainAxisAlignment.spaceBetween : MainAxisAlignment.end,
+          children: [
+            if (canGoBack)
+              TextButton(
+                onPressed: () {
+                  controller.previous();
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    side: BorderSide(color: Colors.white.withOpacity(0.8), width: 1.2),
+                  ),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.arrow_back_rounded, size: 18),
+                    SizedBox(width: 6),
+                    Text(
+                      "ย้อนกลับ",
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                  ],
+                ),
+              )
+            else
+              const SizedBox.shrink(),
+            
+            ElevatedButton(
+              onPressed: () {
+                if (isLast) {
+                  controller.skip(); // On last step, skip to finish properly
+                } else {
+                  controller.next();
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFF176a21),
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    isLast ? "เริ่มใช้งานเลย!" : "ถัดไป",
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  if (!isLast) const SizedBox(width: 8),
+                  if (!isLast) const Icon(Icons.arrow_forward_rounded, size: 18),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  List<TargetFocus> _createTutorialTargets({bool phase1Only = false, int startingStep = 1}) {
+    List<TargetFocus> targets = [];
+
+    bool hasStopMarker = keyStopMarker.currentContext != null;
+    bool hasCardTop = keyCardTopSection.currentContext != null;
+    bool hasCardBottom = keyCardBottomSection.currentContext != null;
+    bool hasSelectedStopMarker = keySelectedStopMarker.currentContext != null;
+    bool hasMyLocationButton = keyMyLocationButton.currentContext != null;
+    bool hasMyLocationDot = keyMyLocationDot.currentContext != null;
+    bool hasBottomNav = keyBottomNav.currentContext != null;
+
+    // คำนวณจำนวน Step ทั้งหมด (รวมแล้วควรเป็น 7 ขั้นตอน)
+    int totalSteps = (hasMyLocationDot || phase1Only ? 1 : 0) + 
+                     (hasMyLocationButton || phase1Only ? 1 : 0) + 
+                     (hasStopMarker || phase1Only ? 1 : 0) + 
+                     (hasSelectedStopMarker || !phase1Only ? 1 : 0) + 
+                     (hasCardTop || !phase1Only ? 1 : 0) + 
+                     (hasCardBottom || !phase1Only ? 1 : 0) + 
+                     (hasBottomNav || !phase1Only ? 1 : 0);
+    int currentStepCounter = startingStep;
+
+    // 1. หมุดตำแหน่งของฉัน (My Location Dot) - โชว์ใน Phase 1
+    if (phase1Only && hasMyLocationDot) {
+      final step = currentStepCounter++;
+      targets.add(
+        TargetFocus(
+          identify: "MyLocationDot",
+          keyTarget: keyMyLocationDot,
+          alignSkip: Alignment.topRight,
+          contents: [
+            TargetContent(
+              align: ContentAlign.top,
+              builder: (context, controller) => _buildTutorialContent(
+                "ตำแหน่งของคุณ 📍",
+                "หมุดสีฟ้าคือ 'ตำแหน่งปัจจุบัน' ของคุณบนแผนที่ครับ",
+                step,
+                totalSteps,
+                controller,
+                canGoBack: step > startingStep,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 2. ปุ่มเป้าเล็ง (My Location Button) - โชว์ใน Phase 1
+    if (phase1Only && hasMyLocationButton) {
+      final step = currentStepCounter++;
+      targets.add(
+        TargetFocus(
+          identify: "MyLocationButton",
+          keyTarget: keyMyLocationButton,
+          alignSkip: Alignment.topRight,
+          contents: [
+            TargetContent(
+              align: ContentAlign.top,
+              builder: (context, controller) => _buildTutorialContent(
+                "ค้นหาตัวคุณ 🔍",
+                "หากเลื่อนแผนที่ไปที่อื่น คุณสามารถกดปุ่ม 'เป้าเล็ง' ตรงนี้เพื่อซูมกลับมาหาตำแหน่งปัจจุบันของคุณได้เสมอครับ",
+                step,
+                totalSteps,
+                controller,
+                canGoBack: step > startingStep,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 3. หมุดจุดจอดรถ (Stop Marker) - โชว์เฉพาะ Phase 1
+    if (phase1Only && hasStopMarker) {
+      final step = currentStepCounter++;
+      targets.add(
+        TargetFocus(
+          identify: "StopMarker",
+          keyTarget: keyStopMarker,
+          alignSkip: Alignment.topRight,
+          contents: [
+            TargetContent(
+              align: ContentAlign.bottom,
+              builder: (context, controller) => _buildTutorialContent(
+                "นี่คือป้ายจุดจอดรถ 🚏",
+                "เมื่อเห็นหมุดแบบนี้บนแผนที่ แสดงว่าเป็นจุดจอดรถครับ ลองกดที่ป้ายเพื่อดูรายละเอียดและเลือกเป็น 'จุดขึ้นรถ' (ต้นทาง) ได้เลย!",
+                step,
+                totalSteps,
+                controller,
+                canGoBack: step > startingStep,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (phase1Only) return targets; // หยุดแค่นี้สำหรับ Phase 1
+
+    // 4. หมุดจุดจอดรถที่ถูกเลือก (Selected Stop Marker) - โชว์ใน Phase 2
+    if (hasSelectedStopMarker) {
+      final step = currentStepCounter++;
+      targets.add(
+        TargetFocus(
+          identify: "SelectedStopMarker",
+          keyTarget: keySelectedStopMarker,
+          alignSkip: Alignment.topRight,
+          shape: ShapeLightFocus.RRect,
+          radius: 16,
+          contents: [
+            TargetContent(
+              align: ContentAlign.bottom,
+              builder: (context, controller) => _buildTutorialContent(
+                "จุดจอดที่คุณเลือก 📌",
+                "นี่คือจุดจอดที่คุณกำลังดูข้อมูลอยู่ครับ ระบบจะแสดงชื่อป้ายให้เห็นชัดเจนบนแผนที่",
+                step,
+                totalSteps,
+                controller,
+                canGoBack: step > startingStep,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 5. ส่วนบนของการ์ด (Card Top Section) - โชว์ใน Phase 2
+    if (hasCardTop) {
+      final step = currentStepCounter++;
+      targets.add(
+        TargetFocus(
+          identify: "CardTopSection",
+          keyTarget: keyCardTopSection,
+          alignSkip: Alignment.topRight,
+          shape: ShapeLightFocus.RRect,
+          radius: 16,
+          contents: [
+            TargetContent(
+              align: ContentAlign.top,
+              builder: (context, controller) => _buildTutorialContent(
+                "ข้อมูลจุดจอดรถ ℹ️",
+                "ส่วนนี้จะแสดงชื่อของป้ายรถที่คุณเลือก และเวลาโดยประมาณที่รถจะเดินทางมาถึงครับ",
+                step,
+                totalSteps,
+                controller,
+                canGoBack: step > startingStep,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 4. ส่วนล่างของการ์ด (Card Bottom Section)
+    if (hasCardBottom) {
+      final step = currentStepCounter++;
+      targets.add(
+        TargetFocus(
+          identify: "CardBottomSection",
+          keyTarget: keyCardBottomSection,
+          alignSkip: Alignment.topRight,
+          shape: ShapeLightFocus.RRect,
+          radius: 16,
+          contents: [
+            TargetContent(
+              align: ContentAlign.top,
+              builder: (context, controller) => _buildTutorialContent(
+                "เลือกปลายทางและเรียกรถ 🎯",
+                "แตะที่ช่องค้นหาเพื่อเลือก 'ป้ายปลายทาง' ที่คุณต้องการไป จากนั้นกดปุ่มสีเขียวด้านล่างเพื่อแจ้งให้คนขับทราบว่าคุณกำลังรออยู่ครับ!",
+                step,
+                totalSteps,
+                controller,
+                canGoBack: step > startingStep,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 5. แถบเมนูด้านล่าง (Bottom Navigation)
+    if (hasBottomNav) {
+      final step = currentStepCounter++;
+      targets.add(
+        TargetFocus(
+          identify: "BottomNav",
+          keyTarget: keyBottomNav,
+          alignSkip: Alignment.topRight,
+          shape: ShapeLightFocus.RRect,
+          radius: 20,
+          contents: [
+            TargetContent(
+              align: ContentAlign.top,
+              builder: (context, controller) => _buildTutorialContent(
+                "เมนูหลัก 📱",
+                "ใช้งานฟังก์ชันต่างๆ ได้จากตรงนี้:\n• Map: ดูแผนที่และเรียกรถ\n• Live Status: ดูสถานะรถแบบเรียลไทม์\n• Chat: พูดคุยกับคนขับ\n• Profile: จัดการบัญชีผู้ใช้",
+                step,
+                totalSteps,
+                controller,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return targets;
+  }
+
   // ✨ วิดเจ็ต Bottom Navigation Bar ดีไซน์โค้งเว้าพร้อมปุ่มวงกลมลอย
   Widget _buildCurvedBottomNav() {
     final List<Map<String, dynamic>> navItems = [
@@ -1732,6 +2200,7 @@ class _StudentHomeState extends State<StudentHome>
         final bool isDesktop = MediaQuery.of(context).size.width > 800;
 
         return SizedBox(
+          key: keyBottomNav,
           height: 85,
           child: Stack(
             clipBehavior: Clip.none,
@@ -2168,158 +2637,200 @@ class _StudentHomeState extends State<StudentHome>
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEFF1F2),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: const Text(
-                          'จุดจอดรถรับส่ง',
-                          style: TextStyle(
-                            color: Color(0xFF595C5D),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 11.5,
-                          ),
-                        ),
-                      ),
-                      if (assignedShuttleName != null) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF176a21).withOpacity(0.1),
-                            border: Border.all(
-                              color: const Color(0xFF176a21).withOpacity(0.5),
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.directions_bus,
-                                size: 12,
-                                color: Color(0xFF176a21),
+              Container(
+                key: keyCardTopSection,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
                               ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'รถเบอร์ $assignedShuttleName',
-                                style: const TextStyle(
-                                  color: Color(0xFF176a21),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEFF1F2),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Text(
+                                'จุดจอดรถรับส่ง',
+                                style: TextStyle(
+                                  color: Color(0xFF595C5D),
                                   fontWeight: FontWeight.bold,
                                   fontSize: 11.5,
                                 ),
                               ),
+                            ),
+                            if (assignedShuttleName != null) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF176a21).withOpacity(0.1),
+                                  border: Border.all(
+                                    color: const Color(0xFF176a21).withOpacity(0.5),
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.directions_bus,
+                                      size: 12,
+                                      color: Color(0xFF176a21),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'รถเบอร์ $assignedShuttleName',
+                                      style: const TextStyle(
+                                        color: Color(0xFF176a21),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 11.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ],
+                          ],
+                        ),
+                        if (!isWaiting)
+                          GestureDetector(
+                            onTap: () async {
+                              if (activeRequestId != null) {
+                                try {
+                                  await FirebaseFirestore.instance
+                                      .collection('ride_requests')
+                                      .doc(activeRequestId)
+                                      .delete();
+                                } catch (e) {
+                                  print("Error deleting request: $e");
+                                }
+                                requestSubscription?.cancel();
+                              }
+                              if (mounted) {
+                                setState(() {
+                                  isWaiting = false;
+                                  isAcknowledged = false;
+                                  isOnBoard = false;
+                                  isCardMinimized = false;
+                                  activeRequestId = null;
+                                  selectedStopName = null;
+                                  selectedDropOffName = null;
+                                  selectedStopLatLng = null;
+                                  estimatedArrivalText = null;
+                                  highlightedPath.clear();
+                                });
+                              }
+                            },
+                            child: const Icon(
+                              Icons.close,
+                              color: Color(0xFF757778),
+                              size: 20,
+                            ),
                           ),
-                        ),
                       ],
-                    ],
-                  ),
-                  if (!isWaiting)
-                    GestureDetector(
-                      onTap: () async {
-                        if (activeRequestId != null) {
-                          try {
-                            await FirebaseFirestore.instance
-                                .collection('ride_requests')
-                                .doc(activeRequestId)
-                                .delete();
-                          } catch (e) {
-                            print("Error deleting request: $e");
-                          }
-                          requestSubscription?.cancel();
-                        }
-                        if (mounted) {
-                          setState(() {
-                            isWaiting = false;
-                            isAcknowledged = false;
-                            isOnBoard = false;
-                            isCardMinimized = false;
-                            activeRequestId = null;
-                            selectedStopName = null;
-                            selectedDropOffName = null;
-                            selectedStopLatLng = null;
-                            estimatedArrivalText = null;
-                            highlightedPath.clear();
-                          });
-                        }
-                      },
-                      child: const Icon(
-                        Icons.close,
-                        color: Color(0xFF757778),
-                        size: 20,
-                      ),
                     ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              _buildStopTitleArea(),
-              const SizedBox(height: 6),
-
-              if (isWaiting)
-                const Row(
-                  children: [
-                    SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.orange,
-                      ),
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      'กำลังส่งสัญญาณเรียกคนขับ...',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.orange,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                )
-              else if (isAcknowledged || isOnBoard)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.check_circle,
-                          size: 18,
-                          color: Color(0xFF176a21),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            isOnBoard
-                                ? (remainingStops != null
-                                      ? 'กำลังเดินทางไปยังจุดหมายของคุณ อีก $remainingStops จุดจอดจะถึงจุดหมายคุณ 🚌'
-                                      : 'กำลังเดินทางไปยังจุดหมายของคุณ 🚌')
-                                : 'คนขับรับทราบแล้ว! รถกำลังเดินทางมารับคุณที่ป้าย',
-                            style: const TextStyle(
+                    const SizedBox(height: 10),
+                    _buildStopTitleArea(),
+                    const SizedBox(height: 6),
+      
+                    if (isWaiting)
+                      const Row(
+                        children: [
+                          SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.orange,
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'กำลังส่งสัญญาณเรียกคนขับ...',
+                            style: TextStyle(
                               fontSize: 13,
-                              color: Color(0xFF176a21),
+                              color: Colors.orange,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                    if (estimatedArrivalText != null) ...[
-                      const SizedBox(height: 4),
+                        ],
+                      )
+                    else if (isAcknowledged || isOnBoard)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.check_circle,
+                                size: 18,
+                                color: Color(0xFF176a21),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  isOnBoard
+                                      ? (remainingStops != null
+                                            ? 'กำลังเดินทางไปยังจุดหมายของคุณ อีก $remainingStops จุดจอดจะถึงจุดหมายคุณ 🚌'
+                                            : 'กำลังเดินทางไปยังจุดหมายของคุณ 🚌')
+                                      : 'คนขับรับทราบแล้ว! รถกำลังเดินทางมารับคุณที่ป้าย',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF176a21),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (estimatedArrivalText != null) ...[
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Icon(
+                                  activeShuttles.isEmpty
+                                      ? Icons.info_outline
+                                      : Icons.timer_outlined,
+                                  size: 16,
+                                  color: activeShuttles.isEmpty
+                                      ? const Color(0xFFD84315)
+                                      : const Color(0xFF595C5D),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    activeShuttles.isEmpty
+                                        ? estimatedArrivalText!
+                                        : (isOnBoard
+                                              ? 'เวลาที่จะถึงจุดหมาย: $estimatedArrivalText'
+                                              : 'รถจะมาถึง: $estimatedArrivalText'),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: activeShuttles.isEmpty
+                                          ? const Color(0xFFD84315)
+                                          : const Color(0xFF595C5D),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      )
+                    else if (estimatedArrivalText != null)
                       Row(
                         children: [
                           Icon(
@@ -2329,213 +2840,189 @@ class _StudentHomeState extends State<StudentHome>
                             size: 16,
                             color: activeShuttles.isEmpty
                                 ? const Color(0xFFD84315)
-                                : const Color(0xFF595C5D),
+                                : const Color(0xFF176a21),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              estimatedArrivalText!,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: activeShuttles.isEmpty
+                                    ? const Color(0xFFD84315)
+                                    : const Color(0xFF176a21),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      Row(
+                        children: [
+                          Icon(
+                            activeShuttles.isEmpty
+                                ? Icons.info_outline
+                                : Icons.directions_bus,
+                            size: 16,
+                            color: activeShuttles.isEmpty
+                                ? const Color(0xFFD84315)
+                                : const Color(0xFF176a21),
                           ),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               activeShuttles.isEmpty
-                                  ? estimatedArrivalText!
-                                  : (isOnBoard
-                                        ? 'เวลาที่จะถึงจุดหมาย: $estimatedArrivalText'
-                                        : 'รถจะมาถึง: $estimatedArrivalText'),
+                                  ? '⚠️ ขณะนี้ยังไม่มีคนขับเปิดแอปออนไลน์ในระบบ'
+                                  : 'รถรับส่ง กำลังวิ่งให้บริการ',
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 12.5,
+                                fontSize: 13,
                                 color: activeShuttles.isEmpty
                                     ? const Color(0xFFD84315)
-                                    : const Color(0xFF595C5D),
-                                fontWeight: FontWeight.w600,
+                                    : const Color(0xFF176a21),
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                           ),
                         ],
                       ),
-                    ],
-                  ],
-                )
-              else if (estimatedArrivalText != null)
-                Row(
-                  children: [
-                    Icon(
-                      activeShuttles.isEmpty
-                          ? Icons.info_outline
-                          : Icons.timer_outlined,
-                      size: 16,
-                      color: activeShuttles.isEmpty
-                          ? const Color(0xFFD84315)
-                          : const Color(0xFF176a21),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        estimatedArrivalText!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: activeShuttles.isEmpty
-                              ? const Color(0xFFD84315)
-                              : const Color(0xFF176a21),
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-              else
-                Row(
-                  children: [
-                    Icon(
-                      activeShuttles.isEmpty
-                          ? Icons.info_outline
-                          : Icons.directions_bus,
-                      size: 16,
-                      color: activeShuttles.isEmpty
-                          ? const Color(0xFFD84315)
-                          : const Color(0xFF176a21),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        activeShuttles.isEmpty
-                            ? '⚠️ ขณะนี้ยังไม่มีคนขับเปิดแอปออนไลน์ในระบบ'
-                            : 'รถรับส่ง กำลังวิ่งให้บริการ',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: activeShuttles.isEmpty
-                              ? const Color(0xFFD84315)
-                              : const Color(0xFF176a21),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
                   ],
                 ),
+              ),
 
               const SizedBox(height: 14),
 
               // ✨ Dropdown เลือกจุดลงรถ (แสดงเฉพาะตอนยังไม่กดเรียกรถ)
-              if (!isWaiting && !isAcknowledged) ...[
-                const Text(
-                  'เลือกลงที่ป้าย:',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF595C5D),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                GestureDetector(
-                  onTap: () => _showDropOffSelectionSheet(context),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.location_on_outlined,
-                          color: selectedDropOffName == null
-                              ? Colors.grey.shade500
-                              : const Color(0xFF176a21),
+              // ✨ ส่วนล่างของการ์ด (เลือกปลายทาง + ปุ่มเรียกรถ)
+              Container(
+                key: keyCardBottomSection,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!isWaiting && !isAcknowledged) ...[
+                      const Text(
+                        'เลือกลงที่ป้าย:',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF595C5D),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            selectedDropOffName ?? 'ต้องการลงที่ป้ายไหน?',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: selectedDropOffName == null
-                                  ? Colors.grey.shade600
-                                  : const Color(0xFF2C2F30),
-                              fontWeight: selectedDropOffName == null
-                                  ? FontWeight.normal
-                                  : FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const Icon(
-                          Icons.search,
-                          color: Color(0xFF176a21),
-                          size: 20,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-              ],
-
-              GestureDetector(
-                onTap: isOnBoard
-                    ? _toggleWaitState
-                    : (isAcknowledged ? _boardShuttle : _toggleWaitState),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  width: double.infinity,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: isWaiting
-                          ? [Colors.red.shade400, Colors.red.shade600]
-                          : [const Color(0xFF9DF197), const Color(0xFF176a21)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(23),
-                    boxShadow: [
-                      BoxShadow(
-                        color:
-                            (isWaiting ? Colors.red : const Color(0xFF176a21))
-                                .withOpacity(0.3),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
                       ),
-                    ],
-                  ),
-                  child: Center(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          isWaiting
-                              ? Icons.cancel
-                              : (isOnBoard
-                                    ? Icons.check_circle_outline
-                                    : (isAcknowledged
-                                          ? Icons.directions_walk
-                                          : Icons.waving_hand)),
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          isWaiting
-                              ? 'ยกเลิกการรอรถ'
-                              : (isOnBoard
-                                    ? 'ถึงที่หมายแล้ว (เสร็จสิ้น)'
-                                    : (isAcknowledged
-                                          ? 'ขึ้นรถเรียบร้อยแล้ว'
-                                          : 'แจ้งรอรถที่จุดนี้')),
-                          style: const TextStyle(
-                            fontSize: 15.5,
+                      const SizedBox(height: 6),
+                      GestureDetector(
+                        onTap: () => _showDropOffSelectionSheet(context),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
                             color: Colors.white,
-                            fontWeight: FontWeight.bold,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.location_on_outlined,
+                                color: selectedDropOffName == null
+                                    ? Colors.grey.shade500
+                                    : const Color(0xFF176a21),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  selectedDropOffName ?? 'ต้องการลงที่ป้ายไหน?',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: selectedDropOffName == null
+                                        ? Colors.grey.shade600
+                                        : const Color(0xFF2C2F30),
+                                    fontWeight: selectedDropOffName == null
+                                        ? FontWeight.normal
+                                        : FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              const Icon(
+                                Icons.search,
+                                color: Color(0xFF176a21),
+                                size: 20,
+                              ),
+                            ],
                           ),
                         ),
-                      ],
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    GestureDetector(
+                      onTap: isOnBoard
+                          ? _toggleWaitState
+                          : (isAcknowledged ? _boardShuttle : _toggleWaitState),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        width: double.infinity,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: isWaiting
+                                ? [Colors.red.shade400, Colors.red.shade600]
+                                : [const Color(0xFF9DF197), const Color(0xFF176a21)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(23),
+                          boxShadow: [
+                            BoxShadow(
+                              color:
+                                  (isWaiting ? Colors.red : const Color(0xFF176a21))
+                                      .withOpacity(0.3),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                isWaiting
+                                    ? Icons.cancel
+                                    : (isOnBoard
+                                          ? Icons.check_circle_outline
+                                          : (isAcknowledged
+                                                ? Icons.directions_walk
+                                                : Icons.waving_hand)),
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                isWaiting
+                                    ? 'ยกเลิกการรอรถ'
+                                    : (isOnBoard
+                                          ? 'ถึงที่หมายแล้ว (เสร็จสิ้น)'
+                                          : (isAcknowledged
+                                                ? 'ขึ้นรถเรียบร้อยแล้ว'
+                                                : 'แจ้งรอรถที่จุดนี้')),
+                                style: const TextStyle(
+                                  fontSize: 15.5,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ],

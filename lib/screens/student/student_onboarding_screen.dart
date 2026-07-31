@@ -17,6 +17,9 @@ class _StudentOnboardingScreenState extends State<StudentOnboardingScreen>
   late AnimationController _floatController;
   late Animation<double> _imageFloatAnimation;
   late Animation<double> _cardFloatAnimation;
+  int _totalUsers = 0;
+  bool _isLoadingUsers = true;
+  List<String> _sampleAvatars = [];
 
   @override
   void initState() {
@@ -33,6 +36,40 @@ class _StudentOnboardingScreenState extends State<StudentOnboardingScreen>
     _cardFloatAnimation = Tween<double>(begin: 4.0, end: -4.0).animate(
       CurvedAnimation(parent: _floatController, curve: Curves.easeInOut),
     );
+
+    _fetchUserData();
+  }
+
+  Future<void> _fetchUserData() async {
+    try {
+      final countQuery = await FirebaseFirestore.instance.collection('users').count().get();
+      
+      // ดึงตัวอย่างผู้ใช้มา 2 คนเพื่อเอารูปโปรไฟล์
+      final sampleUsersQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .limit(2)
+          .get();
+
+      List<String> avatars = [];
+      for (var doc in sampleUsersQuery.docs) {
+        if (doc.data().containsKey('avatar')) {
+          avatars.add(doc['avatar'] as String);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _totalUsers = countQuery.count ?? 0;
+          _sampleAvatars = avatars;
+          _isLoadingUsers = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingUsers = false);
+      }
+      debugPrint("Error fetching user data: $e");
+    }
   }
 
   @override
@@ -382,7 +419,7 @@ class _StudentOnboardingScreenState extends State<StudentOnboardingScreen>
                     children: [
                       // Kinetic Gradient Button (primary to primary_container)
                       Container(
-                        width: double.infinity,
+                        width: 320, // ปรับให้ขนาดพอดีตามรูปที่วาดมา ไม่กว้างเต็มจอ
                         height: 58,
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
@@ -447,29 +484,47 @@ class _StudentOnboardingScreenState extends State<StudentOnboardingScreen>
                                 Positioned(
                                   left: 0,
                                   child: _buildAvatarCircle(
-                                    const Icon(
-                                      Icons.person,
-                                      size: 16,
-                                      color: Color(0xFF595C5D),
-                                    ),
+                                    _sampleAvatars.isNotEmpty
+                                        ? ClipOval(
+                                            child: Image.asset(
+                                              _sampleAvatars[0],
+                                              width: 32,
+                                              height: 32,
+                                              fit: BoxFit.cover,
+                                            ),
+                                          )
+                                        : const Icon(
+                                            Icons.person,
+                                            size: 16,
+                                            color: Color(0xFF595C5D),
+                                          ),
                                   ),
                                 ),
                                 Positioned(
                                   left: 20,
                                   child: _buildAvatarCircle(
-                                    const Icon(
-                                      Icons.person,
-                                      size: 16,
-                                      color: Color(0xFF595C5D),
-                                    ),
+                                    _sampleAvatars.length > 1
+                                        ? ClipOval(
+                                            child: Image.asset(
+                                              _sampleAvatars[1],
+                                              width: 32,
+                                              height: 32,
+                                              fit: BoxFit.cover,
+                                            ),
+                                          )
+                                        : const Icon(
+                                            Icons.person,
+                                            size: 16,
+                                            color: Color(0xFF595C5D),
+                                          ),
                                   ),
                                 ),
                                 Positioned(
                                   left: 40,
                                   child: _buildAvatarCircle(
-                                    const Text(
-                                      '50+',
-                                      style: TextStyle(
+                                    Text(
+                                      _isLoadingUsers ? '...' : '$_totalUsers',
+                                      style: const TextStyle(
                                         fontSize: 10,
                                         fontWeight: FontWeight.bold,
                                         color: Colors.white,
