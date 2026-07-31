@@ -145,8 +145,7 @@ class DriversTitleRow extends StatelessWidget {
         ),
         StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
-              .collection('users')
-              .where('role', isEqualTo: 'driver')
+              .collection('shuttles')
               .where('status', isEqualTo: 'online')
               .snapshots(),
           builder: (context, snapshot) {
@@ -365,41 +364,59 @@ class _DriversTableCardState extends State<DriversTableCard> {
 
           // Table Content & Pagination Footer
           StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('users')
-                .where('role', isEqualTo: 'driver')
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Padding(
-                  padding: EdgeInsets.all(64.0),
-                  child: Center(
-                    child: CircularProgressIndicator(color: Color(0xFF176a21)),
-                  ),
-                );
-              }
+            stream: FirebaseFirestore.instance.collection('shuttles').snapshots(),
+            builder: (context, shuttlesSnapshot) {
+              return StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('users')
+                    .where('role', isEqualTo: 'driver')
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Padding(
+                      padding: EdgeInsets.all(64.0),
+                      child: Center(
+                        child: CircularProgressIndicator(color: Color(0xFF176a21)),
+                      ),
+                    );
+                  }
 
-              var docs = snapshot.hasData ? snapshot.data!.docs : [];
+                  var docs = snapshot.hasData ? snapshot.data!.docs : [];
+                  
+                  // Helper function to get real-time status from shuttles
+                  Map<String, dynamic>? getShuttleData(Map<String, dynamic> userData) {
+                    if (!shuttlesSnapshot.hasData) return null;
+                    final shuttleName = userData['shuttle_name'];
+                    if (shuttleName != null) {
+                      try {
+                        return shuttlesSnapshot.data!.docs
+                            .firstWhere((s) => s.id == shuttleName || (s.data() as Map<String, dynamic>)['name'] == shuttleName)
+                            .data() as Map<String, dynamic>;
+                      } catch (e) {}
+                    }
+                    return null;
+                  }
 
-              if (_activeFilter != 'ทั้งหมด') {
-                docs = docs.where((doc) {
-                  final data = doc.data() as Map<String, dynamic>;
-                  String rawStatus = data['status'] ?? 'offline';
-                  String passengerStatus =
-                      data['passenger_status'] ??
-                      (rawStatus == 'online' ? 'available' : 'offline');
-                  if (rawStatus == 'offline') passengerStatus = 'offline';
+                  if (_activeFilter != 'ทั้งหมด') {
+                    docs = docs.where((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      final shuttleData = getShuttleData(data);
+                      String rawStatus = shuttleData?['status'] ?? data['status'] ?? 'offline';
+                      String passengerStatus = shuttleData?['passenger_status'] ??
+                          data['passenger_status'] ??
+                          (rawStatus == 'online' ? 'available' : 'offline');
+                      if (rawStatus == 'offline') passengerStatus = 'offline';
 
-                  if (_activeFilter == 'ว่าง')
-                    return passengerStatus == 'available';
-                  if (_activeFilter == 'เต็ม') return passengerStatus == 'full';
-                  if (_activeFilter == 'พักเบรก')
-                    return passengerStatus == 'break';
-                  if (_activeFilter == 'ออฟไลน์')
-                    return passengerStatus == 'offline';
-                  return true;
-                }).toList();
-              }
+                      if (_activeFilter == 'ว่าง')
+                        return passengerStatus == 'available';
+                      if (_activeFilter == 'เต็ม') return passengerStatus == 'full';
+                      if (_activeFilter == 'พักเบรก')
+                        return passengerStatus == 'break';
+                      if (_activeFilter == 'ออฟไลน์')
+                        return passengerStatus == 'offline';
+                      return true;
+                    }).toList();
+                  }
 
               return Column(
                 children: [
@@ -457,6 +474,8 @@ class _DriversTableCardState extends State<DriversTableCard> {
                                 ...docs.map((doc) {
                                   final data =
                                       doc.data() as Map<String, dynamic>;
+                                  
+                                  final shuttleData = getShuttleData(data);
 
                                   // จัดการปีที่เริ่มงาน
                                   String joinedStr = 'เริ่มงานปี N/A';
@@ -471,16 +490,12 @@ class _DriversTableCardState extends State<DriversTableCard> {
                                     }
                                   }
 
-                                  // จัดการสถานะ
-                                  String rawStatus =
-                                      data['status'] ?? 'offline';
-                                  String passengerStatus =
+                                  // จัดการสถานะให้ดึงจาก shuttles เป็นหลัก
+                                  String rawStatus = shuttleData?['status'] ?? data['status'] ?? 'offline';
+                                  String passengerStatus = shuttleData?['passenger_status'] ??
                                       data['passenger_status'] ??
-                                      (rawStatus == 'online'
-                                          ? 'available'
-                                          : 'offline');
-                                  if (rawStatus == 'offline')
-                                    passengerStatus = 'offline';
+                                      (rawStatus == 'online' ? 'available' : 'offline');
+                                  if (rawStatus == 'offline') passengerStatus = 'offline';
 
                                   final name = data['name'] ?? 'ไม่มีชื่อ';
                                   final id =
@@ -550,11 +565,13 @@ class _DriversTableCardState extends State<DriversTableCard> {
                 ],
               );
             },
-          ),
-        ],
+          );
+        },
       ),
-    );
-  }
+    ],
+  ),
+);
+}
 
   Widget _buildFilterTab(String label, bool isActive) {
     return Container(

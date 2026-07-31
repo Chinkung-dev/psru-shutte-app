@@ -1116,6 +1116,24 @@ class _StudentHomeState extends State<StudentHome>
                 'dropoff_stop': selectedDropOffName,
             });
 
+        // ✨ บันทึกสถิติลง Analytics สำหรับสร้างกราฟในหน้า Admin
+        try {
+          final now = DateTime.now();
+          final dateStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+          final hourStr = now.hour.toString().padLeft(2, '0');
+          
+          await FirebaseFirestore.instance
+              .collection('analytics')
+              .doc('daily_stats_$dateStr')
+              .set({
+                'hourly_counts': {
+                  hourStr: FieldValue.increment(1)
+                }
+              }, SetOptions(merge: true));
+        } catch (e) {
+          print("Error updating analytics: $e");
+        }
+
         activeRequestId = docRef.id;
 
         requestSubscription?.cancel();

@@ -795,20 +795,69 @@ class LeftColumnContent extends StatelessWidget {
               'สถานะรถ',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF2C2F30)),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E9),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Text(
-                'REAL-TIME',
-                style: TextStyle(
-                  color: Color(0xFF176a21),
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.bold,
+            Row(
+              children: [
+                // ปุ่มรีเซ็ตสถานะรถ (สำหรับเคลียร์รถที่ค้างในระบบ)
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.grey, size: 20),
+                  tooltip: 'รีเซ็ตรถที่ค้างในระบบเป็นออฟไลน์',
+                  onPressed: () async {
+                    bool? confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('รีเซ็ตรถทั้งหมด'),
+                        content: const Text('คุณต้องการบังคับให้รถทุกคันในระบบเปลี่ยนสถานะเป็น "ออฟไลน์" ใช่หรือไม่? (ใช้สำหรับเคลียร์รถที่ค้างตอนทดสอบ)'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('รีเซ็ตทั้งหมด', style: TextStyle(color: Colors.red)),
+                          ),
+                        ],
+                      ),
+                    );
+
+                    if (confirm == true) {
+                      try {
+                        final snapshot = await FirebaseFirestore.instance.collection('shuttles').get();
+                        final batch = FirebaseFirestore.instance.batch();
+                        for (var doc in snapshot.docs) {
+                          batch.update(doc.reference, {
+                            'status': 'offline',
+                            'passenger_status': 'offline'
+                          });
+                        }
+                        await batch.commit();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('รีเซ็ตรถทุกคันเป็นออฟไลน์เรียบร้อยแล้ว')),
+                          );
+                        }
+                      } catch (e) {
+                        print('Error resetting shuttles: $e');
+                      }
+                    }
+                  },
                 ),
-              ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Text(
+                    'REAL-TIME',
+                    style: TextStyle(
+                      color: Color(0xFF176a21),
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
