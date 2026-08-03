@@ -168,6 +168,14 @@ class _StudentHomeState extends State<StudentHome>
                   _currentShuttleLocations[id] = targetLoc;
                 }
               }
+
+              // ✨ ล็อกกล้องให้ตามรถที่เรานั่งอยู่ตลอดเวลา (Auto Follow)
+              if (_isAutoFollow && isOnBoard && targetedShuttleId != null) {
+                final loc = _currentShuttleLocations[targetedShuttleId];
+                if (loc != null) {
+                  _mapController.move(loc, _mapController.camera.zoom); // ล็อกพิกัดแต่คงระดับการซูมไว้
+                }
+              }
             });
           }
         });
@@ -861,19 +869,7 @@ class _StudentHomeState extends State<StudentHome>
           .reduce((a, b) => a > b ? a : b);
       if (maxOrder == 0) maxOrder = 23;
 
-      // ✨ หาป้ายที่ใกล้รถที่สุดในปัจจุบัน เพื่อเป็นจุดเริ่มต้นการคำนวณ (แก้ปัญหา last_passed_stop อัปเดตไม่ทัน)
-      int currentOrder = 1;
-      double minBusDist = double.infinity;
-      for (var stop in busStops) {
-        double dist = const Distance().distance(
-          closestBusLoc!,
-          LatLng(stop['lat'], stop['lng']),
-        );
-        if (dist < minBusDist) {
-          minBusDist = dist;
-          currentOrder = stop['order'] ?? 1;
-        }
-      }
+      int currentOrder = closestBusLastPassed ?? 1;
 
       int stepCount = targetOrder - currentOrder;
       if (stepCount < 0) stepCount += maxOrder;
@@ -886,11 +882,7 @@ class _StudentHomeState extends State<StudentHome>
         try {
           final stop = busStops.firstWhere((s) => s['order'] == nextOrder);
           LatLng stopLoc = LatLng(stop['lat'], stop['lng']);
-
-          if (const Distance().distance(closestBusLoc!, stopLoc) > 40.0 &&
-              const Distance().distance(target, stopLoc) > 40.0) {
-            waypoints.add(stopLoc);
-          }
+          waypoints.add(stopLoc);
         } catch (e) {
           // ข้ามถ้าไม่เจอป้าย
         }
@@ -922,6 +914,18 @@ class _StudentHomeState extends State<StudentHome>
   }
 
   Future<void> _resetRideState() async {
+    LatLng? newLocationOverride;
+    
+    // ✨ ถ้าเพิ่งลงจากรถ (isOnBoard เป็น true) ให้จำลองว่าตัวเราไปอยู่ที่จุดหมายแล้ว (สำหรับการเทสบนเว็บ)
+    if (isOnBoard && selectedDropOffName != null) {
+      try {
+        final stop = busStops.firstWhere((s) => s['name'] == selectedDropOffName);
+        newLocationOverride = LatLng(stop['lat'], stop['lng']);
+      } catch (e) {
+        // ข้ามถ้าหาป้ายไม่เจอ
+      }
+    }
+
     if (activeRequestId != null) {
       try {
         await FirebaseFirestore.instance
@@ -945,7 +949,18 @@ class _StudentHomeState extends State<StudentHome>
         selectedStopLatLng = null;
         estimatedArrivalText = null;
         highlightedPath.clear();
+
+        if (newLocationOverride != null) {
+          _myLocation = newLocationOverride;
+        }
       });
+
+      // ✨ เลื่อนกล้องกลับมาที่ตำแหน่งของนักศึกษาเมื่อลงรถเสร็จสิ้น
+      if (_myLocation != null) {
+        _mapController.move(_myLocation!, 17.0);
+      } else {
+        _mapController.move(_psruCenter, 15.5);
+      }
     }
   }
 
@@ -1119,16 +1134,15 @@ class _StudentHomeState extends State<StudentHome>
         // ✨ บันทึกสถิติลง Analytics สำหรับสร้างกราฟในหน้า Admin
         try {
           final now = DateTime.now();
-          final dateStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+          final dateStr =
+              "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
           final hourStr = now.hour.toString().padLeft(2, '0');
-          
+
           await FirebaseFirestore.instance
               .collection('analytics')
               .doc('daily_stats_$dateStr')
               .set({
-                'hourly_counts': {
-                  hourStr: FieldValue.increment(1)
-                }
+                'hourly_counts': {hourStr: FieldValue.increment(1)},
               }, SetOptions(merge: true));
         } catch (e) {
           print("Error updating analytics: $e");
@@ -1504,9 +1518,10 @@ class _StudentHomeState extends State<StudentHome>
                         child: GestureDetector(
                           key: isSelected
                               ? keySelectedStopMarker
-                              : (_visualStops.isNotEmpty && vStop == _visualStops.first
-                                  ? keyStopMarker
-                                  : null),
+                              : (_visualStops.isNotEmpty &&
+                                        vStop == _visualStops.first
+                                    ? keyStopMarker
+                                    : null),
                           onTap: () {
                             if (vStop['isGroup'] == true) {
                               if (!isSelected) {
@@ -1557,7 +1572,9 @@ class _StudentHomeState extends State<StudentHome>
                                 color: Colors.blueAccent,
                                 shape: BoxShape.circle,
                                 border: Border.all(
-                                    color: Colors.white, width: 3),
+                                  color: Colors.white,
+                                  width: 3,
+                                ),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.blueAccent.withOpacity(0.5),
@@ -1604,29 +1621,31 @@ class _StudentHomeState extends State<StudentHome>
                   }
 
                   // 3. แสดงหมุดรถรับส่งทุกคันที่ออนไลน์ (ขยับแบบอนิเมชันเหมือนฝั่งคนขับ)
-                  allMarkers.addAll(activeShuttles.map((shuttle) {
-                    final String id = shuttle['id'];
-                    final LatLng displayLoc =
-                        _currentShuttleLocations[id] ??
-                        LatLng(
-                          (shuttle['lat'] as num).toDouble(),
-                          (shuttle['lng'] as num).toDouble(),
-                        );
-                    return Marker(
-                      key: ValueKey('shuttle_$id'),
-                      point: displayLoc,
-                      width: 80,
-                      height: 80,
-                      child: RepaintBoundary(
-                        child: _buildBusMarker(
-                          shuttle['passenger_status'],
-                          shuttle['number']?.toString(),
+                  allMarkers.addAll(
+                    activeShuttles.map((shuttle) {
+                      final String id = shuttle['id'];
+                      final LatLng displayLoc =
+                          _currentShuttleLocations[id] ??
+                          LatLng(
+                            (shuttle['lat'] as num).toDouble(),
+                            (shuttle['lng'] as num).toDouble(),
+                          );
+                      return Marker(
+                        key: ValueKey('shuttle_$id'),
+                        point: displayLoc,
+                        width: 80,
+                        height: 80,
+                        child: RepaintBoundary(
+                          child: _buildBusMarker(
+                            shuttle['passenger_status'],
+                            shuttle['number']?.toString(),
+                          ),
                         ),
-                      ),
-                    );
-                  }));
+                      );
+                    }),
+                  );
 
-                  // 4. แสดงหมุดจุดจอดที่ถูกเลือกเป็น Layer บนสุด! 
+                  // 4. แสดงหมุดจุดจอดที่ถูกเลือกเป็น Layer บนสุด!
                   if (selectedMarker != null) {
                     allMarkers.add(selectedMarker);
                   }
@@ -1730,9 +1749,9 @@ class _StudentHomeState extends State<StudentHome>
 
         // ✨ ปุ่มเป้าเล็ง (แบบเดียวกับของคนขับ)
         Positioned(
-          bottom: (selectedStopName != null && isCardMinimized)
-              ? 150 // ขยับหลบปุ่มตอนย่อเล็กน้อย
-              : 100, // ปล่อยให้การ์ดทับไปเลย หรือกลับสู่ปกติเวลาปิด
+          bottom: selectedStopName != null
+              ? (isCardMinimized ? 150 : 380) // เลื่อนหลบการ์ดแบบเต็มหรือย่อ
+              : 100, // กลับสู่ปกติเวลาปิดการ์ด
           right: 20,
           child: FloatingActionButton(
             key: keyMyLocationButton,
@@ -1745,7 +1764,9 @@ class _StudentHomeState extends State<StudentHome>
               setState(() {
                 _isAutoFollow = true;
               });
-              if (selectedStopLatLng != null) {
+              if (isOnBoard && targetedShuttleId != null && _currentShuttleLocations.containsKey(targetedShuttleId)) {
+                _mapController.move(_currentShuttleLocations[targetedShuttleId]!, 17.5);
+              } else if (selectedStopLatLng != null) {
                 _mapController.move(selectedStopLatLng!, 17.5);
               } else if (_myLocation != null) {
                 _mapController.move(_myLocation!, 17.0);
@@ -1780,20 +1801,23 @@ class _StudentHomeState extends State<StudentHome>
     final prefs = await SharedPreferences.getInstance();
 
     // 💡 ลบคอมเมนต์บรรทัดล่างนี้ออกเพื่อ "บังคับรีเซ็ต" ให้ Tutorial กลับมาแสดงอีกครั้ง (สำหรับการทดสอบ)
-    await prefs.setBool('hasSeenTutorial', false);
+    //await prefs.setBool('hasSeenTutorial', false);
 
     final bool hasSeenTutorial = prefs.getBool('hasSeenTutorial') ?? false;
 
     if (!hasSeenTutorial) {
       if (_visualStops.isEmpty) {
         // ถ้ารอโหลดป้ายรถยังไม่เสร็จ ให้รออีกครึ่งวินาทีแล้วเช็คใหม่
-        Future.delayed(const Duration(milliseconds: 500), _checkAndShowTutorial);
+        Future.delayed(
+          const Duration(milliseconds: 500),
+          _checkAndShowTutorial,
+        );
         return;
       }
-      
+
       bool openedForTutorial = false;
       // เราลบโค้ดบังคับเปิดการ์ดออก เพื่อให้ Tutorial เริ่มทำงานที่ Phase 1 (Card ปิดอยู่) ได้อย่างถูกต้อง
-      
+
       // รอให้ Layout และ Marker สร้างเสร็จก่อนโชว์ Tutorial (ประมาณ 350ms)
       Future.delayed(const Duration(milliseconds: 350), () {
         if (mounted) {
@@ -1804,7 +1828,8 @@ class _StudentHomeState extends State<StudentHome>
   }
 
   void _showTutorial(bool closeCardOnFinish, {bool isPhase2 = false}) {
-    bool isPhase1 = !isPhase2 && selectedStopName == null && _visualStops.isNotEmpty;
+    bool isPhase1 =
+        !isPhase2 && selectedStopName == null && _visualStops.isNotEmpty;
 
     final targets = _createTutorialTargets(
       phase1Only: isPhase1,
@@ -1822,7 +1847,9 @@ class _StudentHomeState extends State<StudentHome>
         if (isPhase1) {
           // 💡 จบ Phase 1 (คลิกที่หมุดแล้ว) -> ให้จำลองการเปิดการ์ดและเข้าสู่ Phase 2
           var firstStop = _visualStops.first;
-          if (firstStop['isGroup'] == true && firstStop['members'] != null && firstStop['members'].isNotEmpty) {
+          if (firstStop['isGroup'] == true &&
+              firstStop['members'] != null &&
+              firstStop['members'].isNotEmpty) {
             _moveToStop(firstStop['members'][0]);
           } else {
             _moveToStop(firstStop);
@@ -1911,7 +1938,9 @@ class _StudentHomeState extends State<StudentHome>
         ),
         const SizedBox(height: 20),
         Row(
-          mainAxisAlignment: canGoBack ? MainAxisAlignment.spaceBetween : MainAxisAlignment.end,
+          mainAxisAlignment: canGoBack
+              ? MainAxisAlignment.spaceBetween
+              : MainAxisAlignment.end,
           children: [
             if (canGoBack)
               TextButton(
@@ -1920,10 +1949,16 @@ class _StudentHomeState extends State<StudentHome>
                 },
                 style: TextButton.styleFrom(
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(20),
-                    side: BorderSide(color: Colors.white.withOpacity(0.8), width: 1.2),
+                    side: BorderSide(
+                      color: Colors.white.withOpacity(0.8),
+                      width: 1.2,
+                    ),
                   ),
                 ),
                 child: const Row(
@@ -1933,14 +1968,17 @@ class _StudentHomeState extends State<StudentHome>
                     SizedBox(width: 6),
                     Text(
                       "ย้อนกลับ",
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
                     ),
                   ],
                 ),
               )
             else
               const SizedBox.shrink(),
-            
+
             ElevatedButton(
               onPressed: () {
                 if (isLast) {
@@ -1953,7 +1991,10 @@ class _StudentHomeState extends State<StudentHome>
                 backgroundColor: Colors.white,
                 foregroundColor: const Color(0xFF176a21),
                 elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
@@ -1969,7 +2010,8 @@ class _StudentHomeState extends State<StudentHome>
                     ),
                   ),
                   if (!isLast) const SizedBox(width: 8),
-                  if (!isLast) const Icon(Icons.arrow_forward_rounded, size: 18),
+                  if (!isLast)
+                    const Icon(Icons.arrow_forward_rounded, size: 18),
                 ],
               ),
             ),
@@ -1979,7 +2021,10 @@ class _StudentHomeState extends State<StudentHome>
     );
   }
 
-  List<TargetFocus> _createTutorialTargets({bool phase1Only = false, int startingStep = 1}) {
+  List<TargetFocus> _createTutorialTargets({
+    bool phase1Only = false,
+    int startingStep = 1,
+  }) {
     List<TargetFocus> targets = [];
 
     bool hasStopMarker = keyStopMarker.currentContext != null;
@@ -1991,13 +2036,14 @@ class _StudentHomeState extends State<StudentHome>
     bool hasBottomNav = keyBottomNav.currentContext != null;
 
     // คำนวณจำนวน Step ทั้งหมด (รวมแล้วควรเป็น 7 ขั้นตอน)
-    int totalSteps = (hasMyLocationDot || phase1Only ? 1 : 0) + 
-                     (hasMyLocationButton || phase1Only ? 1 : 0) + 
-                     (hasStopMarker || phase1Only ? 1 : 0) + 
-                     (hasSelectedStopMarker || !phase1Only ? 1 : 0) + 
-                     (hasCardTop || !phase1Only ? 1 : 0) + 
-                     (hasCardBottom || !phase1Only ? 1 : 0) + 
-                     (hasBottomNav || !phase1Only ? 1 : 0);
+    int totalSteps =
+        (hasMyLocationDot || phase1Only ? 1 : 0) +
+        (hasMyLocationButton || phase1Only ? 1 : 0) +
+        (hasStopMarker || phase1Only ? 1 : 0) +
+        (hasSelectedStopMarker || !phase1Only ? 1 : 0) +
+        (hasCardTop || !phase1Only ? 1 : 0) +
+        (hasCardBottom || !phase1Only ? 1 : 0) +
+        (hasBottomNav || !phase1Only ? 1 : 0);
     int currentStepCounter = startingStep;
 
     // 1. หมุดตำแหน่งของฉัน (My Location Dot) - โชว์ใน Phase 1
@@ -2692,9 +2738,13 @@ class _StudentHomeState extends State<StudentHome>
                                   vertical: 3,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF176a21).withOpacity(0.1),
+                                  color: const Color(
+                                    0xFF176a21,
+                                  ).withOpacity(0.1),
                                   border: Border.all(
-                                    color: const Color(0xFF176a21).withOpacity(0.5),
+                                    color: const Color(
+                                      0xFF176a21,
+                                    ).withOpacity(0.5),
                                   ),
                                   borderRadius: BorderRadius.circular(16),
                                 ),
@@ -2760,7 +2810,7 @@ class _StudentHomeState extends State<StudentHome>
                     const SizedBox(height: 10),
                     _buildStopTitleArea(),
                     const SizedBox(height: 6),
-      
+
                     if (isWaiting)
                       const Row(
                         children: [
@@ -2990,7 +3040,10 @@ class _StudentHomeState extends State<StudentHome>
                           gradient: LinearGradient(
                             colors: isWaiting
                                 ? [Colors.red.shade400, Colors.red.shade600]
-                                : [const Color(0xFF9DF197), const Color(0xFF176a21)],
+                                : [
+                                    const Color(0xFF9DF197),
+                                    const Color(0xFF176a21),
+                                  ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
@@ -2998,7 +3051,9 @@ class _StudentHomeState extends State<StudentHome>
                           boxShadow: [
                             BoxShadow(
                               color:
-                                  (isWaiting ? Colors.red : const Color(0xFF176a21))
+                                  (isWaiting
+                                          ? Colors.red
+                                          : const Color(0xFF176a21))
                                       .withOpacity(0.3),
                               blurRadius: 12,
                               offset: const Offset(0, 4),

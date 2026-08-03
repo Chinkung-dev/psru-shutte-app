@@ -36,6 +36,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   late AnimationController _otherMarkersAnimationController;
   late Animation<double> _otherMarkersAnimation;
   late FlutterTts flutterTts; // ✨ ตัวอ่านเสียง AI ภาษาไทย
+  String _ttsLang = "th-TH"; // ✨ เก็บค่ารหัสภาษาที่ใช้งานได้จริงบนอุปกรณ์นั้นๆ
   StreamSubscription<Position>? positionStream;
   StreamSubscription<QuerySnapshot>? requestStream;
   StreamSubscription<DocumentSnapshot>?
@@ -43,9 +44,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   Timer?
   _heartbeatTimer; // ✨ Heartbeat สำหรับอัปเดตเวลาให้สดใหม่อยู่เสมอตอนจอดรอรับส่ง
   String _currentPassengerStatus = 'available';
+  final AudioPlayer _alertPlayer = AudioPlayer(); // ✨ ตัวเล่นเสียงแจ้งเตือน
 
-  StreamSubscription<QuerySnapshot>?
-  _chatNotificationSub; // ✨ ฟังข้อความแชทใหม่
+  StreamSubscription<QuerySnapshot>? _chatNotificationSub;
+  bool _isInitialChatLoad = true; // ✨ เช็คว่าเป็นการดึงข้อมูลแชทครั้งแรกหรือไม่ // ✨ ฟังข้อความแชทใหม่
   Timestamp? _chatListenerStartTime; // ✨ เวลาเริ่มฟังแชท
 
   final MapController _mapController = MapController();
@@ -267,21 +269,35 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   // ✨ ฟังก์ชันฟังสัญญาณข้อความแชทใหม่ เพื่อเล่นเสียงแจ้งเตือน
   void _listenToChatMessages() {
     if (_shuttleDocId == null) return;
-    _chatListenerStartTime = Timestamp.now();
     _chatNotificationSub?.cancel();
+    _isInitialChatLoad = true; // ✨ รีเซ็ตสถานะเมื่อเริ่มฟังใหม่
+    
+    // ✨ ดึงข้อมูลล่าสุด 10 ข้อความโดยไม่สนใจเวลาของเครื่อง เพื่อแก้ปัญหาเวลาเพี้ยนอย่างเด็ดขาด
     _chatNotificationSub = FirebaseFirestore.instance
         .collection('chats')
         .doc(_shuttleDocId)
         .collection('messages')
-        .where('timestamp', isGreaterThan: _chatListenerStartTime)
+        .orderBy('timestamp', descending: true)
+        .limit(10)
         .snapshots()
         .listen((snapshot) {
+          if (_isInitialChatLoad) {
+            _isInitialChatLoad = false;
+            return; // ✨ ข้ามข้อความเก่าทั้งหมดที่ได้จากการโหลดครั้งแรก
+          }
+          
           for (var change in snapshot.docChanges) {
             if (change.type == DocumentChangeType.added) {
               final data = change.doc.data() as Map<String, dynamic>?;
-              if (data != null &&
-                  data['senderId'] != FirebaseAuth.instance.currentUser?.uid) {
-                FlutterRingtonePlayer().playNotification();
+              if (data != null && data['senderRole'] == 'student') {
+                _alertPlayer.setVolume(1.0);
+                _alertPlayer.play(AssetSource('voice/chat_sound.mp3'));
+                
+                if (mounted) {
+                  final senderName = data['senderName'] ?? 'นักศึกษา';
+                  final text = data['text'] ?? 'ส่งรูปภาพ/ข้อความใหม่';
+                  TopToast.show(context, '💬 $senderName: $text', isError: false); // ✨ แจ้งเตือนแชทเข้า (สีเขียว)
+                }
               }
             }
           }
@@ -293,23 +309,27 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      
+
       final now = DateTime.now();
-      final String todayStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-      
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final String todayStr =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
       if (userDoc.exists) {
         final data = userDoc.data() as Map<String, dynamic>;
         int currentRounds = 0;
         if (data['last_round_date'] == todayStr) {
           currentRounds = (data['daily_round_count'] ?? 0) as int;
         }
-        
+
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
           'last_round_date': todayStr,
           'daily_round_count': currentRounds + 1,
         }, SetOptions(merge: true));
-        
+
         print("🎯 Round Completed! Total today: ${currentRounds + 1}");
       }
     } catch (e) {
@@ -511,6 +531,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   }
 
   Future<void> _logout() async {
+    _alertPlayer.dispose(); // ✨ คืนหน่วยความจำ
     if (_shuttleDocId != null) {
       FirebaseFirestore.instance
           .collection('shuttles')
@@ -536,12 +557,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       dynamic isThAvailable = await flutterTts.isLanguageAvailable("th");
 
       if (isThThAvailable == true || isThThAvailable == 1) {
-        await flutterTts.setLanguage("th-TH");
+        _ttsLang = "th-TH";
       } else if (isThAvailable == true || isThAvailable == 1) {
-        await flutterTts.setLanguage("th");
+        _ttsLang = "th";
       } else {
-        await flutterTts.setLanguage("th-TH"); // ลองตั้งค่าเริ่มต้นไว้
+        _ttsLang = "th-TH"; // ลองตั้งค่าเริ่มต้นไว้
       }
+
+      await flutterTts.setLanguage(_ttsLang);
 
       if (!kIsWeb) {
         await flutterTts.setSpeechRate(0.5); // ความเร็วปกติ
@@ -580,9 +603,13 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       _lastVoiceAlertStopName = stopName;
       try {
         HapticFeedback.heavyImpact();
-        final AudioPlayer chatPlayer = AudioPlayer();
-        await chatPlayer.play(AssetSource('voice/glass_1.mp3'));
-      } catch (_) {}
+        await _alertPlayer.setVolume(1.0);
+        await _alertPlayer.play(
+          AssetSource('voice/glass_1.mp3'),
+        ); // ✨ เปลี่ยนเป็นเสียงกระดิ่ง (glass_2.mp3)
+      } catch (e) {
+        print("Error playing alert sound: $e");
+      }
     }
 
     // 2. หน่วงเวลาไว้ 2 วินาที เผื่อมีคนกดเพิ่มในจุดเดียวกัน
@@ -602,8 +629,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         } else {
           textToSpeak = "มีนักศึกษารออยู่ที่ $phoneticStopName";
         }
-        // ✨ ย้ำการตั้งค่าภาษาไทยอีกครั้งบน Web ก่อนพูด (เผื่อตอนโหลดแอปครั้งแรก Browser ยังดึง Voice มาไม่เสร็จ)
-        await flutterTts.setLanguage("th-TH");
+        // ✨ ย้ำการตั้งค่าภาษาไทยอีกครั้งบน Web ก่อนพูด โดยใช้ค่าที่เซฟไว้ตอน init
+        await flutterTts.setLanguage(_ttsLang);
         await flutterTts.speak(textToSpeak);
       } catch (e) {
         print("❌ Error triggering TTS: $e");
@@ -617,10 +644,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
     try {
       HapticFeedback.heavyImpact();
-      final AudioPlayer alertPlayer = AudioPlayer();
-      await alertPlayer.play(
-        AssetSource('voice/glass_1.mp3'),
-      ); // ใช้เสียงเดียวกับตอนเรียก หรือเปลี่ยนได้
+      await _alertPlayer.setVolume(1.0);
+      await _alertPlayer.play(
+        AssetSource('voice/glass_2.mp3'),
+      ); // ✨ เปลี่ยนเป็นเสียงกระดิ่ง (glass_2.mp3)
 
       await Future.delayed(
         const Duration(milliseconds: 1500),
@@ -635,7 +662,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           .trim();
 
       // ✨ ย้ำการตั้งค่าภาษาไทยอีกครั้งบน Web ก่อนพูด
-      await flutterTts.setLanguage("th-TH");
+      await flutterTts.setLanguage(_ttsLang);
       await flutterTts.speak("มีนักศึกษาลงที่ $phoneticStopName");
     } catch (e) {
       print("❌ Error triggering drop-off TTS: $e");
@@ -643,23 +670,22 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   }
 
   Future<void> _startShift() async {
-    // ✨ เพื่อแก้ปัญหา Web Browser (Mobile) บล็อกเสียง (Autoplay Policy)
-    // เราต้องกระตุ้นการเล่นเสียง 1 ครั้ง ทันทีที่ผู้ใช้กดปุ่ม (User Gesture) เพื่อปลดล็อก Audio Context
-    if (kIsWeb) {
-      try {
-        // 1. ปลดล็อก TTS
-        await flutterTts.setVolume(0.0);
-        await flutterTts.speak(" ");
-        await Future.delayed(const Duration(milliseconds: 500));
-        await flutterTts.setVolume(1.0);
+    // ✨ กระตุ้นการเล่นเสียง 1 ครั้ง ทันทีที่ผู้ใช้กดปุ่ม เพื่อปลดล็อก Audio Context (สำคัญมากบน Web) และเพื่อยืนยันให้คนขับทราบ
+    try {
+      // 1. พูดข้อความต้อนรับ (ทำงานทุกแพลตฟอร์ม)
+      await flutterTts.setLanguage(_ttsLang);
+      await flutterTts.setVolume(1.0);
+      await flutterTts.speak("เปิดระบบรับผู้โดยสาร");
 
-        // 2. ปลดล็อก AudioPlayer (เสียง mp3)
-        final AudioPlayer dummyPlayer = AudioPlayer();
-        await dummyPlayer.setVolume(0.0);
-        await dummyPlayer.play(AssetSource('voice/glass_1.mp3'));
-      } catch (e) {
-        print("Error unlocking web audio context: $e");
+      // 2. ปลดล็อก AudioPlayer (เสียง mp3) เฉพาะ Web เพื่อแก้ปัญหา Autoplay Policy
+      if (kIsWeb) {
+        await _alertPlayer.setVolume(0.0);
+        await _alertPlayer.play(AssetSource('voice/glass_1.mp3'));
+        await Future.delayed(const Duration(milliseconds: 200));
+        await _alertPlayer.setVolume(1.0);
       }
+    } catch (e) {
+      print("Error unlocking audio context: $e");
     }
 
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -892,7 +918,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             // ✨ Smart Window Routing: คาดการณ์ป้ายล่วงหน้า 8 ป้าย เพื่อรองรับกรณีขับข้ามป้าย (ลัดคิว)
             List<int> upcomingStops = [];
             for (int i = 0; i < 8; i++) {
-              int nextOrder = ((_currentTargetStopOrder - 1 + i) % maxOrder) + 1;
+              int nextOrder =
+                  ((_currentTargetStopOrder - 1 + i) % maxOrder) + 1;
               upcomingStops.add(nextOrder);
             }
 
@@ -903,9 +930,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             // ตรวจจับว่าเข้าใกล้ป้ายใดใน Window หรือไม่
             for (var stop in busStops) {
               int order = (stop['order'] ?? 0) as int;
-              if (upcomingStops.contains(order) && stop['lat'] != null && stop['lng'] != null) {
+              if (upcomingStops.contains(order) &&
+                  stop['lat'] != null &&
+                  stop['lng'] != null) {
                 final targetLoc = LatLng(stop['lat'], stop['lng']);
-                final distanceToTarget = const Distance().distance(newLoc, targetLoc);
+                final distanceToTarget = const Distance().distance(
+                  newLoc,
+                  targetLoc,
+                );
                 if (distanceToTarget <= minDistance) {
                   minDistance = distanceToTarget;
                   detectedStopOrder = order;
@@ -915,13 +947,16 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             }
 
             if (detectedStopOrder != -1 && detectedStopData != null) {
-              print("🚌 Passed Stop: ${detectedStopData['name']} (Order: $detectedStopOrder)");
+              print(
+                "🚌 Passed Stop: ${detectedStopData['name']} (Order: $detectedStopOrder)",
+              );
 
               // ตรวจสอบว่าขับครบรอบหรือไม่ (ถ้าป้ายล่าสุดที่ผ่านอยู่ท้ายซอย แล้วป้ายใหม่โผล่มาต้นซอย)
               if (_lastPassedStopOrder != null) {
                 int thresholdHigh = maxOrder > 10 ? maxOrder - 5 : maxOrder - 2;
                 int thresholdLow = maxOrder > 10 ? 5 : 2;
-                if (_lastPassedStopOrder! >= thresholdHigh && detectedStopOrder <= thresholdLow) {
+                if (_lastPassedStopOrder! >= thresholdHigh &&
+                    detectedStopOrder <= thresholdLow) {
                   print("🎯 วนกลับมาเริ่มต้นรอบใหม่!");
                   _announcedDropOffStops.clear();
                   _incrementDailyRound(); // ✨ นับว่าจบรอบ 1 รอบและบันทึกลง Firestore
@@ -937,11 +972,21 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               (s) => s['order'] == _currentTargetStopOrder,
               orElse: () => busStops.first,
             );
-            if (currentTargetStop['lat'] != null && currentTargetStop['lng'] != null) {
-              final targetLoc = LatLng(currentTargetStop['lat'], currentTargetStop['lng']);
-              final distanceToCurrentTarget = const Distance().distance(newLoc, targetLoc);
-              if (distanceToCurrentTarget <= 150.0 && _activeDropOffStops.contains(currentTargetStop['name'])) {
-                if (!_announcedDropOffStops.contains(currentTargetStop['name'])) {
+            if (currentTargetStop['lat'] != null &&
+                currentTargetStop['lng'] != null) {
+              final targetLoc = LatLng(
+                currentTargetStop['lat'],
+                currentTargetStop['lng'],
+              );
+              final distanceToCurrentTarget = const Distance().distance(
+                newLoc,
+                targetLoc,
+              );
+              if (distanceToCurrentTarget <= 150.0 &&
+                  _activeDropOffStops.contains(currentTargetStop['name'])) {
+                if (!_announcedDropOffStops.contains(
+                  currentTargetStop['name'],
+                )) {
                   _announcedDropOffStops.add(currentTargetStop['name']);
                   _triggerDropOffVoiceAlert(currentTargetStop['name']);
                 }
@@ -953,9 +998,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         }
 
         if (_shuttleDocId != null &&
-            distanceMoved >= 3.0 &&
+            distanceMoved >= 5.0 &&
             (_lastFirebaseUpdate == null ||
-                now.difference(_lastFirebaseUpdate!).inMilliseconds >= 3000)) {
+                now.difference(_lastFirebaseUpdate!).inMilliseconds >= 5000)) {
           _lastFirebaseUpdate = now;
           _lastUploadedLocation = newLoc;
 
@@ -1024,11 +1069,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               return aTime.compareTo(bTime); // ascending (เก่าสุดมาก่อน)
             });
 
-            // ✨ ดึงตำแหน่งนักศึกษาทั้งหมดที่รอหรือกำลังรอรถ
+            // ✨ ดึงตำแหน่งนักศึกษาทั้งหมดที่รอหรือกำลังรอรถ (ซ่อนเมื่อขึ้นรถแล้ว)
             final List<Map<String, dynamic>> students = [];
             for (var doc in docs) {
               final data = doc.data() as Map<String, dynamic>;
-              if (data.containsKey('student_lat') &&
+              if (data['status'] != 'on_board' &&
+                  data.containsKey('student_lat') &&
                   data.containsKey('student_lng')) {
                 students.add({
                   'id': doc.id,

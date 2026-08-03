@@ -47,8 +47,6 @@ class AdminAnalyticsTab extends StatelessWidget {
                   const AnalyticsTopCharts(),
                   const SizedBox(height: 24),
                   const WaitTimeTrendsChart(),
-                  const SizedBox(height: 24),
-                  const DriverPerformanceTable(),
                   const SizedBox(height: 80), // Space for floating bottom bar
                 ]),
               ),
@@ -60,59 +58,85 @@ class AdminAnalyticsTab extends StatelessWidget {
         Positioned(
           bottom: 24,
           right: 24,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(30),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('shuttles')
+                .where('status', isEqualTo: 'online')
+                .snapshots(),
+            builder: (context, snapshot) {
+              int activeCount = 0;
+              if (snapshot.hasData) {
+                final now = DateTime.now();
+                final validDocs = snapshot.data!.docs.where((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  if (data.containsKey('last_updated') && data['last_updated'] != null) {
+                    final Timestamp? lastUpdated = data['last_updated'] as Timestamp?;
+                    if (lastUpdated != null && now.difference(lastUpdated.toDate()).inMinutes >= 3) {
+                      return false; 
+                    }
+                  }
+                  return true;
+                });
+                activeCount = validDocs.length;
+              }
+
+              int avgWaitTime = activeCount > 0 ? (30 / activeCount).ceil() : 0;
+
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 12,
-                  height: 12,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF176a21),
-                    shape: BoxShape.circle,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: activeCount > 0 ? const Color(0xFF176a21) : Colors.redAccent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'รถกำลังวิ่ง $activeCount คัน',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    const SizedBox(width: 16),
+                    Container(width: 1, height: 20, color: Colors.grey.shade300),
+                    const SizedBox(width: 16),
+                    const Icon(Icons.speed, size: 18, color: Colors.black54),
+                    const SizedBox(width: 6),
+                    Text(
+                      avgWaitTime > 0 ? 'รอเฉลี่ย $avgWaitTime นาที' : 'ยังไม่มีรถวิ่ง',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    const SizedBox(width: 16),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF176a21),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.refresh,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                const Text(
-                  'รถกำลังวิ่ง 14 คัน',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-                const SizedBox(width: 16),
-                Container(width: 1, height: 20, color: Colors.grey.shade300),
-                const SizedBox(width: 16),
-                const Icon(Icons.speed, size: 18, color: Colors.black54),
-                const SizedBox(width: 6),
-                const Text(
-                  'รอเฉลี่ย 12 นาที',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-                const SizedBox(width: 16),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF176a21),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.refresh,
-                    color: Colors.white,
-                    size: 16,
-                  ),
-                ),
-              ],
-            ),
+              );
+            },
           ),
         ),
       ],
@@ -342,12 +366,12 @@ class AnalyticsTopCharts extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'ช่วงเวลาที่นักศึกษาใช้บริการรถรับ-ส่ง',
+                    'ปริมาณผู้โดยสารแยกตามจุดจอด',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   SizedBox(height: 4),
                   Text(
-                    'จำนวนผู้โดยสารตามช่วงเวลา',
+                    '5 อันดับป้ายยอดฮิตที่มีคนเรียกรถมากที่สุดวันนี้',
                     style: TextStyle(color: Colors.black54, fontSize: 13),
                   ),
                 ],
@@ -377,42 +401,69 @@ class AnalyticsTopCharts extends StatelessWidget {
           StreamBuilder<DocumentSnapshot>(
             stream: () {
               final now = DateTime.now();
-              final dateStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-              return FirebaseFirestore.instance.collection('analytics').doc('daily_stats_$dateStr').snapshots();
+              final dateStr =
+                  "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+              return FirebaseFirestore.instance
+                  .collection('analytics')
+                  .doc('daily_stats_$dateStr')
+                  .snapshots();
             }(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator(color: Color(0xFF176a21)));
+                return const Center(
+                  child: CircularProgressIndicator(color: Color(0xFF176a21)),
+                );
               }
-              
-              Map<String, dynamic> hourlyCounts = {};
+
+              Map<String, int> stopCounts = {};
               if (snapshot.hasData && snapshot.data!.exists) {
                 final data = snapshot.data!.data() as Map<String, dynamic>?;
-                if (data != null && data['hourly_counts'] != null) {
-                  hourlyCounts = Map<String, dynamic>.from(data['hourly_counts']);
+                if (data != null && data['stop_counts'] != null) {
+                  final map = Map<String, dynamic>.from(data['stop_counts']);
+                  map.forEach((key, value) {
+                    stopCounts[key] = (value as num).toInt();
+                  });
                 }
               }
 
-              List<String> hours = ['08', '09', '10', '11', '12', '13', '14', '15', '16', '17'];
-              int maxCount = 0;
-              for (String h in hours) {
-                int count = (hourlyCounts[h] ?? 0) as int;
-                if (count > maxCount) maxCount = count;
+              if (stopCounts.isEmpty) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.only(bottom: 50.0),
+                    child: Text(
+                      "ยังไม่มีข้อมูลการเรียกรถในวันนี้",
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                  ),
+                );
               }
-              if (maxCount == 0) maxCount = 1; // Prevent division by zero
+
+              // Sort by count descending and take top 5
+              var sortedEntries = stopCounts.entries.toList()
+                ..sort((a, b) => b.value.compareTo(a.value));
+              var topStops = sortedEntries.take(5).toList();
+
+              int maxCount = 0;
+              for (var entry in topStops) {
+                if (entry.value > maxCount) maxCount = entry.value;
+              }
+              if (maxCount == 0) maxCount = 1;
 
               return Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 crossAxisAlignment: CrossAxisAlignment.end,
-                children: hours.map((hourStr) {
-                  int count = (hourlyCounts[hourStr] ?? 0) as int;
-                  double heightFactor = count / maxCount;
-                  bool isPeak = count == maxCount && count > 0;
-                  
-                  // Minimum height for zero count so it's visible as a baseline
+                children: topStops.map((entry) {
+                  double heightFactor = entry.value / maxCount;
+                  bool isPeak = entry.value == maxCount && entry.value > 0;
+
                   if (heightFactor == 0) heightFactor = 0.05;
-                  
-                  return _buildBar(heightFactor, '$hourStr:00', isPeak: isPeak);
+
+                  return _buildBar(
+                    heightFactor,
+                    entry.key,
+                    isPeak: isPeak,
+                    count: entry.value,
+                  );
                 }).toList(),
               );
             },
@@ -422,12 +473,34 @@ class AnalyticsTopCharts extends StatelessWidget {
     );
   }
 
-  Widget _buildBar(double heightFactor, String label, {bool isPeak = false}) {
+  Widget _buildBar(
+    double heightFactor,
+    String label, {
+    bool isPeak = false,
+    int count = 0,
+  }) {
+    // Truncate long stop names to avoid overlapping
+    String shortLabel = label;
+    if (label.contains(' ')) {
+      shortLabel = label.split(' ')[0]; // Take first word if it has spaces
+    } else if (label.length > 10) {
+      shortLabel = '${label.substring(0, 10)}...';
+    }
+
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        Text(
+          count.toString(),
+          style: TextStyle(
+            fontSize: 12,
+            color: isPeak ? const Color(0xFF176a21) : Colors.black54,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 6),
         Container(
-          width: 32,
+          width: 42,
           height: 180 * heightFactor,
           decoration: BoxDecoration(
             color: isPeak
@@ -436,13 +509,19 @@ class AnalyticsTopCharts extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
           ),
         ),
-        const SizedBox(height: 16),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 10,
-            color: Colors.black54,
-            fontWeight: FontWeight.bold,
+        const SizedBox(height: 12),
+        SizedBox(
+          width: 60,
+          child: Text(
+            shortLabel,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 10,
+              color: Colors.black54,
+              fontWeight: FontWeight.bold,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],
@@ -450,91 +529,133 @@ class AnalyticsTopCharts extends StatelessWidget {
   }
 
   Widget _buildEfficiencyCard() {
-    return Container(
-      height: 380,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'ประสิทธิภาพเส้นทาง',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'คะแนนประสิทธิภาพแบ่งตามสายรถ',
-            style: TextStyle(color: Colors.black54, fontSize: 13),
-          ),
-          const SizedBox(height: 24),
-          Center(
-            child: SizedBox(
-              width: 150,
-              height: 150,
-              child: Stack(
-                children: [
-                  Center(
-                    child: CircularProgressIndicator(
-                      value: 0.92,
-                      strokeWidth: 16,
-                      backgroundColor: Colors.grey.shade200,
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        Color(0xFF176a21),
-                      ),
-                    ),
-                  ),
-                  const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          '92%',
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          'ประสิทธิภาพเฉลี่ย',
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: Colors.black54,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+    final now = DateTime.now();
+    final dateStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('analytics')
+          .doc('daily_stats_$dateStr')
+          .snapshots(),
+      builder: (context, snapshot) {
+        int onTime = 0;
+        int delayed = 0;
+        int cancelled = 0;
+
+        if (snapshot.hasData && snapshot.data!.exists) {
+          final data = snapshot.data!.data() as Map<String, dynamic>?;
+          if (data != null) {
+            onTime = (data['on_time_trips'] ?? 0) as int;
+            delayed = (data['delayed_trips'] ?? 0) as int;
+            cancelled = (data['cancelled_trips'] ?? 0) as int;
+          }
+        }
+
+        int total = onTime + delayed + cancelled;
+        double onTimePct = 0;
+        double delayedPct = 0;
+        double cancelledPct = 0;
+        double indicatorValue = 0;
+
+        if (total > 0) {
+          onTimePct = (onTime / total) * 100;
+          delayedPct = (delayed / total) * 100;
+          cancelledPct = (cancelled / total) * 100;
+          indicatorValue = onTimePct / 100.0;
+        }
+
+        return Container(
+          height: 380,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.02),
+                blurRadius: 15,
+                offset: const Offset(0, 5),
               ),
-            ),
+            ],
           ),
-          const Spacer(),
-          _buildEfficiencyLegend(
-            'สาย A (Express)',
-            '96.4%',
-            const Color(0xFF176a21),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'ประสิทธิภาพการเดินรถ',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'อัตราความตรงต่อเวลาของรอบรถวันนี้',
+                style: TextStyle(color: Colors.black54, fontSize: 13),
+              ),
+              const SizedBox(height: 24),
+              Center(
+                child: SizedBox(
+                  width: 150,
+                  height: 150,
+                  child: Stack(
+                    children: [
+                      SizedBox.expand(
+                        child: CircularProgressIndicator(
+                          value: indicatorValue,
+                          strokeWidth: 16,
+                          backgroundColor: Colors.grey.shade200,
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            Color(0xFF176a21),
+                          ),
+                        ),
+                      ),
+                      Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              '${onTimePct.toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')}%',
+                              style: const TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const Text(
+                              'ตรงเวลา',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.black54,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const Spacer(),
+              _buildEfficiencyLegend(
+                'วิ่งตรงเวลา (On-time)',
+                '${onTimePct.toStringAsFixed(1)}%',
+                const Color(0xFF176a21),
+              ),
+              const SizedBox(height: 12),
+              _buildEfficiencyLegend(
+                'ล่าช้ากว่ากำหนด (Delayed)',
+                '${delayedPct.toStringAsFixed(1)}%',
+                const Color(0xFFFFB300),
+              ),
+              const SizedBox(height: 12),
+              _buildEfficiencyLegend(
+                'ยกเลิกเที่ยววิ่ง (Cancelled)',
+                '${cancelledPct.toStringAsFixed(1)}%',
+                const Color(0xFFE53935),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          _buildEfficiencyLegend(
-            'สาย B (Loop)',
-            '88.2%',
-            const Color(0xFF9DF197),
-          ),
-          const SizedBox(height: 12),
-          _buildEfficiencyLegend('สายเหนือ', '74.9%', const Color(0xFF00bcd4)),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -566,105 +687,132 @@ class WaitTimeTrendsChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 350,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Column(
+    final now = DateTime.now();
+    final todayStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    final lastWeek = now.subtract(const Duration(days: 7));
+    final lastWeekStr =
+        "${lastWeek.year}-${lastWeek.month.toString().padLeft(2, '0')}-${lastWeek.day.toString().padLeft(2, '0')}";
+
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance
+          .collection('analytics')
+          .doc('daily_stats_$lastWeekStr')
+          .get(),
+      builder: (context, lastWeekSnap) {
+        List<int> lastWeekData = List.filled(13, 0);
+        if (lastWeekSnap.hasData && lastWeekSnap.data!.exists) {
+          final data = lastWeekSnap.data!.data() as Map<String, dynamic>?;
+          if (data != null && data['hourly_counts'] != null) {
+            final hourly = Map<String, dynamic>.from(data['hourly_counts']);
+            for (int i = 0; i < 13; i++) {
+              final hStr = (i + 7).toString().padLeft(2, '0');
+              lastWeekData[i] = (hourly[hStr] ?? 0) as int;
+            }
+          }
+        }
+
+        return StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('analytics')
+              .doc('daily_stats_$todayStr')
+              .snapshots(),
+          builder: (context, todaySnap) {
+            List<int> todayData = List.filled(13, 0);
+            if (todaySnap.hasData && todaySnap.data!.exists) {
+              final data = todaySnap.data!.data() as Map<String, dynamic>?;
+              if (data != null && data['hourly_counts'] != null) {
+                final hourly = Map<String, dynamic>.from(data['hourly_counts']);
+                for (int i = 0; i < 13; i++) {
+                  final hStr = (i + 7).toString().padLeft(2, '0');
+                  todayData[i] = (hourly[hStr] ?? 0) as int;
+                }
+              }
+            }
+
+            return Container(
+              height: 350,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.02),
+                    blurRadius: 15,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'แนวโน้มเวลารอรถ',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'เปรียบเทียบปริมาณผู้โดยสารที่กดเรียดรถรับ-ส่ง',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'จำนวนผู้โดยสารแยกตามชั่วโมง',
+                            style: TextStyle(
+                              color: Colors.black54,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                  SizedBox(height: 4),
-                  Text(
-                    'เวลารอเฉลี่ยของผู้โดยสารในรอบ 24 ชั่วโมง',
-                    style: TextStyle(color: Colors.black54, fontSize: 13),
+                  const SizedBox(height: 32),
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: List.generate(
+                            4,
+                            (index) => const Divider(color: Color(0xFFEEEEEE)),
+                          ),
+                        ),
+                        CustomPaint(
+                          size: const Size(double.infinity, double.infinity),
+                          painter: AnalyticsLinePainter(
+                            todayData,
+                            lastWeekData,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: List.generate(13, (index) {
+                      final hour = index + 7;
+                      return Text(
+                        '${hour.toString().padLeft(2, '0')}:00',
+                        style: const TextStyle(
+                          color: Colors.black54,
+                          fontSize: 11,
+                        ),
+                      );
+                    }),
                   ),
                 ],
               ),
-              Row(
-                children: [
-                  _buildLegendItem('สัปดาห์ปัจจุบัน', const Color(0xFF176a21)),
-                  const SizedBox(width: 16),
-                  _buildLegendItem('สัปดาห์ก่อน', Colors.grey.shade400),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 32),
-          Expanded(
-            child: Stack(
-              children: [
-                // Horizontal lines (grid)
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: List.generate(
-                    4,
-                    (index) => const Divider(color: Color(0xFFEEEEEE)),
-                  ),
-                ),
-                // Chart graphic placeholder
-                CustomPaint(
-                  size: const Size(double.infinity, double.infinity),
-                  painter: MockWaitTimePainter(),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '00:00',
-                style: TextStyle(color: Colors.black54, fontSize: 11),
-              ),
-              Text(
-                '04:00',
-                style: TextStyle(color: Colors.black54, fontSize: 11),
-              ),
-              Text(
-                '08:00',
-                style: TextStyle(color: Colors.black54, fontSize: 11),
-              ),
-              Text(
-                '12:00',
-                style: TextStyle(color: Colors.black54, fontSize: 11),
-              ),
-              Text(
-                '16:00',
-                style: TextStyle(color: Colors.black54, fontSize: 11),
-              ),
-              Text(
-                '20:00',
-                style: TextStyle(color: Colors.black54, fontSize: 11),
-              ),
-              Text(
-                '23:59',
-                style: TextStyle(color: Colors.black54, fontSize: 11),
-              ),
-            ],
-          ),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -690,13 +838,19 @@ class WaitTimeTrendsChart extends StatelessWidget {
   }
 }
 
-class MockWaitTimePainter extends CustomPainter {
+class AnalyticsLinePainter extends CustomPainter {
+  final List<int> todayData;
+  final List<int> lastWeekData;
+
+  AnalyticsLinePainter(this.todayData, this.lastWeekData);
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint1 = Paint()
       ..color = const Color(0xFF176a21)
       ..strokeWidth = 3
-      ..style = PaintingStyle.stroke;
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
 
     final paint2 = Paint()
       ..color = Colors.grey.shade300
@@ -704,61 +858,40 @@ class MockWaitTimePainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    final path1 = Path();
-    path1.moveTo(0, size.height * 0.8);
-    path1.quadraticBezierTo(
-      size.width * 0.15,
-      size.height * 0.7,
-      size.width * 0.3,
-      size.height * 0.9,
-    );
-    path1.quadraticBezierTo(
-      size.width * 0.45,
-      size.height * 0.2,
-      size.width * 0.6,
-      size.height * 0.4,
-    );
-    path1.quadraticBezierTo(
-      size.width * 0.75,
-      size.height * 1.0,
-      size.width * 0.85,
-      size.height * 0.1,
-    );
-    path1.quadraticBezierTo(
-      size.width * 0.95,
-      size.height * 0.5,
-      size.width,
-      size.height * 0.6,
-    );
+    int maxVal = 5;
+    for (int v in todayData) {
+      if (v > maxVal) maxVal = v;
+    }
+    for (int v in lastWeekData) {
+      if (v > maxVal) maxVal = v;
+    }
+    maxVal = (maxVal * 1.2).ceil();
 
-    final path2 = Path();
-    path2.moveTo(0, size.height * 0.85);
-    path2.quadraticBezierTo(
-      size.width * 0.15,
-      size.height * 0.8,
-      size.width * 0.3,
-      size.height * 0.95,
-    );
-    path2.quadraticBezierTo(
-      size.width * 0.45,
-      size.height * 0.6,
-      size.width * 0.6,
-      size.height * 0.7,
-    );
-    path2.quadraticBezierTo(
-      size.width * 0.75,
-      size.height * 0.95,
-      size.width * 0.85,
-      size.height * 0.5,
-    );
-    path2.quadraticBezierTo(
-      size.width * 0.95,
-      size.height * 0.7,
-      size.width,
-      size.height * 0.8,
-    );
+    Path createPath(List<int> data) {
+      final path = Path();
+      if (data.isEmpty) return path;
 
-    // Draw dashed line for previous week
+      final double xStep = size.width / (data.length - 1);
+      for (int i = 0; i < data.length; i++) {
+        final x = i * xStep;
+        final y = size.height - ((data[i] / maxVal) * size.height);
+
+        if (i == 0) {
+          path.moveTo(x, y);
+        } else {
+          final prevX = (i - 1) * xStep;
+          final prevY = size.height - ((data[i - 1] / maxVal) * size.height);
+          final controlX1 = prevX + (x - prevX) / 2;
+          final controlX2 = prevX + (x - prevX) / 2;
+          path.cubicTo(controlX1, prevY, controlX2, y, x, y);
+        }
+      }
+      return path;
+    }
+
+    final path1 = createPath(todayData);
+    final path2 = createPath(lastWeekData);
+
     double dashWidth = 5, dashSpace = 5, startX = 0;
     for (PathMetric measurePath in path2.computeMetrics()) {
       while (startX < measurePath.length) {
@@ -772,247 +905,30 @@ class MockWaitTimePainter extends CustomPainter {
 
     canvas.drawPath(path1, paint1);
 
-    // Draw some points
-    final dotPaint = Paint()..color = const Color(0xFF176a21);
     final dotBgPaint = Paint()..color = Colors.white;
-    void drawDot(Offset offset) {
-      canvas.drawCircle(offset, 6, dotBgPaint);
-      canvas.drawCircle(offset, 4, dotPaint);
-      canvas.drawCircle(
-        offset,
-        4,
-        Paint()
-          ..color = const Color(0xFF176a21)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2,
-      );
+    final double xStep = size.width / (todayData.length - 1);
+
+    for (int i = 0; i < todayData.length; i++) {
+      if (todayData[i] > 0 || i % 4 == 0) {
+        final x = i * xStep;
+        final y = size.height - ((todayData[i] / maxVal) * size.height);
+        final offset = Offset(x, y);
+
+        canvas.drawCircle(offset, 6, dotBgPaint);
+        canvas.drawCircle(
+          offset,
+          4,
+          Paint()
+            ..color = const Color(0xFF176a21)
+            ..style = PaintingStyle.fill,
+        );
+      }
     }
-
-    // Need to get coordinates for dots (approximation for mock)
-    drawDot(Offset(size.width * 0.48, size.height * 0.61));
-    drawDot(Offset(size.width * 0.82, size.height * 0.36));
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class DriverPerformanceTable extends StatelessWidget {
-  const DriverPerformanceTable({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'สรุปผลการทำงานคนขับ',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                TextButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(
-                    Icons.download,
-                    color: Color(0xFF176a21),
-                    size: 16,
-                  ),
-                  label: const Text(
-                    'ส่งออก CSV',
-                    style: TextStyle(
-                      color: Color(0xFF176a21),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              return SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: constraints.maxWidth > 800
-                      ? constraints.maxWidth
-                      : 800,
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 16,
-                        ),
-                        decoration: BoxDecoration(
-                          border: Border(
-                            bottom: BorderSide(color: Colors.grey.shade100),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            _buildTableHeader('ชื่อคนขับ', flex: 3),
-                            _buildTableHeader('สายรถหลัก', flex: 2),
-                            _buildTableHeader('ตรงเวลา %', flex: 2),
-                            _buildTableHeader('อุบัติเหตุ', flex: 2),
-                            _buildTableHeader('สถานะ', flex: 1),
-                          ],
-                        ),
-                      ),
-                      _buildTableRow(
-                        'Marcus Rivera',
-                        'สาย A (Express)',
-                        '98.2%',
-                        '0',
-                        'Active',
-                        'https://i.pravatar.cc/150?img=11',
-                        true,
-                      ),
-                      _buildTableRow(
-                        'Sarah Jenkins',
-                        'สาย B (Loop)',
-                        '94.5%',
-                        '1',
-                        'Break',
-                        'https://i.pravatar.cc/150?img=9',
-                        false,
-                      ),
-                      _buildTableRow(
-                        'Leo Chang',
-                        'สายเหนือ',
-                        '99.1%',
-                        '0',
-                        'Active',
-                        'https://i.pravatar.cc/150?img=8',
-                        true,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTableHeader(String title, {required int flex}) {
-    return Expanded(
-      flex: flex,
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          color: Colors.black54,
-          letterSpacing: 1,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTableRow(
-    String name,
-    String route,
-    String onTime,
-    String incidents,
-    String status,
-    String avatar,
-    bool isActive,
-  ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: Row(
-              children: [
-                CircleAvatar(radius: 16, backgroundImage: NetworkImage(avatar)),
-                const SizedBox(width: 12),
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              route,
-              style: const TextStyle(color: Colors.black87, fontSize: 13),
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              onTime,
-              style: const TextStyle(
-                color: Color(0xFF176a21),
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              incidents,
-              style: const TextStyle(color: Colors.black87, fontSize: 13),
-            ),
-          ),
-          Expanded(
-            flex: 1,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: isActive
-                      ? const Color(0xFF9DF197).withOpacity(0.3)
-                      : Colors.grey.shade200,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  status,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: isActive ? const Color(0xFF176a21) : Colors.black54,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+  bool shouldRepaint(covariant AnalyticsLinePainter oldDelegate) {
+    return true;
   }
 }
+
