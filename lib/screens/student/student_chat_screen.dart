@@ -46,14 +46,31 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
     }
   }
 
+  String _getCanonicalRoomId() {
+    String? rawId = widget.shuttleId;
+    String? rawName = widget.shuttleName;
+    String cleanNum = (rawName ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+    if (cleanNum.isEmpty && rawId != null && !rawId.startsWith('-')) {
+      cleanNum = rawId.replaceAll(RegExp(r'[^0-9]'), '');
+    }
+    if (cleanNum.isNotEmpty) {
+      int numVal = int.tryParse(cleanNum) ?? 1;
+      String formattedNum = numVal.toString().padLeft(2, '0');
+      return 'shuttle_$formattedNum';
+    }
+    if (rawId != null && rawId.isNotEmpty && !rawId.startsWith('-')) {
+      return rawId;
+    }
+    return 'shuttle_01';
+  }
+
   void _initChatStream() {
-    final String baseRoom = widget.shuttleId ?? 'shuttle_line_a';
+    final String baseRoom = _getCanonicalRoomId();
     final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
     _currentRoomId = '${baseRoom}_$todayDate'; // แยกห้องตามวัน
     
     _updateLastReadTime();
 
-    
     _messagesStream = FirebaseFirestore.instance
         .collection('chats')
         .doc(_currentRoomId)
@@ -75,7 +92,6 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
     super.dispose();
   }
 
-
   // ส่งข้อความขึ้น Firestore
   Future<void> _sendMessage({String? imageUrl}) async {
     if (_messageController.text.trim().isEmpty && imageUrl == null) return;
@@ -83,7 +99,7 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
     final String text = _messageController.text.trim();
     _messageController.clear(); // ล้างช่องพิมพ์ทันที
 
-    final String baseRoom = widget.shuttleId ?? 'shuttle_line_a';
+    final String baseRoom = _getCanonicalRoomId();
     final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
     final String targetRoom = '${baseRoom}_$todayDate';
 

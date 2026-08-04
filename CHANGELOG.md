@@ -1,111 +1,258 @@
-# 📝 PSRU Shuttle App - Changelog / Progress
+# 📝 PSRU Shuttle App - Detailed System & Feature Documentation (Changelog)
 
-ไฟล์นี้ใช้สำหรับบันทึกความคืบหน้าของการพัฒนาโปรเจกต์ ว่ามีการทำระบบอะไรไปแล้วบ้าง เพื่อให้ง่ายต่อการติดตามงาน
+เอกสารฉบับนี้รวบรวมรายละเอียดของระบบ ทั้งในส่วนของฟีเจอร์ โครงสร้างสถาปัตยกรรม (Architecture), ฐานข้อมูล (Database), ลอจิกอัลกอริทึมทางคณิตศาสตร์ (Mathematical Algorithms) และระบบซิงก์ข้อมูลแบบ Real-time ของแอปพลิเคชัน **PSRU Shuttle App** ไว้อย่างสมบูรณ์
+
+---
 
 ## 🚀 ฟีเจอร์ที่พัฒนาเสร็จแล้ว (Completed Features)
 
-### 🔐 ระบบบัญชีและการยืนยันตัวตน (Authentication)
-- [x] ออกแบบและสร้างหน้า Login / Register
-- [x] ระบบสมัครสมาชิกแบ่งตาม Role (`student` และ `driver`)
-- [x] หน้าสมัครสมาชิกของคนขับ สามารถเลือกรถรับส่งที่ตัวเองรับผิดชอบได้
-- [x] เชื่อมต่อ Firebase Authentication (Email/Password)
-- [x] บันทึกข้อมูลผู้ใช้ลง Firestore (`users` collection)
-- [x] ระบบ Logout สำหรับทั้งนักศึกษาและคนขับ
+### 🔐 1. ระบบยืนยันตัวตนและจัดการสิทธิ์ (Authentication & Role Management)
+- [x] **การเลือกสิทธิ์การใช้งาน (Multi-Role Signup):** แบ่งเป็นสิทธิ์นักศึกษา (`student`) และคนขับรถ (`driver`)
+- [x] **การลงทะเบียนคนขับรถ:** สามารถเลือกรถรับส่งที่ตนเองรับผิดชอบ (เช่น `Shuttle #01`, `Shuttle #02`) พร้อมเลือกรูปโปรไฟล์ Avatar
+- [x] **เชื่อมต่อ Firebase Authentication:** ตรวจสอบอีเมลและรหัสผ่าน ป้องกันการเข้าถึงหน้าจอที่ไม่ได้รับอนุญาต
+- [x] **จัดเก็บโปรไฟล์ใน Firestore:** บันทึกข้อมูลลงในคอลเล็กชัน `users`
+- [x] **ระบบการออกจากระบบ (Logout):** ล้าง State และคืนสิทธิ์อย่างปลอดภัยทั้งบนแอปมือถือและเว็บ
 
-### 🧑‍🎓 ฝั่งนักศึกษา (Student)
-- [x] **หน้า Home (Map):** แสดงแผนที่โดยใช้ `flutter_map` และ OpenStreetMap
-- [x] **ระบบเส้นทาง (Pathfinding):** แสดงเส้นทางเดินรถและ Highlight เส้นทางไปยังจุดจอดที่เลือก (คำนวณจาก Graph)
-- [x] **ระบบค้นหาจุดจอดรถ:** มีช่องค้นหาและแสดงรายการจุดจอด พร้อมการจัดเรียง (จุดที่ชอบขึ้นก่อน)
-- [x] **ระบบเรียกรถ (Ride Request):** กด "แจ้งรอรถที่จุดนี้" สถานะจะเด้งไปหาคนขับแบบ Real-time และรอคนขับกดรับทราบ
-- [x] **จุดจอดที่ชอบ (Favorite Stops):** กดติดดาวจุดจอดที่ใช้บ่อยได้ และบันทึกลง Firestore
-- [x] **หน้าโปรไฟล์ (Profile):** แสดงข้อมูลส่วนตัว, รหัสนักศึกษา, และลิงก์ไปยังหน้าจัดการจุดจอดที่ใช้บ่อย
-- [x] **หน้าแชท (Chat):** พัฒนาระบบแชท Real-time คุยกับคนขับรถประจำสายผ่าน Firestore (สร้างหน้า `StudentChatListScreen` และ `StudentChatScreen`)
-- [x] **ระบบติดตามรถทุกคันแบบ Live & แสดงสถานะสีรถ:** ติดตามพิกัดรถทุกคันแบบ Real-time พร้อมอนิเมชันเคลื่อนที่นุ่มนวล และระบบกรองรถค้าง (Timeout Filter) ป้องกันการแสดงหมุดรถที่หลุดการเชื่อมต่อหรือไม่อัปเดตพิกัดเกิน 3 นาที
-- [x] **ระบบคำนวณเวลาถึงโดยประมาณ (ETA):** ค้นหาตำแหน่งรถคันที่อยู่ใกล้ป้ายที่สุด แล้วคำนวณเส้นทางและเวลาถึงป้ายแสดงผลบนจอ
+### 🧑‍🎓 2. ฝั่งนักศึกษา (Student Portal)
+- [x] **แผนที่ติดตามรถแบบ Real-time (Live Map Tracking):** แสดงตำแหน่งรถทุกคันที่กำลังออนไลน์บน OpenStreetMap ด้วย `flutter_map`
+- [x] **ระบบคำนวณเส้นทางไฮไลท์อัจฉริยะ (Smart Route Highlighting):** ลากเส้นสีเขียวเข้มไฮไลท์เส้นทางสั้นที่สุดจากจุดที่รถอยู่ไปยังป้ายที่เลือก
+- [x] **ระบบเรียกรถรับส่ง (Ride Request):** นักศึกษากดเรียกรถล่วงหน้า คนขับจะได้รับเสียงเตือนและป๊อปอัปแจ้งเตือนบนหน้าจอทันที
+- [x] **ระบบติดตามสถานะการขึ้นรถ (On-Board Tracking):** อัปเดตสถานะเป็น `acknowledged` -> `on_board` -> `completed`
+- [x] **จุดจอดที่ชอบ (Favorite Stops):** ติดดาวป้ายรถเมล์ที่ใช้ประจำเพื่อจัดให้อยู่ด้านบนสุดของรายการ
+- [x] **แชทกับคนขับรถ (Student-Driver Chat):** ส่งข้อความและรูปภาพสื่อสารกับคนขับประจำสายแบบ Real-time พร้อมป๊อปอัปแจ้งเตือนลอยด้านบน
+- [x] **หน้าสรุปสถานะรถสด (Live Status Dashboard):** การ์ดแสดงจำนวนรถว่าง, รถเต็ม, พักเบรค, นอกเวลา แบบ 2x2 Grid ตอบสนองทุกขนาดหน้าจอ
 
-### 🚌 ฝั่งคนขับรถ (Driver)
-- [x] **หน้า Home (Map):** แสดงแผนที่และตำแหน่งของตัวเอง
-- [x] **ระบบเข้างาน/เลิกงาน (Online/Offline):** ดึงพิกัด GPS อัตโนมัติ (Geolocator) พร้อมระบบ Heartbeat บันทึกเวลาล่าสุดทุก 30 วินาทีลง Firestore เพื่อป้องกันรถหายจากจอตอนจอดนิ่ง
-- [x] **ระบบรับแจ้งเตือนจากนักศึกษา:** มี Popup แจ้งเตือนเมื่อนักศึกษากดเรียกรถ และมีปุ่ม "รับทราบ" 
-- [x] **หน้าสถานะรถ (Update Status):** อัปเดตสถานะที่นั่ง (ว่าง, เต็ม, พัก, เลิกงาน) แบบ Real-time ไปที่คอลเล็กชัน `shuttles` พร้อมอัปเดตสี/แสงหมุดตำแหน่งรถตามสถานะแบบ Real-time
-- [x] **หน้าโปรไฟล์ (Profile):** แสดงข้อมูลคนขับรถ, หมายเลขรถที่รับผิดชอบ, สถิติการวิ่งรถ และปุ่มออกจากระบบ
-- [x] **ระบบแชทกับนักศึกษา (Driver Chat):** เพิ่มแท็บแชท (`DriverChatScreen`) เพื่ออ่านและตอบกลับนักศึกษาแบบ Real-time ตามห้องแชทรถตัวเอง
-- [x] **ระบบล็อกหมุดไม่ให้ออกนอกเส้นทาง (Snap to Route):** อัลกอริทึมคำนวณระยะห่างระหว่างพิกัด GPS จริงกับเส้นถนนในมหาลัย (`shuttleRoutes`) เพื่อดึงพิกัดหมุดให้อยู่บนเส้นทางเสมอ ป้องกันหมุดกระโดดออกนอกถนนหรือพิกัดเพี้ยน
-- [x] **ระบบประหยัดแบตเตอรี่และโควตา (Throttling & Distance Filter):** กรองการอัปเดต GPS เมื่อรถขยับเกิน 3 เมตร และจำกัดการส่งข้อมูลขึ้น Firestore ทุกๆ 3 วินาที
-- [x] **ระบบแจ้งเตือนด้วยเสียงจุดจอด Custom (Audio Alerts by Stop ID):** ปิดการทำงานของเสียงพูด AI (`flutter_tts`) และเปลี่ยนมาใช้แพ็กเกจ `audioplayers` เพื่อเปิดไฟล์เสียงจริงจาก Assets โฟลเดอร์ `lib/screens/voice/voice_stop_XX.mp3` ครบทั้ง 21 จุดจอด โดยระบบจะจับคู่ชื่อป้ายกับรหัส `stop_id` แล้วเล่นไฟล์เสียงพร้อมระบบสั่นเตือนและ Ringtone ทันทีเมื่อมีนักศึกษาเรียกรถ
+### 🚌 3. ฝั่งคนขับรถ (Driver Portal)
+- [x] **สวิตช์เปิด/ปิดสถานะวิ่งรถ (Online/Offline Toggle):** ซิงก์ตำแหน่ง GPS อัตโนมัติไปยัง Firebase Realtime Database (RTDB)
+- [x] **ระบบล็อกหมุดบนถนน (Snap to Route Algorithm):** บังคับหมุดรถให้อยู่บนถนนจริงเสมอ ไม่ลอยเข้าไปในอาคาร
+- [x] **การแจ้งเตือนเสียงจุดจอด Custom (Stop Audio Alerts):** เล่นไฟล์เสียงชื่อจุดจอด `voice_stop_XX.mp3` ร่วมกับ `chat_sound.mp3`, `glass_1.mp3`, `glass_2.mp3`
+- [x] **ป๊อปอัปการ์ดแจ้งเตือนข้อความแชตใหม่ (Driver Chat Popup Card):** แสดงการ์ดลอยด้านบนเมื่อนักศึกษาทักแชต พร้อมปุ่มกดตอบกลับทันที
+- [x] **สลับสถานะผู้โดยสาร (Passenger Status):** อัปเดตสถานะรถเป็น "รถว่าง", "รถเต็ม", "เวลาพักเบรค", "เลิกงาน"
 
-### 🗄️ ฐานข้อมูลและโครงสร้าง (Database & Architecture)
-- [x] ออกแบบ Schema ฐานข้อมูลใน Firestore (`DATABASE.md`)
-- [x] จัดการเชื่อมระบบพิกัดรถและสถานะรถจาก `buses` เดิม ย้ายไปรวมที่คอลเล็กชัน `shuttles` เพื่อให้ตรงกับข้อมูลที่ลงทะเบียนไว้
-- [x] โครงสร้างไฟล์แยกส่วนชัดเจน (screens, role-based folders, utils)
+### 👑 4. ฝั่งผู้ดูแลระบบ (Admin Master Dashboard)
+- [x] **แดชบอร์ดสถิติ Real-Time (Live Analytics Dashboard):** คำนวณผู้โดยสารรวมประจำวัน, ชั่วโมงที่มีการใช้งานสูงสุด (Peak Hour), จำนวนเที่ยววิ่ง
+- [x] **กราฟจำลองผู้โดยสารประจำวัน (24-Hour Passenger Distribution Chart):** วาดกราฟเส้นโค้งจำลองปริมาณผู้โดยสาร 24 ชั่วโมงด้วย Custom Painter
+- [x] **แผนที่ติดตามกองรถสด (Admin Live Fleet Map):** ยุบกลุ่มป้ายที่อยู่ใกล้กัน (`_groupedStops`) และติดตามรถทุกคันพร้อมสถิติสด
+- [x] **ระบบจัดการคนขับและนักศึกษา (User Management):** ค้นหา, กรองสถานะออนไลน์, เพิ่ม/แก้ไข/ลบ ข้อมูลสมาชิก
 
 ---
 
-## 🧠 อธิบาย Logic สำคัญของระบบ (Core Technical Logic & Algorithms)
-
-### 1. ⏱️ ระบบคำนวณเวลาถึงโดยประมาณ (ETA - Estimated Time of Arrival & Graph Pathfinding)
-* **ไฟล์หลัก:** [student_home.dart](file:///c:/psru-shutte-app/lib/screens/student/student_home.dart) (ฟังก์ชัน `_updateRouteAndETA`, `_calculateHighlightedPath`, `_buildRouteEtaBadge` และ `_getPathMidpoint`)
-* **โครงสร้างและขั้นตอนการทำงานเชิงลึก (Deep Technical Architecture):**
-  1. **การคัดเลือกรถรับส่งคันที่ใกล้ที่สุด (Nearest Active Shuttle Selection):**
-     เมื่อนักศึกษาแตะเลือกจุดจอดรถเป้าหมาย (`endLoc`) ระบบจะวนลูปตรวจสอบรถรับส่งทุกคันใน `activeShuttles` ที่มีสถานะ `status == 'online'` โดยใช้คลาส `Distance()` ในการคำนวณระยะทางตรงทางภูมิศาสตร์ (Geodesic Distance / Great-Circle Distance) ระหว่างพิกัดรถ (`startLoc`) กับพิกัดป้าย เพื่อหา **รถคันที่อยู่ใกล้ที่สุด (`nearestShuttle`)** มาใช้เป็นจุดเริ่มต้นในการคำนวณเวลาถึงป้าย
-  2. **การแปลงพิกัดเข้าสู่กราฟเครือข่ายถนน (Map Matching to Graph Nodes):**
-     เนื่องจากพิกัด GPS ของรถและจุดจอดอาจไม่อยู่บนจุดยอดของกราฟพอดี ฟังก์ชัน `_getClosestNode(LatLng target)` จะทำหน้าที่ค้นหาจุดโหนด (`Node`) บนเครือข่ายถนน (`_routeGraph`) ที่มีระยะห่างน้อยที่สุด เพื่อให้ได้จุดเริ่มต้นของกราฟ (`startNode`) และจุดปลายทางของกราฟ (`endNode`)
-  3. **การค้นหาเส้นทางที่สั้นที่สุดด้วย Dijkstra's Algorithm (`Graph Pathfinding Algorithm`):**
-     ระบบเครือข่ายถนนในมหาวิทยาลัยถูกสร้างเป็น **Adjacency List (`_routeGraph`)** จากพิกัดใน [route_data.dart](file:///c:/psru-shutte-app/lib/route_data.dart) โดยเชื่อมต่อจุดตัดที่มีระยะห่างไม่เกิน 20 เมตร ฟังก์ชัน `_calculateHighlightedPath` จะทำงานโดย:
-     - กำหนดเซต `unvisited` เก็บโหนดทั้งหมด และตั้งค่า `distances[startNode] = 0` (โหนดอื่นเป็น $\infty$)
-     - วนลูปเลือกโหนด `current` จาก `unvisited` ที่มีค่า `distances[node]` น้อยที่สุดจนกระทั่งถึง `endNode`
-     - คำนวณระยะทางสะสมของเพื่อนบ้าน (`neighbor`): $\text{alt} = \text{distances}[\text{current}] + \text{Distance}(\text{current}, \text{neighbor})$ หาก $\text{alt} < \text{distances}[\text{neighbor}]$ ระบบจะอัปเดตระยะทางสั้นที่สุด พร้อมบันทึกเส้นทางย้อนกลับ (`previous[neighbor] = current`) เพื่อย้อนรอยนำมาสร้างเส้นสีเขียวเข้มไฮไลท์บนแผนที่จริง
-  4. **สูตรคำนวณระยะทางจริงตามแนวถนน (Precise Road Distance Computation):**
-     ระยะทางรวม (`totalMeters`) ไม่ใช่การวัดเส้นตรง แต่เป็นการรวมระยะทางจริงตามแนวโค้งถนน 3 ส่วนเข้าด้วยกัน:
-     $$\text{Total Meters} = \text{Dist}(\text{startLoc}, \text{startNode}) + \text{distances}[\text{endNode}] + \text{Dist}(\text{endNode}, \text{endLoc})$$
-  5. **สูตรทางคณิตศาสตร์ในการคำนวณเวลา (ETA Mathematical Formula):**
-     ความเร็วเฉลี่ยของรถรับส่งในมหาวิทยาลัยราชภัฏพิบูลสงคราม (`speed`) ถูกกำหนดไว้ที่ **`7.0` เมตร/วินาที (ประมาณ 25.2 กม./ชม.)** ซึ่งเป็นความเร็วที่สะท้อนการวิ่งจริงเมื่อรวมการชะลอตามทางแยกและป้ายต่างๆ และระบบได้บวก **เวลาบัฟเฟอร์เผื่อหยุดรับส่งและชะลอทางแยกอีก `15.0` วินาที** ป้องกันการแสดงเวลาเร็วเกินจริง:
-     $$\text{Estimated Seconds} = \left( \frac{\text{totalMeters}}{7.0} \right) + 15.0$$
-  6. **การแสดงผลอัจฉริยะแบบ 3 ระดับ (Adaptive UI Presentation Level):**
-     - **ระดับที่ 1 ($\text{totalMeters} \le 30 \text{ เมตร}$):** แสดงข้อความ **"รถกำลังจะถึงป้าย"** (Arriving Now) เพื่อให้นักศึกษาสตาร์ทเตรียมตัวขึ้นรถ
-     - **ระดับที่ 2 ($\text{Seconds} \le 60 \text{ วินาที}$):** แสดงข้อความ **"ประมาณ 1 นาที (`X` ม.)"** พร้อมระบุระยะทางเมตรจริง
-     - **ระดับที่ 3 ($\text{Seconds} > 60 \text{ วินาที}$):** ปัดเศษวินาทีเป็นนาทีด้วยฟังก์ชัน `ceil()` (`(sec / 60).ceil()`) แสดงข้อความ **"ประมาณ `M` นาที (`X` ม.)"**
-     - **การแสดงป้ายข้อความบนแผนที่ (`Midpoint Floating Badge`):** ฟังก์ชัน `_getPathMidpoint()` จะคำนวณหาจุดกึ่งกลางของเส้นทางไฮไลท์ (`highlightedPath`) เพื่อวางวิดเจ็ต `_buildRouteEtaBadge` (ป้ายสีเขียวเข้มพร้อมไอคอนนาฬิกาจับเวลา) ลอยอยู่เหนือกลางถนนบนแผนที่อย่างแม่นยำและสวยงาม
-
-### 2. 💬 ระบบแชทสื่อสารแบบ Real-time (Role-based Real-time Chat)
-* **ไฟล์หลัก:** [student_chat_screen.dart](file:///c:/psru-shutte-app/lib/screens/student/student_chat_screen.dart) และ [driver_chat_screen.dart](file:///c:/psru-shutte-app/lib/screens/driver/driver_chat_screen.dart)
-* **การทำงาน:**
-  1. **แยกห้องสนทนาตามรถแต่ละคัน (Channel Isolation):** ระบบเก็บข้อมูลใน Firestore ภายใต้ Path `chats/{shuttle_id}/messages` โดย `shuttle_id` คือ ID ของรถคันนั้นๆ (เช่น `shuttle_line_a`) ทำให้นักศึกษากับคนขับรถสายเดียวกันสื่อสารกันได้ถูกคัน
-  2. **การอัปเดตข้อความแบบ Real-time:** ทั้งสองฝั่งใช้ `StreamBuilder` ในการดึงข้อมูลและฟังเหตุการณ์เปลี่ยนแปลงจาก Collection `messages` เรียงลำดับตามเวลาล่าสุด (`descending: true`) ข้อความใหม่จะปรากฏบนจอทั้งสองฝั่งทันทีโดยไม่ต้องกดรีเฟรช
-  3. **การระบุตัวตน (Role Identification):** ตอนส่งข้อความจะมีการบันทึกฟิลด์ `senderRole` (`student` หรือ `driver`) เพื่อจัดรูปแบบบับเบิลข้อความบน UI (ข้อความของตัวเองแสดงฝั่งขวาพื้นสีเขียวเข้ม #176a21 ส่วนคู่สนทนาแสดงฝั่งซ้ายพื้นสีขาว)
-
-### 3. 📍 ระบบล็อกหมุดไม่ให้ออกนอกเส้นทาง (Snap to Route Algorithm & Mathematical Map Matching)
-* **ไฟล์หลัก:** [driver_home.dart](file:///c:/psru-shutte-app/lib/screens/driver/driver_home.dart) (ฟังก์ชัน `_snapToRoute` และ `_markerAnimationController`)
-* **โครงสร้างทางคณิตศาสตร์และขั้นตอนการทำงานเชิงลึก (Mathematical & Algorithmic Architecture):**
-  1. **ปัญหาพิกัดเพี้ยนและการลอยของหมุด (GPS Drift & Multipath Error Mitigation):**
-     สัญญาณ GPS จากมือถือของคนขับมักเกิดการสะท้อนกับอาคารเรียน ต้นไม้ใหญ่ หรือสูญเสียความแม่นยำในบางช่วง (Drift) ส่งผลให้หมุดรถรับส่งบนแผนที่เกิดอาการกระโดดเข้าไปในตัวอาคาร ลอยอยู่กลางสนามหญ้า หรือออกนอกเส้นทางถนน เพื่อแก้ปัญหานี้ ฟังก์ชัน `_snapToRoute(LatLng rawPoint)` จึงถูกสร้างขึ้นเพื่อทำหน้าที่ **Map Matching** บังคับให้หมุดรถเกาะอยู่บนกึ่งกลางถนนจริงเสมอ
-  2. **การแปลงข้อมูลเส้นทางเป็นส่วนของเส้นตรง (Polyline Vector Segments):**
-     ระบบนำเข้าพิกัดเส้นทางเดินรถทั้งหมด (`shuttleRoutes`) จาก [route_data.dart](file:///c:/psru-shutte-app/lib/route_data.dart) ซึ่งประกอบด้วยเส้นทางย่อย (Segments) เชื่อมต่อระหว่างจุดยอด $A = (a_x, a_y)$ (`routeSegment[i]`) และจุดยอด $B = (b_x, b_y)$ (`routeSegment[i+1]`)
-  3. **คณิตศาสตร์การฉายจุดตั้งฉากลงบนเวกเตอร์ (Vector Orthogonal Projection via Dot Product):**
-     เมื่อได้รับพิกัด GPS ดิบ $P = (p_x, p_y)$ ระบบจะคำนวณหาจุดตั้งฉาก $C = (c_x, c_y)$ บนส่วนของเส้นตรง $AB$ โดยเริ่มจากการหาเวกเตอร์ $\vec{AB} = (b_x - a_x, b_y - a_y)$ และเวกเตอร์ $\vec{AP} = (p_x - a_x, p_y - a_y)$ แล้วคำนวณค่าพารามิเตอร์เชิงสเกลาร์ $t$ (Normalized Projection Parameter) ผ่านผลคูณจุด (Dot Product):
-     $$t = \frac{\vec{AP} \cdot \vec{AB}}{|\vec{AB}|^2} = \frac{(p_x - a_x)(b_x - a_x) + (p_y - a_y)(b_y - a_y)}{(b_x - a_x)^2 + (b_y - a_y)^2}$$
-  4. **การตรวจสอบขอบเขตและยึดจุดปลายทาง (Segment Bounds Clamping):**
-     - หาก $t < 0$ แสดงว่าจุดฉายตั้งฉากหลุดออกไปทางฝั่งจุดเริ่มต้น ระบบจะบีบจุดให้อยู่ที่ $C = A$ ($t = 0$)
-     - หาก $t > 1$ แสดงว่าจุดฉายตั้งฉากหลุดออกไปทางฝั่งจุดปลาย ระบบจะบีบจุดให้อยู่ที่ $C = B$ ($t = 1$)
-     - หาก $0 \le t \le 1$ แสดงว่าจุดฉายตกอยู่บนเส้นตรงระหว่าง $A$ และ $B$ พอดี ระบบจะคำนวณพิกัดตั้งฉากบนถนนจริง:
-       $$C = \left( a_x + t(b_x - a_x), \; a_y + t(b_y - a_y) \right)$$
-  5. **การหาระยะห่างที่สั้นที่สุดและการขยับหมุดอย่างนุ่มนวล (Minimum Euclidean Distance & Smooth Interpolation):**
-     ระบบคำนวณระยะห่างกำลังสอง (Squared Euclidean Distance: $D^2 = (p_x - c_x)^2 + (p_y - c_y)^2$) เปรียบเทียบกับทุกๆ Segment บนแผนที่ เพื่อเลือกจุด $C_{\text{min}}$ ที่ใกล้กับพิกัด GPS ดิบมากที่สุดมาเป็น `snappedPoint`
-     หลังจากได้พิกัดบนเส้นถนนแล้ว แทนที่ระบบจะกระโดดเปลี่ยนตำแหน่งหมุดทันที ซึ่งจะทำให้หน้าจอกระตุก ระบบได้ใช้ **`AnimationController` (`Duration(milliseconds: 400)`) ร่วมกับ `Tween<LatLng>` และ `Curves.easeInOut`** เพื่อค่อยๆ เคลื่อนหมุดจากตำแหน่งเดิม (`_oldLocation`) ไปยังพิกัดใหม่บนเส้นถนนอย่างนุ่มนวลเป็นธรรมชาติ ทำให้ผู้โดยสารเห็นหมุดรถวิ่งเกาะตามโค้งถนนอย่างสมบูรณ์แบบและลื่นไหลไม่มีสะดุด
-
-### 4. 🔊 ระบบเล่นไฟล์เสียงแจ้งเตือนจุดจอด (Custom Stop Audio Alert System)
-* **ไฟล์หลัก:** [driver_home.dart](file:///c:/psru-shutte-app/lib/screens/driver/driver_home.dart) (ฟังก์ชัน `_triggerVoiceAlert` และ `_fetchStopsFromFirebase`) และโฟลเดอร์ไฟล์เสียง [lib/screens/voice](file:///c:/psru-shutte-app/lib/screens/voice)
-* **การทำงาน:**
-  1. **การโหลดและแมประหัสจุดจอด (`Stop ID Mapping`):** เมื่อคนขับเปิดแอป ระบบดึงข้อมูลจุดจอดจากคอลเล็กชัน `stops` ใน Firestore โดยจัดเก็บรหัส `id` (`stop_01` ถึง `stop_21`) ควบคู่กับชื่อป้ายรถไว้ใน List `busStops`
-  2. **การตรวจจับคำขอเรียกรถ Real-time (`Request Stream Listener`):** ระบบฟังสถานะการเรียกรถที่มีค่า `status == 'waiting'` เมื่อพบเอกสารคำขอใหม่ (`currentRequestId != activeDoc.id`) ฟังก์ชัน `_triggerVoiceAlert(stopName)` จะถูกเรียกทำงานทันที
-  3. **การแจ้งเตือนแบบ 3 ชั้น (`Multi-Layer Notification`):** ระบบจะทำงาน 3 ส่วนพร้อมกันเพื่อแจ้งเตือนคนขับอย่างชัดเจน:
-     - **ระบบสั่น (`HapticFeedback.heavyImpact`):** สั่นเตือนแรงสุดสำหรับอุปกรณ์มือถือที่รองรับ
-     - **เสียงแจ้งเตือนระบบ (`FlutterRingtonePlayer.playNotification`):** เล่นเสียง Ringtone หลักของมือถือ (ยกเว้นบน Web)
-     - **เสียงจุดจอด Custom (`audioplayers`):** นำชื่อป้ายไปค้นหา `stop_id` แล้วใช้คำสั่ง `AudioPlayer().play(AssetSource('lib/screens/voice/voice_$stopId.mp3'))` เพื่อเปิดเสียงพูดชื่อจุดจอดจริงที่เตรียมไว้ครบทั้ง 21 จุดจอด
+## 🧠 อธิบาย Logic และ Algorithm สำคัญ (Core Architecture & Mathematical Logic)
 
 ---
 
-## ⏳ สิ่งที่ต้องทำต่อไป (To-Do / Upcoming)
-- [ ] พัฒนาและเปิดใช้การแจ้งเตือนแบบ Push Notifications ผ่าน Firebase Cloud Messaging (FCM)
-- [ ] เพิ่มระบบสถิติและประวัติการเดินทางของผู้โดยสาร (Ride History)
-- [ ] ปรับปรุงหน้าแสดงตารางรอบการวิ่งรถประจำวันและช่วงเวลาให้บริการ (Shuttle Timetable)
+### 1. ⚡ สถาปัตยกรรมฐานข้อมูลแบบไฮบริด (Hybrid RTDB + Firestore Architecture)
+
+> [!NOTE]
+> เพื่อแก้ไขปัญหาความล่าช้า (Latency) และประหยัดโควต้าการอ่าน/เขียนของ Firebase (Quota & Cost Optimization) โปรเจกต์นี้จึงใช้สถาปัตยกรรมฐานข้อมูลแบบผสม 2 ชนิด:
+
+```mermaid
+graph TD
+    A["Mobile GPS / Client Device"] -->|High-Frequency Update 3s| B[("Firebase Realtime Database - RTDB")]
+    A -->|Low-Frequency Transactional| C[("Cloud Firestore")]
+    B -->|Stream lat, lng, status, passenger_status| D["Student & Admin Live Maps"]
+    C -->|Document Storage users, ride_requests, chats| E["User Profiles & Chat History"]
+```
+
+1. **Firebase Realtime Database (RTDB) — โหนด `shuttles/{shuttle_id}`**:
+   - ใช้สำหรับข้อมูลที่มีการอัปเดตความถี่สูงทุกๆ 3 วินาที ได้แก่ พิกัดละติจูด (`lat`), ลองจิจูด (`lng`), สถานะออนไลน์ (`status`), สถานะผู้โดยสาร (`passenger_status`) และเวลาล่าสุด (`last_updated`)
+   - ช่วยให้หมุดรถลื่นไหลแบบ 60fps และไม่เสียโควต้า Document Reads/Writes ใน Firestore
+2. **Cloud Firestore — คอลเล็กชัน `users`, `ride_requests`, `chats`, `stops`**:
+   - ใช้สำหรับข้อมูลเชิงความสัมพันธ์ เช่น ประวัติคำขอเรียกรถ, บัญชีผู้ใช้, จุดจอดที่ชอบ และข้อความแชทสนทนา
+
+> 💡 **สรุปแบบเข้าใจง่าย (สำหรับบุคคลทั่วไป / ไม่ใช่สายไอที):**  
+> เปรียบเหมือน **"ระบบส่งข้อมูล 2 ช่องทาง (ช่องทางด่วน + ตู้เซฟหลัก)"**
+> - **ช่องทางด่วน (Realtime DB):** เหมือนใช้วิทยุสื่อสารรายงานตำแหน่งรถสดๆ ทุก 3 วินาที ทำให้หมุดรถบนหน้าจอขยับลื่นไหล ไม่กระตุก และลื่นตามาก
+> - **ตู้เซฟหลัก (Cloud Firestore):** เหมือนตู้เซฟเก็บประวัติสำคัญ เช่น ข้อมูลสมาชิกนักศึกษา ประวัติคำขอเรียกรถ และข้อความแชท เพื่อความปลอดภัยและประหยัดค่าบริการเซิร์ฟเวอร์
+
+---
+
+### 2. 📍 อัลกอริทึมล็อกหมุดบนถนน (Snap to Route Algorithm via Vector Orthogonal Projection)
+
+> [!TIP]
+> แก้ไขปัญหาสัญญาณ GPS คลาดเคลื่อน (GPS Drift) ที่ทำให้หมุดกระโดดเข้าไปในอาคารเรียน โดยการใช้หลักคณิตศาสตร์ **Vector Projection** บนเส้นทางถนน (`shuttleRoutes`)
+
+$$t = \frac{\vec{AP} \cdot \vec{AB}}{|\vec{AB}|^2} = \frac{(p_x - a_x)(b_x - a_x) + (p_y - a_y)(b_y - a_y)}{(b_x - a_x)^2 + (b_y - a_y)^2}$$
+
+1. **การหาจุดตั้งฉากบนส่วนของเส้นตรง (Segment Projection):**
+   - ให้จุด $P = (p_x, p_y)$ เป็นพิกัด GPS ดิบจากมือถือคนขับ
+   - ให้ $A = (a_x, a_y)$ และ $B = (b_x, b_y)$ เป็นจุดปลายของส่วนของเส้นตรงถนน (Polyline Segment)
+   - คำนวณค่าสเกลาร์ $t$ (Normalized Projection Parameter) ผ่านผลคูณจุด (Dot Product) ตามสูตรด้านบน
+2. **การบีบขอบเขตจุดฉาย (Clamping Bounds):**
+   - ถ้า $t < 0 \implies C = A$ (ยึดจุดเริ่มต้น)
+   - ถ้า $t > 1 \implies C = B$ (ยึดจุดปลาย)
+   - ถ้า $0 \le t \le 1 \implies C = \left( a_x + t(b_x - a_x), \; a_y + t(b_y - a_y) \right)$ (จุดตั้งฉากบนถนน)
+3. **การเลือกจุดที่ใกล้ที่สุดและการเคลื่อนไหวแบบนุ่มนวล (Minimum Distance & Smooth Interpolation):**
+   - คำนวณระยะทางกำลังสอง $D^2 = (p_x - c_x)^2 + (p_y - c_y)^2$ เปรียบเทียบทุก Segment เพื่อเลือกจุด $C_{\text{min}}$ บนถนนที่ใกล้ที่สุด
+   - เคลื่อนหมุดไปยังพิกัดใหม่ด้วย `AnimationController` (Duration 400ms) ร่วมกับ `Tween<LatLng>` และ `Curves.easeInOut` เพื่อให้หมุดเลื่อนตามโค้งถนนอย่างลื่นไหล
+
+> 💡 **สรุปแบบเข้าใจง่าย (สำหรับบุคคลทั่วไป / ไม่ใช่สายไอที):**  
+> เปรียบเหมือน **"แม่เหล็กดูดรถเข้าเส้นทางถนน"**
+> - สัญญาณ GPS จากมือถือคนขับมักจะคลาดเคลื่อนเวลามีตึกบัง ทำให้หมุดรถชอบลอยหลุดเข้าไปในตึกเรียนหรือบนหลังคาอาคาร
+> - ระบบนี้จะทำหน้าที่เป็นเหมือน **"แม่เหล็กคอยดูดตำแหน่งรถให้ตกลงบนเส้นทางถนนจริงเสมอ"** ไม่ว่ารถจะเลี้ยวโค้งหรือเข้าทางแยก หมุดรถก็จะวิ่งอยู่บนถนนอย่างสมจริง ไร้อาการหลุดเข้าไปในตึก
+
+---
+
+### 3. 🗺️ อัลกอริทึมคำนวณเส้นทางไฮไลท์และเวลาถึงป้าย (Smart Proximity Pathfinding & Dijkstra's ETA)
+
+> [!IMPORTANT]
+> ระบบคำนวณเส้นทางอัจฉริยะใน `student_home.dart` มีการตรวจสอบระยะทางตรงจริง (Direct Proximity Check) ร่วมกับ Dijkstra Algorithm เพื่อป้องกันการลากเส้นวนรอบมหาวิทยาลัย
+
+1. **Smart Direct Proximity Check (ตรวจจับระยะประชิด):**
+   - คำนวณระยะทางตรง $\text{Direct Distance}$ ระหว่างพิกัดรถใกล้ที่สุดกับป้ายเป้าหมาย
+   - **กรณีระยะทาง $\le 80 \text{ เมตร}$:** ระบบจะเชื่อมเส้นไฮไลท์ไปยังป้ายทันที โดยไม่วนลูปป้าย 23 จุดรอบมหาวิทยาลัย พร้อมแสดง ETA ว่า **"รถกำลังจะถึงป้าย"**
+2. **Dijkstra Shortest Path บนกราฟถนน (`_routeGraph`):**
+   - **กรณีระยะทาง $> 80 \text{ เมตร}$:** ระบบจะนำป้ายตามลำดับ (`order`) มาแทรกเป็น Waypoints แล้วรัน Dijkstra's Algorithm หาเส้นทางสั้นที่สุดบนกราฟถนน Adjacency List
+3. **สูตรคำนวณเวลา ETA (Estimated Time of Arrival):**
+   $$\text{Total Seconds} = \left( \frac{\text{Total Road Meters}}{7.0} \right) + 15.0$$
+   - ความเร็วเฉลี่ย $7.0 \text{ m/s}$ ($\approx 25.2 \text{ km/h}$) + บัฟเฟอร์ชะลอรับส่ง $15 \text{ วินาที}$
+   - ป้ายข้อความ ETA ลอยขึ้นบนพิกัดกึ่งกลางเส้นทาง (`_getPathMidpoint()`) บนแผนที่
+
+> 💡 **สรุปแบบเข้าใจง่าย (สำหรับบุคคลทั่วไป / ไม่ใช่สายไอที):**  
+> เปรียบเหมือน **"ระบบเนวิเกเตอร์ฉลาดเลือกทางลัด + นาฬิกาบอกเวลาล่วงหน้า"**
+> - **ฉลาดรู้ว่าใกล้ถึงแล้ว:** เมื่อนักศึกษากดเลือกป้ายรถเมล์ ถ้ารถรับส่งอยู่ใกล้ป้ายนั้นแล้ว แอปจะรู้ทันทีว่า "กำลังจะถึง" โดยลากเส้นตรงไปหาป้ายเลย ไม่ลากเส้นวนรอบมหาวิทยาลัยให้สับสน
+> - **คำนวณเวลารอ:** ระบบจะวัดความยาวถนนและประเมินความเร็วรถ แล้วคำนวณออกมาเป็นตัวเลขอ่านง่าย เช่น *"อีกประมาณ 3 นาทีจะถึงป้าย"* ทำให้นักศึกษากะเวลาเดินมารอรถได้อย่างแม่นยำ
+
+---
+
+### 4. 🔔 ระบบแจ้งเตือนแชทและป๊อปอัปข้ามสิทธิ์ (Cross-Role Real-Time Floating Popup & Audio System)
+
+1. **การ์ดแจ้งเตือนลอยด้านบน (Top Floating Notification Banner):**
+   - ออกแบบการ์ดสไตล์ Glassmorphism โทนสีเขียวเข้ม Gradient (`#176a21` ไป `#0F4D17`) พร้อมขอบขาวโปร่งใส เงาสายนุ่มนวล
+   - เว้นระยะ Safe Area คำนวณรอยบากหน้าจอ (Notch) อัตโนมัติ
+2. **การทำงานข้ามสิทธิ์ (Cross-Role Integration):**
+   - **เมื่อคนขับส่งข้อความ:** นักศึกษาจะได้รับป๊อปอัปแจ้งเตือนพร้อมไอคอนรถ 🚌 และปุ่ม **"แชท/ตอบกลับ"** สลับไปหน้าแชตคันนั้นทันที
+   - **เมื่อนักศึกษาส่งข้อความ:** คนขับจะได้รับป๊อปอัปแจ้งเตือนพร้อมป้ายแท็ก `นักศึกษา` และปุ่ม **"ตอบกลับ"** สลับไปหน้าแชตทันที
+3. **ไฟล์เสียงแจ้งเตือน (Audio Asset System):**
+   - `chat_sound.mp3`: เสียงแจ้งเตือนข้อความแชทใหม่ (ทั้งฝั่งนักศึกษาและคนขับ)
+   - `glass_1.mp3`: เสียงแจ้งเตือนเมื่อนักศึกษากดเรียกรถ
+   - `glass_2.mp3`: เสียงแจ้งเตือนเมื่อนักศึกษาลงรถ
+   - `voice_stop_XX.mp3`: ไฟล์เสียงพูดชื่อจุดจอดรถทั้ง 21 ป้าย
+
+> 💡 **สรุปแบบเข้าใจง่าย (สำหรับบุคคลทั่วไป / ไม่ใช่สายไอที):**  
+> เปรียบเหมือน **"วิทยุสื่อสารด่วนพร้อมป๊อปอัปเด้งบนหน้าจอ"**
+> - เมื่อนักศึกษากดเรียกรถ หรือคนขับพิมพ์ทักแชตหา หน้าจอของอีกฝั่งจะมี **ป๊อปอัปการ์ดเด้งขึ้นมาจากขอบบนสุดของหน้าจอ** พร้อมเสียงแจ้งเตือนเฉพาะตัว (เสียงแชต / เสียงเรียกรถ)
+> - สามารถกดปุ่ม **"ตอบกลับ"** บนการ์ดเพื่อเปิดเข้าสู่ห้องแชทได้ทันที โดยไม่ต้องเสียเวลางมหาเมนู
+
+---
+
+### 5. 📱 ระบบการ์ดสรุปสถานะแบบเรสพอนซีฟ (Auto-Responsive Equal Height Layout)
+
+1. **คณิตศาสตร์คำนวณความสูงคงที่ใน `StudentLiveStatusScreen`:**
+   - ใช้ `LayoutBuilder` คำนวณความกว้างการ์ดย่อย `itemWidth = (constraints.maxWidth - 16) / 2`
+   - กำหนดความสูงเป้าหมาย `targetHeight = 88.0` พิกเซล
+   - คำนวณอัตราส่วน `childAspectRatio = itemWidth / targetHeight`
+   - ผลลัพธ์: การ์ดสถานะทั้ง 4 ใบ (รถว่าง, รถเต็ม, พักเบรค, นอกเวลา) มีความสูง 88px เท่ากันพอดีทุกใบ สมส่วน ไร้พื้นที่ว่างส่วนเกิน บนมือถือ แท็บเล็ต และเว็บเดสก์ท็อป
+
+> 💡 **สรุปแบบเข้าใจง่าย (สำหรับบุคคลทั่วไป / ไม่ใช่สายไอที):**  
+> เปรียบเหมือน **"กล่องยืดหยุ่น พอดีตัวทุกหน้าจอ"**
+> - ไม่ว่าจะเปิดดูแอปด้วยมือถือจอเล็ก มือถือจอใหญ่ ไอแพด แท็บเล็ต หรือเปิดบนจอคอมพิวเตอร์
+> - กล่องสรุปสถานะรถว่าง/รถเต็มทั้ง 4 กล่อง จะปรับขนาดความกว้างและความสูงให้เท่ากันพอดี 88 พิกเซลทุกใบเสมอ ตัวหนังสือและไอคอนจะจัดเรียงสวยงาม ไร้อาการเบี้ยว ทับซ้อน หรือตกขอบ
+
+---
+
+## 🛠️ โครงสร้างไฟล์ในโปรเจกต์ (Project Directory Structure)
+
+```
+lib/
+├── firebase_options.dart            # การตั้งค่า Firebase สำหรับแต่ละแพลตฟอร์ม
+├── main.dart                        # Entry point ของแอปพลิเคชัน & ระบบ Routing
+├── route_data.dart                  # ข้อมูลพิกัดเวกเตอร์เส้นทางถนน และลอจิกสร้างกราฟ
+├── screens/
+│   ├── login_screen.dart            # หน้าเข้าสู่ระบบ
+│   ├── register_screen.dart         # หน้าสมัครสมาชิก (แยก Role & Avatar)
+│   ├── forgot_password_screen.dart  # หน้าลืมรหัสผ่าน
+│   ├── admin/                       # แดชบอร์ดผู้ดูแลระบบ
+│   │   ├── admin_dashboard.dart     # แดชบอร์ดหลัก & กราฟผู้โดยสาร 24 ชั่วโมง
+│   │   ├── admin_live_map.dart      # แผนที่ติดตามกองรถสด
+│   │   ├── admin_analytics_tab.dart # แท็บวิเคราะห์ข้อมูลสถิติ
+│   │   ├── admin_drivers_tab.dart   # จัดการข้อมูลคนขับรถ
+│   │   ├── admin_students_tab.dart  # จัดการข้อมูลนักศึกษา
+│   │   ├── add_driver_dialog.dart   # ไดอะล็อกเพิ่มคนขับ
+│   │   ├── add_student_dialog.dart  # ไดอะล็อกเพิ่มนักศึกษา
+│   │   ├── edit_driver_dialog.dart  # ไดอะล็อกแก้ไขคนขับ
+│   │   └── edit_student_dialog.dart # ไดอะล็อกแก้นักศึกษา
+│   ├── driver/                      # ระบบฝั่งคนขับรถ
+│   │   ├── driver_home.dart         # หน้าหลักคนขับ (Snap to Route, Audio Alerts, Chat Popup)
+│   │   ├── driver_chat_screen.dart  # หน้าแชทสนทนากับนักศึกษา
+│   │   ├── driver_profile.dart      # หน้าโปรไฟล์คนขับ
+│   │   ├── driver_status_screen.dart# หน้าสลับสถานะที่นั่งรถ
+│   │   └── driver_edit_profile_screen.dart # หน้าแก้ไขข้อมูลส่วนตัว
+│   └── student/                     # ระบบฝั่งนักศึกษา
+│       ├── student_home.dart        # หน้าหลักนักศึกษา (Live Map, Pathfinding, ETA, Chat Popup)
+│       ├── student_chat_list_screen.dart # หน้ารวมรายการห้องแชทรถทุกคัน (แสดงสถานะจุดเขียว)
+│       ├── student_chat_screen.dart # หน้าห้องแชทกับคนขับประจำคัน
+│       ├── student_live_status_screen.dart # หน้าสรุปสถานะรถสด (Responsive Equal Height Grid)
+│       ├── student_profile.dart     # หน้าโปรไฟล์นักศึกษา
+│       ├── favorite_stops_screen.dart # หน้าจัดการจุดจอดที่ติดดาว
+│       ├── student_edit_profile_screen.dart # หน้าแก้ไขโปรไฟล์
+│       └── student_onboarding_screen.dart   # หน้าแนะนำการใช้งานเริ่มต้น
+└── widgets/
+    └── top_toast.dart               # วิดเจ็ตแจ้งเตือนข้อความสั้น (Toast)
+```
+
+---
+
+## 🎨 การเปลี่ยนไอคอนแอป (App Launcher Icon)
+
+โปรเจกต์ได้รับการกำหนดค่า package `flutter_launcher_icons` เรียบร้อยแล้ว โดยใช้รูปภาพรถรับส่ง PSRU Green Bus 3D High-Res (`lib/screens/driver/screen.png`):
+
+```bash
+flutter pub get
+dart run flutter_launcher_icons
+```
+
+---
+
+## 📦 รายการ API, ไลบรารี (Packages & Libraries) และเทคโนโลยีที่ใช้ในโปรเจกต์
+
+### 🌐 1. APIs & Web Services (บริการเว็บเอพีไอและคลาวด์)
+- **OpenStreetMap Tile API (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`)**: API ให้บริการแผนที่ดาวเทียม/ถนนแบบเปิด (Open Source Raster Tiles) สำหรับแสดงผลแผนที่มหาวิทยาลัยราชภัฏพิบูลสงครามบน `flutter_map`
+- **Firebase Authentication API**: ระบบยืนยันตัวตนผู้ใช้ จัดเก็บและตรวจสอบสิทธิ์เข้าใช้งานของผู้ใช้ (นักศึกษา / คนขับรถ / ผู้ดูแลระบบ)
+- **Firebase Realtime Database (RTDB) API**: บริการฐานข้อมูล Key-Value ความเร็วสูง ซิงก์ข้อมูลพิกัดละติจูด-ลองจิจูด สถานะออนไลน์ และสถานะที่นั่งของรถรับส่งแบบ Real-time ผ่าน WebSocket / Data Streams
+- **Cloud Firestore Database API**: บริการฐานข้อมูล NoSQL Document สเกลสูง จัดเก็บและซิงก์ข้อมูลบัญชีผู้ใช้ (`users`), คำขอเรียกรถ (`ride_requests`), ประวัติข้อความแชท (`chats`), และจุดจอดรถ (`stops`)
+- **Firebase Storage API**: บริการจัดเก็บไฟล์สื่อ (Cloud Storage) สำหรับอัปโหลดและดึงรูปภาพโปรไฟล์ Avatar และรูปภาพสื่อสารในห้องแชท
+- **Geolocator Native Location API**: API บริการพิกัดตำแหน่งอุปกรณ์ (Android Location Provider / iOS CoreLocation / Web HTML5 Geolocation API) เพื่อดึงพิกัด GPS ปัจจุบันของนักศึกษาและคนขับรถ
+
+---
+
+### 📚 2. Flutter Libraries & Packages (ไลบรารีและแพ็กเกจหลักใน `pubspec.yaml`)
+
+#### ☁️ ฐานข้อมูลและสถาปัตยกรรมคลาวด์ (Firebase & Cloud Packages)
+- **`firebase_core` (^3.12.0)**: แพ็กเกจตั้งค่าและเริ่มต้นการทำงานของบริการ Firebase ในแอปพลิเคชัน
+- **`cloud_firestore` (^5.6.5)**: จัดการฐานข้อมูล Document สำหรับข้อมูลผู้ใช้, คำขอเรียกรถ, และแชท
+- **`firebase_database` (^11.3.1)**: จัดการเชื่อมต่อและฟังการเปลี่ยนแปลงพิกัดตำแหน่งรถแบบ Real-time บน RTDB
+- **`firebase_auth` (^5.5.1)**: บริการล็อกอิน, สมัครสมาชิก, เปลี่ยนรหัสผ่าน และจัดการ Auth Session
+- **`firebase_storage` (^12.4.4)**: อัปโหลดและดึง URL รูปภาพโปรไฟล์และรูปภาพห้องแชท
+
+#### 🗺️ แผนที่และคณิตศาสตร์ทางภูมิศาสตร์ (Map & Geographic Math Packages)
+- **`flutter_map` (^7.0.2)**: วิดเจ็ตแผนที่ OpenStreetMap แบบ Interactive รองรับการแสดงหมุด (Markers), เส้นโพลีไลน์ (Polylines), และการควบคุมกล้อง
+- **`latlong2` (^0.9.1)**: ไลบรารีคำนวณคณิตศาสตร์ทางภูมิศาสตร์ เช่น พิกัด `LatLng` และคำนวณระยะห่างระหว่างพิกัดด้วยสูตร Geodesic Distance
+
+#### 📍 การจัดการตำแหน่ง GPS และอุปกรณ์ (Location & Device Packages)
+- **`geolocator` (^13.0.2)**: ดึงพิกัด GPS ปัจจุบัน ตรวจสอบสิทธิ์การเข้าถึงตำแหน่ง (Location Permission) และฟังการเปลี่ยนแปลงตำแหน่งเคลื่อนที่
+
+#### 🔊 เสียงและการแจ้งเตือน (Audio & Sound Packages)
+- **`audioplayers` (^6.1.0)**: เล่นไฟล์เสียงแจ้งเตือน Custom MP3 ในแอปพลิเคชัน เช่น เสียงเรียกชื่อจุดจอดรถ (`voice_stop_XX.mp3`), เสียงแชตใหม่ (`chat_sound.mp3`), และเสียงเรียกรถ (`glass_1.mp3`, `glass_2.mp3`)
+- **`flutter_ringtone_player` (^3.2.0)**: เล่นเสียงกระดิ่ง/เสียงแจ้งเตือนเริ่มต้นของระบบอุปกรณ์
+- **`flutter_tts` (^4.2.0)**: ระบบแปลงข้อความเป็นเสียงพูด (Text-to-Speech Engine) สำหรับอ่านชื่อป้ายจอด
+
+#### 📱 อินเทอร์เฟซผู้ใช้และมัลติมีเดีย (UI, Media & Tutorial Packages)
+- **`tutorial_coach_mark` (^1.2.11)**: แสดงหน้าจอสอนแนะนำการใช้งานเริ่มต้น (Step-by-step Interactive Tutorial) ด้วยแสง Highlight Spotlight และการ์ดคำอธิบาย
+- **`image_picker` (^1.1.2)**: เลือกและถ่ายรูปภาพจากกล้องหรือคลังภาพในเครื่อง (Gallery) เพื่อตั้งโปรไฟล์หรือส่งในห้องแชท
+- **`shared_preferences` (^2.5.2)**: บันทึกข้อมูลการตั้งค่าเบาๆ ในเครื่อง เช่น สถานะเคยดู Tutorial (`hasSeenTutorial`), การค้างล็อกอิน
+- **`intl` (^0.20.2)**: จัดการฟอร์แมตวันที่ เวลา (Timestamp) และตัวเลขภาษาไทย/สากล
+- **`cupertino_icons` (^1.0.8)**: ชุดไอคอนมาตรฐานสไตล์ iOS/macOS
+
+#### 🛠️ เครื่องมือพัฒนา (Dev Tools)
+- **`flutter_launcher_icons` (^0.14.3)**: เครื่องมือสร้างไอคอนแอป (App Launcher Icons) อัตโนมัติสำหรับทุกแพลตฟอร์ม (Android, iOS, Web)
+
+---
+
+### ⚙️ 3. เทคโนโลยี โครงสร้างพื้นฐาน และทรัพยากรอื่นๆ (Other Infrastructure & Assets)
+- **Flutter SDK 3.x & Dart 3.x**: โครงสร้างการพัฒนาแอปพลิเคชันแบบ Cross-Platform (Android, iOS, Web Desktop/Mobile) ด้วย Material Design 3
+- **Audio & Graphic Assets**:
+  - ไฟล์เสียง MP3 ใน `assets/voice/` สำหรับจุดจอดรถ 21 ป้าย และไฟล์เสียงแจ้งเตือนข้อความ/เรียกรถ
+  - ไฟล์รูปภาพ 3D Bus Image High-Res ใน `lib/screens/driver/screen.png` สำหรับสร้างไอคอนแอป
+- **Haptic Feedback System (`HapticFeedback.heavyImpact()`)**: สั่นตอบสนองทางกายภาพบนมือถือเมื่อกดปุ่มเรียกรถหรือตอบรับผู้โดยสาร
+- **Custom Painter Framework**: วาดกราฟสถิติผู้โดยสาร 24 ชั่วโมงสดบน Master Admin Dashboard

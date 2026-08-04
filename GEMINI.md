@@ -9,7 +9,7 @@
 
 Framework: Flutter (Dart)
 
-Backend: Firebase (Authentication, Cloud Firestore)
+Backend: Firebase (Authentication, Cloud Firestore, Realtime Database)
 
 Map & Location: * flutter_map (สำหรับแสดงแผนที่ OpenStreetMap)
 
@@ -37,13 +37,14 @@ lib/screens/student/student_chat_screen.dart: หน้าแชทแบบ Rea
 
 จุดตัด/ทางแยกใน route_data.dart หากพิกัดห่างกันไม่เกิน 20 เมตร ระบบจะสร้าง Graph เชื่อมต่อกันให้อัตโนมัติ (_buildRouteGraph)
 
-ระบบ Real-time Sync (Firestore):
+ระบบ Real-time Sync (Firestore & Realtime Database):
 
-จุดจอดรถที่ชอบ (Favorite Stops): ใช้ snapshots().listen ฟังการเปลี่ยนแปลงของ favorite_stops ในคอลเล็กชัน users ของผู้ใช้ปัจจุบัน เพื่ออัปเดต UI ดาวสีเหลืองทันที
+⚠️ ข้อควรระวังเรื่อง Cost / Quota: ข้อมูลที่มีการอัปเดตบ่อยและต้องซิงก์ตลอดเวลา (เช่น พิกัดรถและสถานะคนขับ) ได้ถูกย้ายไปเก็บที่ Firebase Realtime Database (RTDB) แทน Firestore เพื่อประหยัดโควต้า Document Reads/Writes
 
-สถานะการเรียกรถ: ฟังการเปลี่ยนแปลงจากคอลเล็กชัน ride_requests เพื่อเช็คสถานะจาก waiting เป็น acknowledged
-
-ระบบแชท: ใช้ StreamBuilder ฟังคอลเล็กชัน chats/shuttle_line_a/messages และจัดเรียงจากใหม่ไปเก่า (descending: true)
+- การติดตามตำแหน่งรถ (RTDB): ฟังพิกัดล่าสุด (`lat`, `lng`, `status`) จาก node `shuttles` ใน Realtime Database เพื่อเคลื่อนย้ายไอคอนรถบนแผนที่อย่างต่อเนื่อง
+- จุดจอดรถที่ชอบ (Favorite Stops - Firestore): ใช้ snapshots().listen ฟังการเปลี่ยนแปลงของ favorite_stops ในคอลเล็กชัน users เพื่ออัปเดต UI ดาวสีเหลือง
+- สถานะการเรียกรถ (Firestore): ฟังการเปลี่ยนแปลงจากคอลเล็กชัน ride_requests เพื่อเช็คสถานะจาก waiting เป็น acknowledged
+- ระบบแชท (Firestore): ใช้ StreamBuilder ฟังคอลเล็กชัน chats/shuttle_line_a/messages และจัดเรียงจากใหม่ไปเก่า
 
 🎨 UI/UX & Design System (แนวทางการออกแบบ)
 

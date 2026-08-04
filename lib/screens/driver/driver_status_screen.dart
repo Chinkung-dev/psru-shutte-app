@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import '../../widgets/top_toast.dart';
 
 class DriverStatusScreen extends StatefulWidget {
@@ -26,57 +27,70 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        // 1. ดึงข้อมูลคนขับ เพื่อดูว่าขับรถคันไหน
+        // 1. ดึงข้อมูลคนขับ
         final userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
-            .get();
+            .get()
+            .timeout(const Duration(seconds: 5));
         final shuttleName = userDoc.data()?['shuttle_name'];
 
         if (shuttleName != null) {
-          // 2. ค้นหา Document ID ของรถคันนั้นในคอลเล็กชัน shuttles
-          final shuttleQuery = await FirebaseFirestore.instance
-              .collection('shuttles')
-              .where('name', isEqualTo: shuttleName)
-              .limit(1)
-              .get();
+          final shuttleQuery = await FirebaseDatabase.instance
+              .ref('shuttles')
+              .orderByChild('name')
+              .equalTo(shuttleName)
+              .limitToFirst(1)
+              .get()
+              .timeout(const Duration(seconds: 5));
 
-          if (shuttleQuery.docs.isNotEmpty) {
-            _shuttleDocId = shuttleQuery.docs.first.id;
-            final docData = shuttleQuery.docs.first.data();
-
-            // 3. ดึงสถานะเดิมมาแสดง (ถ้ามี)
-            if (docData.containsKey('passenger_status')) {
-              setState(() {
-                _currentStatus = docData['passenger_status'];
-              });
+          if (shuttleQuery.exists && shuttleQuery.value != null) {
+            final data = shuttleQuery.value as Map<dynamic, dynamic>;
+            _shuttleDocId = data.keys.first.toString();
+            
+            // 3. ดึงสถานะเดิมมาแสดง (จาก RTDB)
+            final rtdbSnapshot = await FirebaseDatabase.instance
+                .ref('shuttles')
+                .child(_shuttleDocId!)
+                .get()
+                .timeout(const Duration(seconds: 5));
+            if (rtdbSnapshot.exists) {
+              final rtdbData = rtdbSnapshot.value as Map<dynamic, dynamic>;
+              if (rtdbData.containsKey('passenger_status')) {
+                if (mounted) {
+                  setState(() {
+                    _currentStatus = rtdbData['passenger_status'].toString();
+                  });
+                }
+              }
             }
           }
         }
       }
-      setState(() => _isLoading = false);
     } catch (e) {
       print("Error fetching status: $e");
-      setState(() => _isLoading = false);
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   Future<void> _updateStatus(String newStatus) async {
-    if (_shuttleDocId == null) return; // ถ้ายงไม่พบ ID รถ จะไม่อัปเดต
+    if (_shuttleDocId == null) return;
 
     setState(() {
       _currentStatus = newStatus;
     });
 
     try {
-      // อัปเดตไปที่คอลเล็กชัน shuttles โดยใช้ SetOptions(merge: true) เพื่อไม่ให้ทับข้อมูลเดิม (name, number)
-      await FirebaseFirestore.instance
-          .collection('shuttles')
-          .doc(_shuttleDocId)
-          .set({
+      await FirebaseDatabase.instance
+          .ref('shuttles')
+          .child(_shuttleDocId!)
+          .update({
             'passenger_status': newStatus,
-            'last_updated': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+            'last_updated': ServerValue.timestamp,
+          });
 
       if (mounted) {
         TopToast.show(context, 'อัปเดตสถานะสำเร็จ', isError: false);
@@ -133,7 +147,6 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // ปุ่ม: ว่าง (Available)
                   _buildStatusCard(
                     statusKey: 'available',
                     title: 'ว่าง',
@@ -142,8 +155,6 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
                     activeColor: const Color(0xFF176a21),
                     activeBgColor: const Color(0xFFE8F5E9),
                   ),
-
-                  // ปุ่ม: เต็ม (Full)
                   _buildStatusCard(
                     statusKey: 'full',
                     title: 'เต็ม',
@@ -152,8 +163,6 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
                     activeColor: const Color(0xFF757778),
                     activeBgColor: const Color(0xFFE0E0E0),
                   ),
-
-                  // ปุ่ม: พัก (Break)
                   _buildStatusCard(
                     statusKey: 'break',
                     title: 'พัก',
@@ -162,8 +171,6 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
                     activeColor: const Color(0xFFF28522),
                     activeBgColor: const Color(0xFFFBE9E7),
                   ),
-
-                  // ปุ่ม: เลิกงาน (Off Duty)
                   _buildStatusCard(
                     statusKey: 'offline',
                     title: 'เลิกงาน',
@@ -172,7 +179,6 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
                     activeColor: Colors.red,
                     activeBgColor: const Color(0xFFFFEBEE),
                   ),
-
                   const SizedBox(height: 80),
                 ],
               ),
@@ -189,7 +195,6 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
     required Color activeBgColor,
   }) {
     bool isActive = _currentStatus == statusKey;
-
     return GestureDetector(
       onTap: () => _updateStatus(statusKey),
       child: AnimatedContainer(

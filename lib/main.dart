@@ -11,7 +11,6 @@ import 'screens/driver/driver_home.dart';
 import 'screens/student/student_home.dart';
 import 'screens/student/student_onboarding_screen.dart';
 import 'screens/admin/admin_dashboard.dart';
-import 'migration_page.dart'; // ✨ เพิ่ม Import หน้า Migration
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,10 +48,8 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
       ),
-      initialRoute: '/login', // ✨ แก้เป็นหน้านี้ชั่วคราวเพื่อล้างข้อมูลเก่า
+      initialRoute: '/login', // ✨ หน้าแรกของแอป
       routes: {
-        '/migration': (context) =>
-            const MigrationPage(), // ✨ เพิ่มหน้า Migration
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
         '/forgotPassword': (context) =>

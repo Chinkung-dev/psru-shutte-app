@@ -38,8 +38,26 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
     }
   }
 
+  String _getCanonicalRoomId() {
+    String? rawId = widget.shuttleDocId;
+    String? rawName = widget.shuttleName;
+    String cleanNum = (rawName ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+    if (cleanNum.isEmpty && rawId != null && !rawId.startsWith('-')) {
+      cleanNum = rawId.replaceAll(RegExp(r'[^0-9]'), '');
+    }
+    if (cleanNum.isNotEmpty) {
+      int numVal = int.tryParse(cleanNum) ?? 1;
+      String formattedNum = numVal.toString().padLeft(2, '0');
+      return 'shuttle_$formattedNum';
+    }
+    if (rawId != null && rawId.isNotEmpty && !rawId.startsWith('-')) {
+      return rawId;
+    }
+    return 'shuttle_01';
+  }
+
   void _initChatStream() {
-    final String baseRoom = widget.shuttleDocId ?? 'shuttle_line_a';
+    final String baseRoom = _getCanonicalRoomId();
     final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
     _currentRoomId = '${baseRoom}_$todayDate';
     
@@ -58,7 +76,7 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
     final String text = _messageController.text.trim();
     _messageController.clear(); // ล้างช่องพิมพ์ทันที
 
-    final String baseRoom = widget.shuttleDocId ?? 'shuttle_line_a'; // แยกห้องตาม ID รถคันนั้นๆ
+    final String baseRoom = _getCanonicalRoomId();
     final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
     final String targetRoom = '${baseRoom}_$todayDate';
 

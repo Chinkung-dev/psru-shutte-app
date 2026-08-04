@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'add_driver_dialog.dart';
 import 'edit_driver_dialog.dart';
 
@@ -143,15 +144,25 @@ class DriversTitleRow extends StatelessWidget {
             ],
           ),
         ),
-        StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('shuttles')
-              .where('status', isEqualTo: 'online')
-              .snapshots(),
+        StreamBuilder<DatabaseEvent>(
+          stream: FirebaseDatabase.instance.ref('shuttles').onValue,
           builder: (context, snapshot) {
             String activeCount = '0';
-            if (snapshot.hasData) {
-              activeCount = snapshot.data!.docs.length.toString();
+            if (snapshot.hasData && snapshot.data!.snapshot.value != null) {
+              final data = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+              final now = DateTime.now();
+              int count = 0;
+              data.forEach((key, value) {
+                if (value is Map && value['status'] == 'online') {
+                  if (value.containsKey('last_updated') && value['last_updated'] != null) {
+                    final lastUpdated = DateTime.fromMillisecondsSinceEpoch((value['last_updated'] as num).toInt());
+                    if (now.difference(lastUpdated).inMinutes <= 3) {
+                      count++;
+                    }
+                  }
+                }
+              });
+              activeCount = count.toString();
             }
             return Row(
               mainAxisSize: MainAxisSize.min,
@@ -363,8 +374,8 @@ class _DriversTableCardState extends State<DriversTableCard> {
           ),
 
           // Table Content & Pagination Footer
-          StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('shuttles').snapshots(),
+          StreamBuilder<DatabaseEvent>(
+            stream: FirebaseDatabase.instance.ref('shuttles').onValue,
             builder: (context, shuttlesSnapshot) {
               return StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
@@ -384,14 +395,17 @@ class _DriversTableCardState extends State<DriversTableCard> {
                   var docs = snapshot.hasData ? snapshot.data!.docs : [];
                   
                   // Helper function to get real-time status from shuttles
-                  Map<String, dynamic>? getShuttleData(Map<String, dynamic> userData) {
-                    if (!shuttlesSnapshot.hasData) return null;
+                  Map<dynamic, dynamic>? getShuttleData(Map<String, dynamic> userData) {
+                    if (!shuttlesSnapshot.hasData || shuttlesSnapshot.data!.snapshot.value == null) return null;
                     final shuttleName = userData['shuttle_name'];
                     if (shuttleName != null) {
                       try {
-                        return shuttlesSnapshot.data!.docs
-                            .firstWhere((s) => s.id == shuttleName || (s.data() as Map<String, dynamic>)['name'] == shuttleName)
-                            .data() as Map<String, dynamic>;
+                        final data = shuttlesSnapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+                        for (var key in data.keys) {
+                          if (key == shuttleName || (data[key] is Map && data[key]['name'] == shuttleName)) {
+                            return data[key] as Map<dynamic, dynamic>;
+                          }
+                        }
                       } catch (e) {}
                     }
                     return null;
@@ -957,3 +971,4 @@ class DriversAlertsRow extends StatelessWidget {
     );
   }
 }
+

@@ -24,17 +24,6 @@ final List<List<LatLng>> shuttleRoutes = [
     const LatLng(16.83197690, 100.21432490),
     const LatLng(16.83231830, 100.21405840),
   ],
-  // Segment 2
-  [
-    const LatLng(16.82664340, 100.21663950),
-    const LatLng(16.82657100, 100.21620460),
-  ],
-  // Segment 3
-  [
-    const LatLng(16.82714440, 100.21657400),
-    const LatLng(16.82711110, 100.21638810),
-    const LatLng(16.82717590, 100.21623800),
-  ],
   // Segment 4
   [
     const LatLng(16.83231900, 100.21405540),

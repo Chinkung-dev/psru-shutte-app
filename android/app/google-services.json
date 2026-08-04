@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "249582330017",
+    "firebase_url": "https://psru-shuttle-app-default-rtdb.asia-southeast1.firebasedatabase.app",
     "project_id": "psru-shuttle-app",
     "storage_bucket": "psru-shuttle-app.firebasestorage.app"
   },

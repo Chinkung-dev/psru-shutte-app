@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:intl/intl.dart';
 import 'dart:async';
 import '../../route_data.dart';
 
@@ -18,13 +20,62 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
   
   List<Map<String, dynamic>> activeShuttles = [];
   List<Map<String, dynamic>> busStops = [];
+
+  // ✨ จัดกลุ่มจุดจอดที่อยู่ใกล้กันให้แสดงเป็นหมุดเดียว (สอดคล้องกับฝั่งนักศึกษาและคนขับ)
+  final Map<String, List<String>> _groupedStops = {
+    '7-Eleven PSRU และตึก IT': ['7-Eleven PSRU', 'ตึก IT '],
+    'คณะสังคมศาสตร์ และคณะพยาบาลศาสตร์': ['คณะสังคมศาสตร์', 'คณะพยาบาลศาสตร์'],
+  };
+
+  // ✨ ข้อมูลจุดจอดสำหรับแสดงบนแผนที่ (ยุบรวมจุดที่จัดกลุ่มแล้ว)
+  List<Map<String, dynamic>> get _visualStops {
+    List<Map<String, dynamic>> result = [];
+    Set<String> groupedNames = {};
+
+    _groupedStops.forEach((groupName, memberNames) {
+      var members = busStops
+          .where((s) => memberNames.contains(s['name']))
+          .toList();
+      if (members.isNotEmpty) {
+        double avgLat =
+            members
+                .map((e) => (e['lat'] as num).toDouble())
+                .reduce((a, b) => a + b) /
+            members.length;
+        double avgLng =
+            members
+                .map((e) => (e['lng'] as num).toDouble())
+                .reduce((a, b) => a + b) /
+            members.length;
+        result.add({
+          'isGroup': true,
+          'name': groupName,
+          'lat': avgLat,
+          'lng': avgLng,
+          'members': members,
+        });
+        groupedNames.addAll(memberNames);
+      }
+    });
+
+    for (var stop in busStops) {
+      if (!groupedNames.contains(stop['name'])) {
+        result.add(stop);
+      }
+    }
+    return result;
+  }
   
-  StreamSubscription<QuerySnapshot>? shuttleSubscription;
-  
+  StreamSubscription? shuttleSubscription;
+  StreamSubscription? rideRequestsSubscription;
+
+  int totalPassengersToday = 0;
+  double onTimePercentage = 100.0;
+
   Map<String, LatLng> _currentShuttleLocations = {};
   Map<String, LatLng> _oldShuttleLocations = {};
   Map<String, LatLng> _targetShuttleLocations = {};
-  
+
   String? _selectedShuttleId;
 
   late AnimationController _markerAnimationController;
@@ -35,7 +86,8 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
     super.initState();
     _fetchStopsFromFirebase();
     _listenToShuttles();
-    
+    _listenToRideRequests();
+
     _markerAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 3000),
@@ -62,9 +114,49 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
     });
   }
 
+  void _listenToRideRequests() {
+    DateTime now = DateTime.now();
+    DateTime startOfDay = DateTime(now.year, now.month, now.day);
+    rideRequestsSubscription = FirebaseFirestore.instance
+        .collection('ride_requests')
+        .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+      int total = snapshot.docs.length;
+      int onTimeCount = 0;
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final Timestamp? startTs = data['timestamp'] as Timestamp?;
+        final Timestamp? ackTs = data['acknowledged_at'] as Timestamp?;
+
+        if (startTs != null && ackTs != null) {
+          final start = startTs.toDate();
+          final ack = ackTs.toDate();
+          if (ack.difference(start).inMinutes <= 5) {
+            onTimeCount++;
+          }
+        } else if (data['status'] == 'acknowledged' ||
+            data['status'] == 'on_board' ||
+            data['status'] == 'completed') {
+          onTimeCount++;
+        }
+      }
+
+      double rate = total > 0 ? (onTimeCount / total) * 100.0 : 100.0;
+
+      setState(() {
+        totalPassengersToday = total;
+        onTimePercentage = rate;
+      });
+    });
+  }
+
   @override
   void dispose() {
     shuttleSubscription?.cancel();
+    rideRequestsSubscription?.cancel();
     _markerAnimationController.dispose();
     super.dispose();
   }
@@ -88,40 +180,45 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
         });
       }
     } catch (e) {
-      debugPrint('Error fetching stops: $e');
+      print("Error fetching stops: $e");
     }
   }
 
   void _listenToShuttles() {
-    shuttleSubscription = FirebaseFirestore.instance
-        .collection('shuttles')
-        .where('status', isEqualTo: 'online')
-        .snapshots()
-        .handleError((e) => print("Firestore Error (shuttles): $e"))
-        .listen((snapshot) {
-      if (mounted) {
+    shuttleSubscription = FirebaseDatabase.instance
+        .ref('shuttles')
+        .onValue
+        .listen((event) {
+      if (mounted && event.snapshot.exists) {
         bool shouldAnimate = false;
         final now = DateTime.now();
+        final data = event.snapshot.value as Map<dynamic, dynamic>;
         
-        final validDocs = snapshot.docs.where((doc) {
-          final data = doc.data();
-          if (data.containsKey('last_updated') && data['last_updated'] != null) {
-            final Timestamp? lastUpdated = data['last_updated'] as Timestamp?;
-            if (lastUpdated != null && now.difference(lastUpdated.toDate()).inMinutes >= 3) {
-              return false;
+        final List<Map<String, dynamic>> newShuttles = [];
+        
+        data.forEach((key, value) {
+          if (value != null && value is Map) {
+            final status = value['status'];
+            if (status == 'online') {
+              final lastUpdatedMillis = value['last_updated'];
+              bool isRecentlyUpdated = false;
+              if (lastUpdatedMillis != null) {
+                final lastUpdated = DateTime.fromMillisecondsSinceEpoch((lastUpdatedMillis as num).toInt());
+                isRecentlyUpdated = now.difference(lastUpdated).inMinutes <= 3;
+              }
+              
+              if (isRecentlyUpdated) {
+                newShuttles.add({
+                  'id': key.toString(),
+                  'number': value.containsKey('number') ? value['number'] : '',
+                  'lat': (value['lat'] as num).toDouble(),
+                  'lng': (value['lng'] as num).toDouble(),
+                  'passenger_status': value.containsKey('passenger_status') ? value['passenger_status'] : 'available',
+                });
+              }
             }
-            return true;
           }
-          return false;
-        }).toList();
-
-        final newShuttles = validDocs.map((doc) => {
-          'id': doc.id,
-          'number': doc['number'],
-          'lat': (doc['lat'] as num).toDouble(),
-          'lng': (doc['lng'] as num).toDouble(),
-          'passenger_status': doc.data().containsKey('passenger_status') ? doc['passenger_status'] : 'available',
-        }).toList();
+        });
         
         for (var shuttle in newShuttles) {
           final String id = shuttle['id'];
@@ -153,7 +250,12 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
     });
   }
 
-  Widget _buildStopMarker({required String name}) {
+  Widget _buildStopMarker({required String name, bool isGroup = false}) {
+    String cleanName = name
+        .replaceAll('(ขาเข้า)', '')
+        .replaceAll('(ขาออก)', '')
+        .trim();
+
     return Stack(
       clipBehavior: Clip.none,
       alignment: Alignment.center,
@@ -165,8 +267,8 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
             color: Colors.white,
             shape: BoxShape.circle,
             border: Border.all(
-              color: const Color(0xFF757778),
-              width: 1,
+              color: isGroup ? const Color(0xFF176a21) : const Color(0xFF757778),
+              width: 1.5,
             ),
             boxShadow: [
               BoxShadow(
@@ -176,14 +278,14 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
               ),
             ],
           ),
-          child: const Icon(
+          child: Icon(
             Icons.hail,
-            color: Color(0xFF757778),
+            color: isGroup ? const Color(0xFF176a21) : const Color(0xFF757778),
             size: 15,
           ),
         ),
         Positioned(
-          bottom: 40,
+          bottom: 34,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
@@ -202,7 +304,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
               ],
             ),
             child: Text(
-              name,
+              cleanName,
               style: const TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.bold,
@@ -314,14 +416,15 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
         ),
         MarkerLayer(
           markers: [
-            ...busStops.map((stop) => Marker(
+            ..._visualStops.map((stop) => Marker(
               key: ValueKey('stop_${stop['id'] ?? stop['name']}'),
               point: LatLng(stop['lat'], stop['lng']),
-              width: 130,
+              width: 160,
               height: 65,
               child: RepaintBoundary(
                 child: _buildStopMarker(
                   name: stop['name'] ?? '',
+                  isGroup: stop['isGroup'] == true,
                 ),
               ),
             )),
@@ -560,37 +663,31 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
               color: Colors.white.withOpacity(0.95),
               borderRadius: BorderRadius.circular(40),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, -5))
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 20,
+                  offset: const Offset(0, -5),
+                )
               ],
             ),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _buildBottomStat(Icons.people_alt_outlined, '1,248', 'ผู้โดยสารรวม'),
-                        Container(width: 1, height: 40, color: Colors.grey.shade300, margin: const EdgeInsets.symmetric(horizontal: 24)),
-                        _buildBottomStat(Icons.schedule, '98.2%', 'ตรงเวลา'),
-                        Container(width: 1, height: 40, color: Colors.grey.shade300, margin: const EdgeInsets.symmetric(horizontal: 24)),
-                        Row(
-                          children: [
-                            const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 28),
-                            const SizedBox(width: 12),
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('1 การแจ้งเตือน', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 13)),
-                                Text('รถล่าช้า (สายเหนือ)', style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
+                _buildBottomStat(
+                  Icons.people_alt_outlined,
+                  NumberFormat('#,##0').format(totalPassengersToday),
+                  'ผู้โดยสารรวม',
+                ),
+                Container(
+                  width: 1,
+                  height: 40,
+                  color: Colors.grey.shade300,
+                  margin: const EdgeInsets.symmetric(horizontal: 24),
+                ),
+                _buildBottomStat(
+                  Icons.schedule,
+                  '${onTimePercentage.toStringAsFixed(1)}%',
+                  'ตรงเวลา',
                 ),
               ],
             ),
@@ -791,3 +888,4 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
     );
   }
 }
+

@@ -146,7 +146,7 @@ class _AddDriverDialogState extends State<AddDriverDialog> {
         'shuttleName': _selectedShuttleName,
         'shuttleNumber': _selectedShuttleNumber,
         'hasSeenOnboarding': false,
-        'status': 'offline', // สถานะเริ่มต้นของคนขับ
+        // 'status': 'offline', // สถานะเริ่มต้นของคนขับ
         'created_at': FieldValue.serverTimestamp(),
       };
 
@@ -164,9 +164,9 @@ class _AddDriverDialogState extends State<AddDriverDialog> {
           'driver_uid': userCredential.user!.uid,
           'driver_name': name,
           'driver_avatar': 'assets/images/man1.png',
-          'status': 'offline', // สถานะเริ่มต้น
-          'passenger_status': 'available', // เตรียมพร้อมรับผู้โดยสาร
-          'last_updated': FieldValue.serverTimestamp(),
+          // 'status': 'offline', // สถานะเริ่มต้น
+          // removed passenger_status from firestore
+          // 'last_updated': FieldValue.serverTimestamp(),
         });
       }
 

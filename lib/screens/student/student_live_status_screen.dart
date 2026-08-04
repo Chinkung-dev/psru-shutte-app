@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'dart:async';
 import 'package:latlong2/latlong.dart' hide Path;
 import 'student_chat_screen.dart';
 
@@ -16,17 +18,245 @@ class StudentLiveStatusScreen extends StatefulWidget {
 }
 
 class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
-  late final Stream<QuerySnapshot> _shuttlesStream;
+  StreamSubscription? _firestoreSub;
+  StreamSubscription? _rtdbSub;
+  List<Map<String, dynamic>> _firestoreShuttles = [];
+  Map<String, Map<dynamic, dynamic>> _rtdbShuttles = {};
+  List<Map<String, dynamic>> _shuttleList = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _shuttlesStream =
-        FirebaseFirestore.instance.collection('shuttles').snapshots();
+    _listenToShuttles();
+  }
+
+  void _listenToShuttles() {
+    _firestoreSub = FirebaseFirestore.instance.collection('shuttles').snapshots().listen((snapshot) {
+      if (!mounted) return;
+      _firestoreShuttles = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+      _mergeAndRefreshShuttles();
+    });
+
+    _rtdbSub = FirebaseDatabase.instance.ref('shuttles').onValue.listen((event) {
+      if (!mounted) return;
+      if (event.snapshot.exists) {
+        final data = event.snapshot.value as Map<dynamic, dynamic>;
+        final Map<String, Map<dynamic, dynamic>> parsed = {};
+        data.forEach((key, value) {
+          if (value is Map) {
+            parsed[key.toString()] = value;
+          }
+        });
+        _rtdbShuttles = parsed;
+      } else {
+        _rtdbShuttles = {};
+      }
+      _mergeAndRefreshShuttles();
+    });
+  }
+
+  void _mergeAndRefreshShuttles() {
+    List<Map<String, dynamic>> list = [];
+    final now = DateTime.now();
+    final Distance distance = Distance();
+
+    final Set<String> processedKeys = {};
+
+    // 1. ดึงข้อมูลจาก Realtime Database (RTDB) เป็นหลัก เพราะพิกัดและสถานะออนไลน์จริงจะอัปเดตที่ RTDB
+    _rtdbShuttles.forEach((rtdbKey, rtdbDoc) {
+      // ค้นหา Firestore doc ที่สอดคล้องกัน (ลองค้นหาด้วย ID, เลขคันรถ, หรือชื่อรถ)
+      Map<String, dynamic>? matchingFsDoc;
+      for (var fsDoc in _firestoreShuttles) {
+        if (fsDoc['id'] == rtdbKey ||
+            (fsDoc['number'] != null &&
+                fsDoc['number'].toString() == rtdbDoc['number']?.toString()) ||
+            (fsDoc['name'] != null &&
+                fsDoc['name'].toString() == rtdbDoc['name']?.toString())) {
+          matchingFsDoc = fsDoc;
+          break;
+        }
+      }
+
+      final String shuttleId = rtdbKey;
+      final String name =
+          (rtdbDoc['name'] ?? matchingFsDoc?['name'] ?? 'Shuttle').toString();
+      final String number =
+          (rtdbDoc['number'] ?? matchingFsDoc?['number'] ?? '').toString();
+
+      String rtdbStatus = (rtdbDoc['status'] ?? 'offline').toString();
+      bool isOnline = false;
+
+      if (rtdbStatus == 'online') {
+        final lastUpdatedMillis = rtdbDoc['last_updated'];
+        if (lastUpdatedMillis != null && lastUpdatedMillis is num) {
+          final lastUpdated = DateTime.fromMillisecondsSinceEpoch(
+            lastUpdatedMillis.toInt(),
+          );
+          if (now.difference(lastUpdated).inMinutes.abs() <= 5) {
+            isOnline = true;
+          }
+        } else {
+          // ถ้าสถานะเป็น online และเพิ่งอัปเดตเข้ามา ให้ถือว่า online
+          isOnline = true;
+        }
+      }
+
+      final String status = isOnline ? 'online' : 'offline';
+      final String passengerStatus = isOnline
+          ? (rtdbDoc['passenger_status'] ?? 'available').toString()
+          : 'offline';
+
+      final double lat = (rtdbDoc['lat'] as num?)?.toDouble() ??
+          (matchingFsDoc?['lat'] as num?)?.toDouble() ??
+          16.82753;
+      final double lng = (rtdbDoc['lng'] as num?)?.toDouble() ??
+          (matchingFsDoc?['lng'] as num?)?.toDouble() ??
+          100.20686;
+
+      String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
+      final String badgeText =
+          cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : name;
+
+      String nearestStopName = "ภายในมหาวิทยาลัย";
+      int etaMinutes = 3;
+
+      if (widget.busStops.isNotEmpty) {
+        double minDistance = double.infinity;
+        final LatLng shuttlePos = LatLng(lat, lng);
+
+        for (var stop in widget.busStops) {
+          if (stop['lat'] != null && stop['lng'] != null) {
+            double dist = distance.as(
+              LengthUnit.Meter,
+              shuttlePos,
+              LatLng(stop['lat'], stop['lng']),
+            );
+            if (dist < minDistance) {
+              minDistance = dist;
+              nearestStopName = stop['name'] ?? 'จุดจอด';
+            }
+          }
+        }
+        if (minDistance != double.infinity) {
+          etaMinutes = (minDistance / 350).round();
+          if (etaMinutes < 1) etaMinutes = 1;
+        }
+      }
+
+      final driverName = (rtdbDoc['driver_name'] ??
+              matchingFsDoc?['driver_name'] ??
+              'คนขับรถประจำคัน')
+          .toString();
+      final driverAvatar = (rtdbDoc['driver_avatar'] ??
+              matchingFsDoc?['driver_avatar'] ??
+              'assets/images/man1.png')
+          .toString();
+
+      list.add({
+        'shuttleId': shuttleId,
+        'name': name,
+        'number': number,
+        'cleanNum': cleanNum,
+        'badgeText': badgeText,
+        'driverName': driverName,
+        'driverAvatar': driverAvatar,
+        'status': status,
+        'passengerStatus': passengerStatus,
+        'isOnline': isOnline,
+        'nearestStopName': nearestStopName,
+        'etaMinutes': etaMinutes,
+      });
+
+      processedKeys.add(shuttleId);
+      if (matchingFsDoc != null) {
+        processedKeys.add(matchingFsDoc['id'].toString());
+      }
+    });
+
+    // 2. เติมเอกสารจาก Firestore ที่ยังไม่มีใน RTDB (รถออฟไลน์ที่ลงทะเบียนไว้ในระบบ)
+    for (var fsDoc in _firestoreShuttles) {
+      final String fsId = fsDoc['id'].toString();
+      if (processedKeys.contains(fsId)) continue;
+
+      final String name = (fsDoc['name'] ?? fsId).toString();
+      final String number = (fsDoc['number'] ?? '').toString();
+      String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
+      final String badgeText =
+          cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : name;
+
+      list.add({
+        'shuttleId': fsId,
+        'name': name,
+        'number': number,
+        'cleanNum': cleanNum,
+        'badgeText': badgeText,
+        'driverName': (fsDoc['driver_name'] ?? 'คนขับรถประจำคัน').toString(),
+        'driverAvatar': (fsDoc['driver_avatar'] ?? 'assets/images/man1.png').toString(),
+        'status': 'offline',
+        'passengerStatus': 'offline',
+        'isOnline': false,
+        'nearestStopName': 'ภายในมหาวิทยาลัย',
+        'etaMinutes': 3,
+      });
+    }
+
+    list.sort((a, b) {
+      bool aOnline = a['isOnline'];
+      bool bOnline = b['isOnline'];
+      if (aOnline && !bOnline) return -1;
+      if (!aOnline && bOnline) return 1;
+      return (a['cleanNum'] as String).compareTo(b['cleanNum'] as String);
+    });
+
+    if (mounted) {
+      setState(() {
+        _shuttleList = list;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _firestoreSub?.cancel();
+    _rtdbSub?.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF5F7F8),
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFF176a21)),
+        ),
+      );
+    }
+
+    int availableCount = 0;
+    int fullCount = 0;
+    int breakCount = 0;
+    int offlineCount = 0;
+    int totalActive = 0;
+
+    for (var shuttle in _shuttleList) {
+      final String passengerStatus = shuttle['passengerStatus'];
+      if (passengerStatus == 'available') {
+        availableCount++;
+        totalActive++;
+      } else if (passengerStatus == 'full') {
+        fullCount++;
+        totalActive++;
+      } else if (passengerStatus == 'break') {
+        breakCount++;
+        totalActive++;
+      } else {
+        offlineCount++;
+      }
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7F8), // สีพื้นหลังเทาอ่อนสะอาดตาตามดีไซน์
       body: Column(
@@ -36,164 +266,37 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 800),
-                child: StreamBuilder<QuerySnapshot>(
-                stream: _shuttlesStream,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(color: Color(0xFF176a21)),
-                    );
-                  }
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 🌟 Hero Card (รถรับส่งทั้งหมด)
+                      _buildHeroCard(totalActive),
+                      const SizedBox(height: 16),
 
-            final docs = snapshot.data?.docs ?? [];
-
-            // คำนวณสถิติต่างๆ แบบ Real-time
-            int availableCount = 0;
-            int fullCount = 0;
-            int breakCount = 0;
-            int offlineCount = 0;
-            int totalActive = 0;
-
-            List<Map<String, dynamic>> shuttleList = [];
-
-            for (var doc in docs) {
-              final data = doc.data() as Map<String, dynamic>;
-              final String shuttleId = doc.id;
-              final String name = (data['name'] ?? shuttleId).toString();
-              final String number = (data['number'] ?? '').toString();
-              String status = data['status'] ?? 'offline'; // 'online' หรือ 'offline'
-              
-              // ✨ เช็คว่าอัปเดตล่าสุดเกิน 5 นาทีหรือไม่ (กรองรถที่ปิดแอปไปแล้วแต่สถานะยังค้าง)
-              final Timestamp? lastUpdated = data['last_updated'] as Timestamp?;
-              if (lastUpdated != null) {
-                final now = DateTime.now();
-                final updatedTime = lastUpdated.toDate();
-                if (now.difference(updatedTime).inMinutes > 5) {
-                  status = 'offline';
-                }
-              } else if (status == 'online') {
-                status = 'offline'; // ถ้าไม่มี last_updated ก็ถือว่า offline ไว้ก่อนเพื่อความชัวร์
-              }
-
-              // สถานะผู้โดยสาร: 'available', 'full', 'break', 'offline'
-              String passengerStatus = data['passenger_status'] ?? 
-                  (status == 'online' ? 'available' : 'offline');
-              
-              if (status == 'offline') {
-                passengerStatus = 'offline';
-              }
-
-              // นับจำนวนตามสถานะ
-              if (passengerStatus == 'available') {
-                availableCount++;
-                totalActive++;
-              } else if (passengerStatus == 'full') {
-                fullCount++;
-                totalActive++;
-              } else if (passengerStatus == 'break') {
-                breakCount++;
-                totalActive++;
-              } else {
-                offlineCount++;
-              }
-
-              // จัดการตัวเลขให้สวยงาม เช่น SH#03 -> 03
-              String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
-              final String badgeText = cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : name;
-
-              // คำนวณระยะทางและป้ายที่ใกล้ที่สุด (มุ่งหน้าไปที่...)
-              double lat = (data['lat'] as num?)?.toDouble() ?? 16.82753;
-              final double lng = (data['lng'] as num?)?.toDouble() ?? 100.20686;
-              
-              String nearestStopName = "ภายในมหาวิทยาลัย";
-              int etaMinutes = 3;
-
-              if (widget.busStops.isNotEmpty) {
-                double minDistance = double.infinity;
-                const Distance distance = Distance();
-                final LatLng shuttlePos = LatLng(lat, lng);
-
-                for (var stop in widget.busStops) {
-                  if (stop['lat'] != null && stop['lng'] != null) {
-                    double dist = distance.as(
-                      LengthUnit.Meter,
-                      shuttlePos,
-                      LatLng(stop['lat'], stop['lng']),
-                    );
-                    if (dist < minDistance) {
-                      minDistance = dist;
-                      nearestStopName = stop['name'] ?? 'จุดจอด';
-                    }
-                  }
-                }
-
-                if (minDistance != double.infinity) {
-                  // คำนวณ ETA โดยใช้ความเร็วเฉลี่ย ~350 เมตร/นาที (ขั้นต่ำ 1 นาที)
-                  etaMinutes = (minDistance / 350).round();
-                  if (etaMinutes < 1) etaMinutes = 1;
-                }
-              }
-
-              shuttleList.add({
-                'shuttleId': shuttleId,
-                'name': name,
-                'number': number,
-                'cleanNum': cleanNum,
-                'badgeText': badgeText,
-                'driverName': data['driver_name'] ?? 'คนขับรถประจำคัน',
-                'driverAvatar': data['driver_avatar'] ?? '',
-                'status': status,
-                'passengerStatus': passengerStatus,
-                'isOnline': status == 'online',
-                'nearestStopName': nearestStopName,
-                'etaMinutes': etaMinutes,
-              });
-            }
-
-            // เรียงลำดับ: รถที่ออนไลน์ขึ้นก่อน ตามด้วยหมายเลขรถ
-            shuttleList.sort((a, b) {
-              bool aOnline = a['isOnline'];
-              bool bOnline = b['isOnline'];
-              if (aOnline && !bOnline) return -1;
-              if (!aOnline && bOnline) return 1;
-              return (a['cleanNum'] as String).compareTo(b['cleanNum'] as String);
-            });
-
-            return SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 🌟 Hero Card (รถรับส่งทั้งหมด)
-                  _buildHeroCard(totalActive),
-                  const SizedBox(height: 16),
-
-                  // 📊 4 Grid Cards (สถานะรถว่าง/เต็ม/พัก/ออฟไลน์)
-                  _buildStatsGrid(availableCount, fullCount, breakCount, offlineCount),
-                  
-                  // 🏷️ Section Title (สถานะรถ + REAL-TIME)
-                  _buildSectionTitle(),
-                  
-                  // 🚌 รายการรถรับส่งแต่ละคัน
-                  if (shuttleList.isEmpty)
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 40),
-                        child: Text(
-                          'ยังไม่มีข้อมูลรถรับส่งในระบบ',
-                          style: TextStyle(color: Colors.grey, fontSize: 15),
-                        ),
-                      ),
-                    )
-                  else
-                    ...shuttleList.map((shuttle) => _buildShuttleCard(shuttle)),
-
-                  const SizedBox(height: 100), // เว้นที่ด้านล่างเผื่อ Bottom Navigation Bar
-                ],
-              ),
-            );
-          },
-        ),
+                      // 📊 4 Grid Cards (สถานะรถว่าง/เต็ม/พัก/ออฟไลน์)
+                      _buildStatsGrid(availableCount, fullCount, breakCount, offlineCount),
+                      
+                      // 🏷️ Section Title (สถานะรถ + REAL-TIME)
+                      _buildSectionTitle(),
+                      
+                      // 🚌 รายการรถรับส่งแต่ละคัน
+                      if (_shuttleList.isEmpty)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(vertical: 40),
+                            child: Text(
+                              'ยังไม่มีข้อมูลรถรับส่งในระบบ',
+                              style: TextStyle(color: Colors.grey, fontSize: 15),
+                            ),
+                          ),
+                        )
+                      else
+                        ..._shuttleList.map((shuttle) => _buildShuttleCard(shuttle)),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -202,116 +305,130 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
     );
   }
 
-  // 🏛️ ส่วนหัวข้อ PSRU Shuttle
+  // Header 
   Widget _buildHeader() {
     return Container(
-      color: Colors.white,
-      width: double.infinity,
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-          child: Row(
-            children: [
-              Image.asset(
-                'lib/screens/driver/logo.png',
-                height: 42,
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) {
-                  return Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE8F5E9),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.directions_bus,
-                          color: Color(0xFF176a21),
-                          size: 24,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      const Text(
-                        'PSRU Shuttle',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF176a21),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // 🌟 Hero Card (รถรับส่งทั้งหมด Active)
-  Widget _buildHeroCard(int totalActive) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
+      padding: const EdgeInsets.only(top: 48, left: 16, right: 16, bottom: 16),
+      decoration: const BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(26),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(24),
+          bottomRight: Radius.circular(24),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
+            color: Color(0x0C000000),
+            blurRadius: 10,
+            offset: Offset(0, 4),
           ),
         ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'รถรับส่งทั้งหมด',
-                style: TextStyle(
-                  color: Color(0xFF595C5D),
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w600,
+          Image.asset('lib/screens/driver/logo.png', height: 40),
+          IconButton(
+            icon: const Icon(Icons.exit_to_app_rounded, color: Color(0xFF595C5D)),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20)),
+                  title: const Text('ออกจากระบบ'),
+                  content: const Text('คุณแน่ใจหรือไม่ว่าต้องการออกจากระบบ?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('ยกเลิก',
+                          style: TextStyle(color: Colors.grey)),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE53935),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () async {
+                        Navigator.pop(context); // ปิด Dialog
+                        Navigator.pushReplacementNamed(
+                            context, '/login'); // กลับไปหน้า Login
+                      },
+                      child: const Text('ออกจากระบบ',
+                          style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    '$totalActive',
-                    style: const TextStyle(
-                      color: Color(0xFF176a21),
-                      fontSize: 44,
-                      fontWeight: FontWeight.bold,
-                      height: 1.0,
-                    ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 🌟 Hero Card
+  Widget _buildHeroCard(int activeCount) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'รถรับส่งทั้งหมด',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF595C5D),
+                    fontWeight: FontWeight.bold,
                   ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'Active',
-                    style: TextStyle(
-                      color: Color(0xFF176a21),
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      '$activeCount',
+                      style: const TextStyle(
+                        fontSize: 36,
+                        height: 1,
+                        color: Color(0xFF176a21),
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Active',
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: Color(0xFF176a21),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
           Container(
-            width: 74,
-            height: 74,
+            padding: const EdgeInsets.all(12),
             decoration: const BoxDecoration(
               color: Color(0xFFE8F5E9),
               shape: BoxShape.circle,
@@ -319,7 +436,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
             child: const Icon(
               Icons.directions_bus,
               color: Color(0xFF176a21),
-              size: 38,
+              size: 32,
             ),
           ),
         ],
@@ -327,65 +444,40 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
     );
   }
 
-  // 📊 4 Grid Cards
-  Widget _buildStatsGrid(int available, int full, int breakTime, int offline) {
-    return Column(
-      children: [
-        Row(
+  // 📊 4 Grid Cards (คำนวณความสูงให้เท่ากันพอดีและรองรับทุกขนาดหน้าจอ)
+  Widget _buildStatsGrid(
+      int available, int full, int breakTime, int offline) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double itemWidth = (constraints.maxWidth - 16) / 2;
+        const double targetHeight = 88.0;
+        final double aspectRatio = itemWidth / targetHeight;
+
+        return GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 16,
+          childAspectRatio: aspectRatio,
           children: [
-            Expanded(
-              child: _buildStatCard(
-                'รถว่าง',
-                Icons.check_circle_outline,
-                available,
-                iconColor: const Color(0xFF176a21),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildStatCard(
-                'รถเต็ม',
-                Icons.block,
-                full,
-                iconColor: const Color(0xFF757778),
-              ),
-            ),
+            _buildStatCard(
+                'รถว่าง', available, Icons.check_circle_outline, const Color(0xFF176a21)),
+            _buildStatCard('รถเต็ม', full, Icons.block, const Color(0xFF595C5D)),
+            _buildStatCard(
+                'เวลาพักเบรค', breakTime, Icons.pause_circle_outline, const Color(0xFFF28522)),
+            _buildStatCard(
+                'นอกเวลางาน', offline, Icons.power_settings_new, const Color(0xFF595C5D)),
           ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatCard(
-                'เวลาพักเบรค',
-                Icons.pause_circle_outline,
-                breakTime,
-                iconColor: const Color(0xFFF28522),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildStatCard(
-                'นอกเวลางาน',
-                Icons.power_settings_new,
-                offline,
-                iconColor: const Color(0xFF595C5D),
-              ),
-            ),
-          ],
-        ),
-      ],
+        );
+      },
     );
   }
 
-  Widget _buildStatCard(
-    String label,
-    IconData icon,
-    int count, {
-    required Color iconColor,
-  }) {
+  // Card ย่อยใน Grid
+  Widget _buildStatCard(String title, int count, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -399,28 +491,34 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Row(
             children: [
-              Icon(icon, size: 18, color: iconColor),
+              Icon(icon, color: color, size: 16),
               const SizedBox(width: 6),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Color(0xFF595C5D),
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w600,
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xFF595C5D),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
           Text(
             '$count',
             style: const TextStyle(
               color: Color(0xFF2C2F30),
               fontSize: 26,
               fontWeight: FontWeight.bold,
+              height: 1.0,
             ),
           ),
         ],
@@ -638,3 +736,4 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
     );
   }
 }
+

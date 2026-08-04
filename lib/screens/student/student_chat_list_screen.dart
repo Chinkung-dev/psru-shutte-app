@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'student_chat_screen.dart';
@@ -13,19 +15,218 @@ class StudentChatListScreen extends StatefulWidget {
 
 class _StudentChatListScreenState extends State<StudentChatListScreen> {
   String _searchQuery = '';
-  late final Stream<QuerySnapshot> _driversStream;
-  late final Stream<QuerySnapshot> _shuttlesStream;
+  StreamSubscription? _rtdbSub;
+  StreamSubscription? _firestoreSub;
+  StreamSubscription? _driversSub;
+
+  Map<dynamic, dynamic> _rtdbShuttles = {};
+  List<Map<String, dynamic>> _firestoreShuttles = [];
+  List<Map<String, dynamic>> _driverUsers = [];
+  List<Map<String, dynamic>> _shuttleList = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _driversStream = FirebaseFirestore.instance
+    _listenToData();
+  }
+
+  void _listenToData() {
+    _driversSub = FirebaseFirestore.instance
         .collection('users')
         .where('role', isEqualTo: 'driver')
-        .snapshots();
-    _shuttlesStream = FirebaseFirestore.instance
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+      _driverUsers = snapshot.docs.map((d) => d.data()).toList();
+      _mergeAndRefreshChatList();
+    });
+
+    _firestoreSub = FirebaseFirestore.instance
         .collection('shuttles')
-        .snapshots();
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+      _firestoreShuttles =
+          snapshot.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+      _mergeAndRefreshChatList();
+    });
+
+    _rtdbSub = FirebaseDatabase.instance.ref('shuttles').onValue.listen((event) {
+      if (!mounted) return;
+      if (event.snapshot.exists && event.snapshot.value is Map) {
+        _rtdbShuttles = event.snapshot.value as Map<dynamic, dynamic>;
+      } else {
+        _rtdbShuttles = {};
+      }
+      _mergeAndRefreshChatList();
+    });
+  }
+
+  void _mergeAndRefreshChatList() {
+    final Map<String, Map<String, dynamic>> shuttleMap = {};
+    final now = DateTime.now();
+
+    // 1. ประมวลผล RTDB Shuttles (เป็นข้อมูลหลักสำหรับสถานะ Real-time)
+    _rtdbShuttles.forEach((rtdbKey, rtdbDoc) {
+      if (rtdbDoc is! Map) return;
+
+      final String name = (rtdbDoc['name'] ?? 'Shuttle').toString();
+      final String number = (rtdbDoc['number'] ?? '').toString();
+      String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
+      if (cleanNum.isEmpty) {
+        cleanNum = name.replaceAll(RegExp(r'[^0-9]'), '');
+      }
+      final String shuttleKey =
+          cleanNum.isNotEmpty ? cleanNum : name.toLowerCase().trim();
+
+      String rtdbStatus = (rtdbDoc['status'] ?? 'offline').toString();
+      bool isOnline = false;
+
+      if (rtdbStatus == 'online') {
+        final lastUpdatedMillis = rtdbDoc['last_updated'];
+        if (lastUpdatedMillis != null && lastUpdatedMillis is num) {
+          final lastUpdated = DateTime.fromMillisecondsSinceEpoch(
+            lastUpdatedMillis.toInt(),
+          );
+          if (now.difference(lastUpdated).inMinutes.abs() <= 5) {
+            isOnline = true;
+          }
+        } else {
+          isOnline = true;
+        }
+      }
+
+      final String badgeText =
+          cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : name;
+      final String driverName = (rtdbDoc['driver_name'] ?? '').toString();
+      final String driverAvatar = (rtdbDoc['driver_avatar'] ?? '').toString();
+
+      shuttleMap[shuttleKey] = {
+        'shuttleId': rtdbKey.toString(),
+        'name': name,
+        'number': number,
+        'cleanNum': cleanNum,
+        'badgeText': badgeText,
+        'driverName': driverName.isNotEmpty ? driverName : 'คนขับรถประจำคัน',
+        'driverAvatar': driverAvatar,
+        'isOnline': isOnline,
+      };
+    });
+
+    // 2. ผสานข้อมูลจาก Firestore Shuttles
+    for (var fsDoc in _firestoreShuttles) {
+      final String name = (fsDoc['name'] ?? fsDoc['id']).toString();
+      final String number = (fsDoc['number'] ?? '').toString();
+      String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
+      if (cleanNum.isEmpty) {
+        cleanNum = name.replaceAll(RegExp(r'[^0-9]'), '');
+      }
+      final String shuttleKey =
+          cleanNum.isNotEmpty ? cleanNum : name.toLowerCase().trim();
+
+      final String badgeText =
+          cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : name;
+      final String fsDriverName =
+          (fsDoc['driver_name'] ?? fsDoc['driverName'] ?? '').toString();
+      final String fsDriverAvatar =
+          (fsDoc['driver_avatar'] ?? fsDoc['avatar'] ?? '').toString();
+
+      if (shuttleMap.containsKey(shuttleKey)) {
+        var existing = shuttleMap[shuttleKey]!;
+        if (existing['driverName'] == 'คนขับรถประจำคัน' &&
+            fsDriverName.isNotEmpty) {
+          existing['driverName'] = fsDriverName;
+        }
+        if ((existing['driverAvatar'] as String).isEmpty &&
+            fsDriverAvatar.isNotEmpty) {
+          existing['driverAvatar'] = fsDriverAvatar;
+        }
+      } else {
+        shuttleMap[shuttleKey] = {
+          'shuttleId': fsDoc['id'].toString(),
+          'name': name,
+          'number': number,
+          'cleanNum': cleanNum,
+          'badgeText': badgeText,
+          'driverName':
+              fsDriverName.isNotEmpty ? fsDriverName : 'คนขับรถประจำคัน',
+          'driverAvatar': fsDriverAvatar,
+          'isOnline': false,
+        };
+      }
+    }
+
+    // 3. ผสานข้อมูลจาก Firestore Driver Users (users role == 'driver')
+    for (var dUser in _driverUsers) {
+      final String sName = (dUser['shuttle_name'] ?? '').toString();
+      final String sNum = (dUser['shuttle_number'] ?? '').toString();
+      String cleanNum = sNum.replaceAll(RegExp(r'[^0-9]'), '');
+      if (cleanNum.isEmpty) {
+        cleanNum = sName.replaceAll(RegExp(r'[^0-9]'), '');
+      }
+      final String shuttleKey =
+          cleanNum.isNotEmpty ? cleanNum : sName.toLowerCase().trim();
+
+      if (shuttleKey.isEmpty) continue;
+
+      final String badgeText =
+          cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : sName;
+      final String uDriverName = (dUser['name'] ?? '').toString();
+      final String uDriverAvatar = (dUser['avatar'] ?? '').toString();
+
+      if (shuttleMap.containsKey(shuttleKey)) {
+        var existing = shuttleMap[shuttleKey]!;
+        if ((existing['driverName'] == 'คนขับรถประจำคัน' ||
+                (existing['driverName'] as String).isEmpty) &&
+            uDriverName.isNotEmpty) {
+          existing['driverName'] = uDriverName;
+        }
+        if ((existing['driverAvatar'] as String).isEmpty &&
+            uDriverAvatar.isNotEmpty) {
+          existing['driverAvatar'] = uDriverAvatar;
+        }
+      } else {
+        shuttleMap[shuttleKey] = {
+          'shuttleId':
+              'shuttle_${cleanNum.isNotEmpty ? cleanNum : shuttleKey}',
+          'name': sName.isNotEmpty ? sName : 'Shuttle #$cleanNum',
+          'number': sNum,
+          'cleanNum': cleanNum,
+          'badgeText': badgeText,
+          'driverName':
+              uDriverName.isNotEmpty ? uDriverName : 'คนขับรถประจำคัน',
+          'driverAvatar': uDriverAvatar,
+          'isOnline': false,
+        };
+      }
+    }
+
+    List<Map<String, dynamic>> list = shuttleMap.values.toList();
+
+    // ✨ จัดเรียงลำดับ: รถที่ออนไลน์ (isOnline == true) อยู่ด้านบนสุดเสมอ!
+    list.sort((a, b) {
+      bool aOnline = a['isOnline'] == true;
+      bool bOnline = b['isOnline'] == true;
+      if (aOnline && !bOnline) return -1; // a อยู่บน
+      if (!aOnline && bOnline) return 1; // b อยู่บน
+      return (a['cleanNum'] as String).compareTo(b['cleanNum'] as String);
+    });
+
+    if (mounted) {
+      setState(() {
+        _shuttleList = list;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _driversSub?.cancel();
+    _firestoreSub?.cancel();
+    _rtdbSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -44,11 +245,11 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
                 child: Column(
                   children: [
                     _buildMessagesTitle(),
-          _buildSearchBar(),
-          Expanded(child: _buildShuttleList()),
-          const SizedBox(
-            height: 80,
-          ), // เว้นที่ด้านล่างเผื่อ Bottom Navigation Bar
+                    _buildSearchBar(),
+                    Expanded(child: _buildShuttleList()),
+                    const SizedBox(
+                      height: 80,
+                    ), // เว้นที่ด้านล่างเผื่อ Bottom Navigation Bar
                   ],
                 ),
               ),
@@ -139,137 +340,63 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
 
   // ส่วนรายการห้องแชทรถแต่ละคัน
   Widget _buildShuttleList() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _driversStream,
-      builder: (context, driverSnapshot) {
-        final driverDocs = driverSnapshot.hasData
-            ? driverSnapshot.data!.docs
-            : [];
-        final Map<String, Map<String, dynamic>> driverMapByShuttleName = {};
-        final Map<String, Map<String, dynamic>> driverMapByShuttleNum = {};
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFF176a21)),
+      );
+    }
 
-        for (var doc in driverDocs) {
-          final d = doc.data() as Map<String, dynamic>;
-          final sName = (d['shuttle_name'] ?? '')
-              .toString()
-              .toLowerCase()
-              .trim();
-          final sNum = (d['shuttle_number'] ?? '')
-              .toString()
-              .toLowerCase()
-              .trim();
-          if (sName.isNotEmpty) driverMapByShuttleName[sName] = d;
-          if (sNum.isNotEmpty) driverMapByShuttleNum[sNum] = d;
-        }
+    final items = _shuttleList.where((item) {
+      final String name = (item['name'] ?? item['shuttleId']).toString();
+      final String number = (item['number'] ?? '').toString();
+      final String driverName = (item['driverName'] ?? '').toString();
+      final q = _searchQuery;
+      return name.toLowerCase().contains(q) ||
+          number.toLowerCase().contains(q) ||
+          driverName.toLowerCase().contains(q);
+    }).toList();
 
-        return StreamBuilder<QuerySnapshot>(
-          stream: _shuttlesStream,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(
-                child: CircularProgressIndicator(color: Color(0xFF176a21)),
-              );
-            }
-            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return const Center(
-                child: Text(
-                  'ยังไม่มีรถรับส่งในระบบ',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              );
-            }
+    if (items.isEmpty) {
+      return const Center(
+        child: Text(
+          'ไม่พบห้องสนทนาที่ค้นหา',
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
 
-            final docs = snapshot.data!.docs.where((doc) {
-              final data = doc.data() as Map<String, dynamic>;
-              final String name = (data['name'] ?? doc.id).toString();
-              final String number = (data['number'] ?? '').toString();
-
-              final dMap =
-                  driverMapByShuttleName[name.toLowerCase().trim()] ??
-                  driverMapByShuttleNum[number.toLowerCase().trim()];
-              final String driverName =
-                  data['driver_name'] ??
-                  data['driverName'] ??
-                  dMap?['name'] ??
-                  'คนขับรถประจำคัน';
-
-              final q = _searchQuery;
-              return name.toLowerCase().contains(q) ||
-                  number.toLowerCase().contains(q) ||
-                  driverName.toLowerCase().contains(q);
-            }).toList();
-
-            if (docs.isEmpty) {
-              return const Center(
-                child: Text(
-                  'ไม่พบห้องสนทนาที่ค้นหา',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              );
-            }
-
-            return ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              itemCount: docs.length,
-              itemBuilder: (context, index) {
-                final doc = docs[index];
-                final data = doc.data() as Map<String, dynamic>;
-                final String shuttleId = doc.id;
-                final String shuttleName = data['name'] ?? shuttleId;
-                final String shuttleNumber = data['number'] ?? '';
-
-                final dMap =
-                    driverMapByShuttleName[shuttleName.toLowerCase().trim()] ??
-                    driverMapByShuttleNum[shuttleNumber.toLowerCase().trim()];
-                final String driverName =
-                    data['driver_name'] ??
-                    data['driverName'] ??
-                    dMap?['name'] ??
-                    'คนขับรถประจำคัน';
-                final String driverAvatar =
-                    data['driver_avatar'] ??
-                    data['avatar'] ??
-                    dMap?['avatar'] ??
-                    '';
-
-                bool isOnline = data['status'] == 'online';
-
-                // ✨ ตรวจสอบ Timeout 5 นาทีว่ารถยังออนอยู่จริงไหม
-                final Timestamp? lastUpdated = data['last_updated'] as Timestamp?;
-                if (lastUpdated != null) {
-                  final now = DateTime.now();
-                  final updatedTime = lastUpdated.toDate();
-                  if (now.difference(updatedTime).inMinutes > 5) {
-                    isOnline = false;
-                  }
-                } else if (isOnline) {
-                  isOnline = false; // เผื่อกรณีค้าง
-                }
-
-                // จัดการตัวเลขให้สวยงาม ไม่ให้ซ้ำซ้อน เช่น SH#03 -> 03
-                String cleanNum = shuttleNumber.replaceAll(
-                  RegExp(r'[^0-9]'),
-                  '',
-                );
-                final String badgeText = cleanNum.isNotEmpty
-                    ? 'Shuttle #$cleanNum'
-                    : shuttleName;
-
-                return _buildChatCard(
-                  context: context,
-                  shuttleId: shuttleId,
-                  shuttleName: shuttleName,
-                  driverName: driverName,
-                  driverAvatar: driverAvatar,
-                  badgeText: badgeText,
-                  isOnline: isOnline,
-                );
-              },
-            );
-          },
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return _buildChatCard(
+          context: context,
+          shuttleId: item['shuttleId'],
+          shuttleName: item['name'],
+          driverName: item['driverName'],
+          driverAvatar: item['driverAvatar'],
+          badgeText: item['badgeText'],
+          isOnline: item['isOnline'],
         );
       },
     );
+  }
+
+  String _getCanonicalRoomId(String? rawId, String? rawName) {
+    String cleanNum = (rawName ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+    if (cleanNum.isEmpty && rawId != null && !rawId.startsWith('-')) {
+      cleanNum = rawId.replaceAll(RegExp(r'[^0-9]'), '');
+    }
+    if (cleanNum.isNotEmpty) {
+      int numVal = int.tryParse(cleanNum) ?? 1;
+      String formattedNum = numVal.toString().padLeft(2, '0');
+      return 'shuttle_$formattedNum';
+    }
+    if (rawId != null && rawId.isNotEmpty && !rawId.startsWith('-')) {
+      return rawId;
+    }
+    return 'shuttle_01';
   }
 
   // การ์ดแชทแต่ละคันตามดีไซน์ Mockup
@@ -282,8 +409,9 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
     required String badgeText,
     required bool isOnline,
   }) {
+    final String baseRoom = _getCanonicalRoomId(shuttleId, shuttleName);
     final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
-    final String targetRoom = '${shuttleId}_$todayDate';
+    final String targetRoom = '${baseRoom}_$todayDate';
 
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -300,11 +428,10 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
         if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
           final lastDoc =
               snapshot.data!.docs.first.data() as Map<String, dynamic>;
-          
+
           final String text = lastDoc['text'] ?? '';
           final String? imageUrl = lastDoc['imageUrl'] as String?;
-          final String senderRole = lastDoc['senderRole'] ?? 'student';
-          
+
           if (imageUrl != null) {
             lastMessage = text.isNotEmpty ? '"$text" [ส่งรูปภาพ]' : '[ส่งรูปภาพ]';
           } else {
@@ -334,7 +461,7 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
               final lastDoc = snapshot.data!.docs.first.data() as Map<String, dynamic>;
               final senderRole = lastDoc['senderRole'] ?? 'student';
               final Timestamp? msgTimestamp = lastDoc['timestamp'] as Timestamp?;
-              
+
               if (senderRole == 'driver' && msgTimestamp != null) {
                 final int lastReadTime = prefSnapshot.data!.getInt('last_read_$targetRoom') ?? 0;
                 if (msgTimestamp.millisecondsSinceEpoch > lastReadTime) {
@@ -345,12 +472,11 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
 
             return GestureDetector(
               onTap: () {
-                // อัปเดต state ของ local ให้เป็นอ่านแล้วทันทีเพื่อความสมูท
                 if (prefSnapshot.hasData) {
                   prefSnapshot.data!.setInt('last_read_$targetRoom', DateTime.now().millisecondsSinceEpoch);
                   setState(() {});
                 }
-                
+
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -362,7 +488,6 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
                     ),
                   ),
                 ).then((_) {
-                  // รีเฟรชหน้าจอนี้เมื่อกลับมาจากหน้าแชท เพื่อล้างตัวหนา
                   setState(() {});
                 });
               },
@@ -440,82 +565,64 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              Text(
-                                timeString,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: isUnread ? FontWeight.bold : FontWeight.normal,
-                                  color: isUnread ? Colors.black : Colors.grey,
+                              if (timeString.isNotEmpty)
+                                Text(
+                                  timeString,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: isUnread ? FontWeight.bold : FontWeight.normal,
+                                    color: isUnread ? const Color(0xFF176a21) : const Color(0xFF757778),
+                                  ),
                                 ),
-                              ),
                             ],
                           ),
-                          const SizedBox(height: 6),
-                          // ป้าย Badge บอกเบอร์รถ (สีเขียวอ่อนตามภาพ)
+                          const SizedBox(height: 4),
                           Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 4,
-                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFE8F5E9),
-                              borderRadius: BorderRadius.circular(12),
+                              color: const Color(0xFF176a21).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
                               badgeText,
                               style: const TextStyle(
-                                fontSize: 12,
+                                fontSize: 11,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFF2E7D32),
+                                color: Color(0xFF176a21),
                               ),
                             ),
                           ),
                           const SizedBox(height: 8),
-                          // ตัวอย่างข้อความล่าสุด
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  lastMessage,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: isUnread ? FontWeight.bold : FontWeight.normal,
-                                    color: isUnread ? Colors.black : const Color(0xFF5A6065),
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (isUnread)
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  margin: const EdgeInsets.only(left: 8),
-                                  decoration: const BoxDecoration(
-                                    color: Colors.redAccent,
-                                    shape: BoxShape.circle,
-                                  ),
-                                )
-                              else if (isOnline)
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  margin: const EdgeInsets.only(left: 8),
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFF2E7D32),
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                            ],
+                          Text(
+                            lastMessage,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: isUnread ? FontWeight.bold : FontWeight.normal,
+                              color: isUnread ? Colors.black87 : const Color(0xFF595C5D),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
                     ),
+                    if (isUnread) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        width: 10,
+                        height: 10,
+                        margin: const EdgeInsets.only(top: 6),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFE53935),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
             );
-          }
+          },
         );
       },
     );

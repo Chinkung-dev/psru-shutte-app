@@ -146,8 +146,8 @@ class _EditDriverDialogState extends State<EditDriverDialog> {
               'driver_uid': FieldValue.delete(),
               'driver_name': FieldValue.delete(),
               'driver_avatar': FieldValue.delete(),
-              'status': 'offline',
-              'passenger_status': 'offline',
+              // 'status': 'offline',
+              // 'passenger_status': 'offline',
             });
           }
         }
@@ -164,9 +164,9 @@ class _EditDriverDialogState extends State<EditDriverDialog> {
               'driver_uid': widget.docId,
               'driver_name': name,
               'driver_avatar': widget.driverData['avatar'] ?? 'assets/images/man1.png',
-              'status': widget.driverData['status'] ?? 'offline',
-              'passenger_status': widget.driverData['passenger_status'] ?? 'offline',
-              'last_updated': FieldValue.serverTimestamp(),
+              // removed status from firestore
+              // removed passenger_status from firestore
+              // 'last_updated': FieldValue.serverTimestamp(),
             });
           }
         }

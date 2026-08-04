@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
@@ -99,7 +100,11 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
   double avgWaitTimeMins = 0.0;
 
   StreamSubscription? _shuttlesSub;
+  StreamSubscription? _rtdbSub;
   StreamSubscription? _ridesSub;
+
+  List<Map<String, dynamic>> _firestoreShuttles = [];
+  Map<String, Map<dynamic, dynamic>> _rtdbShuttles = {};
 
   @override
   void initState() {
@@ -111,63 +116,212 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
   void _listenToShuttles() {
     _shuttlesSub = FirebaseFirestore.instance.collection('shuttles').snapshots().handleError((e) => print("Firestore Error (shuttles): $e")).listen((snapshot) {
       if (!mounted) return;
-      int a = 0, f = 0, b = 0, o = 0;
-      List<Map<String, dynamic>> list = [];
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final status = data['status'] ?? 'offline';
-        String pStatus = data['passenger_status'] ?? (status == 'online' ? 'available' : 'offline');
-        if (status == 'offline') pStatus = 'offline';
+      _firestoreShuttles = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+      _mergeAndRefreshShuttles();
+    });
 
-        if (pStatus == 'available') a++;
-        else if (pStatus == 'full') f++;
-        else if (pStatus == 'break') b++;
-        else o++;
-        
-        list.add({
-          'id': doc.id,
-          'name': data['name'] ?? doc.id,
-          'number': data['number'] ?? '',
-          'status': status,
-          'passenger_status': pStatus,
-          'driver_name': data['driver_name'] ?? 'ไม่ระบุ',
-          'driver_avatar': data['driver_avatar'] ?? '',
-          'capacity_percent': data['capacity_percent'] ?? 0,
-          'lat': data['lat'] ?? 16.82753,
-          'lng': data['lng'] ?? 100.20686,
+    _rtdbSub = FirebaseDatabase.instance.ref('shuttles').onValue.listen((event) {
+      if (!mounted) return;
+      if (event.snapshot.exists) {
+        final data = event.snapshot.value as Map<dynamic, dynamic>;
+        final Map<String, Map<dynamic, dynamic>> parsed = {};
+        data.forEach((key, value) {
+          if (value is Map) {
+            parsed[key.toString()] = value;
+          }
         });
+        _rtdbShuttles = parsed;
+      } else {
+        _rtdbShuttles = {};
       }
-      setState(() {
-        availableCount = a;
-        fullCount = f;
-        breakCount = b;
-        offlineCount = o;
-        activeShuttleList = list;
-      });
+      _mergeAndRefreshShuttles();
+    });
+  }
+
+  void _mergeAndRefreshShuttles() {
+    int a = 0, f = 0, b = 0, o = 0;
+    final now = DateTime.now();
+    final Map<String, Map<String, dynamic>> shuttleMap = {};
+
+    // 1. ดึงข้อมูลจาก RTDB เป็นหลัก (เพราะสถานะออนไลน์จริงอัปเดตที่ RTDB)
+    _rtdbShuttles.forEach((rtdbKey, rtdbDoc) {
+      Map<String, dynamic>? matchingFsDoc;
+      for (var fsDoc in _firestoreShuttles) {
+        if (fsDoc['id'] == rtdbKey ||
+            (fsDoc['number'] != null &&
+                fsDoc['number'].toString() == rtdbDoc['number']?.toString()) ||
+            (fsDoc['name'] != null &&
+                fsDoc['name'].toString() == rtdbDoc['name']?.toString())) {
+          matchingFsDoc = fsDoc;
+          break;
+        }
+      }
+
+      final String name =
+          (rtdbDoc['name'] ?? matchingFsDoc?['name'] ?? 'Shuttle').toString();
+      final String number =
+          (rtdbDoc['number'] ?? matchingFsDoc?['number'] ?? '').toString();
+      String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
+      if (cleanNum.isEmpty) {
+        cleanNum = name.replaceAll(RegExp(r'[^0-9]'), '');
+      }
+      final String shuttleKey =
+          cleanNum.isNotEmpty ? cleanNum : name.toLowerCase().trim();
+
+      String rtdbStatus = (rtdbDoc['status'] ?? 'offline').toString();
+      bool isOnline = false;
+
+      if (rtdbStatus == 'online') {
+        final lastUpdatedMillis = rtdbDoc['last_updated'];
+        if (lastUpdatedMillis != null && lastUpdatedMillis is num) {
+          final lastUpdated = DateTime.fromMillisecondsSinceEpoch(
+            lastUpdatedMillis.toInt(),
+          );
+          if (now.difference(lastUpdated).inMinutes.abs() <= 5) {
+            isOnline = true;
+          }
+        } else {
+          isOnline = true;
+        }
+      }
+
+      String pStatus = isOnline
+          ? (rtdbDoc['passenger_status'] ??
+                  matchingFsDoc?['passenger_status'] ??
+                  'available')
+              .toString()
+          : 'offline';
+
+      final String driverName = (rtdbDoc['driver_name'] ??
+              matchingFsDoc?['driver_name'] ??
+              'คนขับรถประจำคัน')
+          .toString();
+      final String driverAvatar = (rtdbDoc['driver_avatar'] ??
+              matchingFsDoc?['driver_avatar'] ??
+              '')
+          .toString();
+      final double lat = (rtdbDoc['lat'] as num?)?.toDouble() ??
+          (matchingFsDoc?['lat'] as num?)?.toDouble() ??
+          16.82753;
+      final double lng = (rtdbDoc['lng'] as num?)?.toDouble() ??
+          (matchingFsDoc?['lng'] as num?)?.toDouble() ??
+          100.20686;
+
+      shuttleMap[shuttleKey] = {
+        'id': rtdbKey.toString(),
+        'name': name,
+        'number': number,
+        'cleanNum': cleanNum,
+        'status': isOnline ? 'online' : 'offline',
+        'passenger_status': pStatus,
+        'driver_name': driverName,
+        'driver_avatar': driverAvatar,
+        'capacity_percent': rtdbDoc['capacity_percent'] ??
+            matchingFsDoc?['capacity_percent'] ??
+            0,
+        'lat': lat,
+        'lng': lng,
+      };
+    });
+
+    // 2. ผสานข้อมูลจาก Firestore Shuttles
+    for (var fsDoc in _firestoreShuttles) {
+      final String name = (fsDoc['name'] ?? fsDoc['id']).toString();
+      final String number = (fsDoc['number'] ?? '').toString();
+      String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
+      if (cleanNum.isEmpty) {
+        cleanNum = name.replaceAll(RegExp(r'[^0-9]'), '');
+      }
+      final String shuttleKey =
+          cleanNum.isNotEmpty ? cleanNum : name.toLowerCase().trim();
+
+      if (!shuttleMap.containsKey(shuttleKey)) {
+        shuttleMap[shuttleKey] = {
+          'id': fsDoc['id'].toString(),
+          'name': name,
+          'number': number,
+          'cleanNum': cleanNum,
+          'status': 'offline',
+          'passenger_status': 'offline',
+          'driver_name': (fsDoc['driver_name'] ?? 'คนขับรถประจำคัน').toString(),
+          'driver_avatar': (fsDoc['driver_avatar'] ?? '').toString(),
+          'capacity_percent': fsDoc['capacity_percent'] ?? 0,
+          'lat': (fsDoc['lat'] as num?)?.toDouble() ?? 16.82753,
+          'lng': (fsDoc['lng'] as num?)?.toDouble() ?? 100.20686,
+        };
+      }
+    }
+
+    List<Map<String, dynamic>> list = shuttleMap.values.toList();
+
+    // เรียงลำดับ: รถที่ออนไลน์ (online) อยู่ด้านบนสุดเสมอ
+    list.sort((a, b) {
+      bool aOnline = a['status'] == 'online';
+      bool bOnline = b['status'] == 'online';
+      if (aOnline && !bOnline) return -1;
+      if (!aOnline && bOnline) return 1;
+      return (a['cleanNum'] as String).compareTo(b['cleanNum'] as String);
+    });
+
+    for (var shuttle in list) {
+      String status = shuttle['status'];
+      String pStatus = shuttle['passenger_status'];
+
+      if (status == 'online') {
+        if (pStatus == 'full') {
+          f++;
+        } else if (pStatus == 'break') {
+          b++;
+        } else {
+          a++;
+        }
+      } else {
+        o++;
+      }
+    }
+
+    setState(() {
+      availableCount = a;
+      fullCount = f;
+      breakCount = b;
+      offlineCount = o;
+      activeShuttleList = list;
     });
   }
 
   void _listenToRideRequests() {
-    DateTime now = DateTime.now();
-    DateTime startOfDay = DateTime(now.year, now.month, now.day);
-    _ridesSub = FirebaseFirestore.instance.collection('ride_requests')
-        .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
-        .snapshots().handleError((e) => print("Firestore Error (ride_requests): $e")).listen((snapshot) {
+    _ridesSub = FirebaseFirestore.instance
+        .collection('ride_requests')
+        .snapshots()
+        .listen((snapshot) {
       if (!mounted) return;
-      int todayCount = snapshot.docs.length;
-      
+
+      int todayCount = 0;
       double totalWaitMins = 0.0;
       int waitCount = 0;
+
+      final now = DateTime.now();
+      final startOfDay = DateTime(now.year, now.month, now.day);
+
       for (var doc in snapshot.docs) {
         final data = doc.data();
-        if (data['timestamp'] != null && data['acknowledged_at'] != null) {
-          final start = (data['timestamp'] as Timestamp).toDate();
-          final end = (data['acknowledged_at'] as Timestamp).toDate();
-          totalWaitMins += end.difference(start).inSeconds / 60.0;
-          waitCount++;
+        final Timestamp? ts = data['timestamp'] as Timestamp?;
+        if (ts != null) {
+          final dt = ts.toDate();
+          if (dt.isAfter(startOfDay)) {
+            todayCount++;
+            final Timestamp? ackTs = data['acknowledged_at'] as Timestamp?;
+            if (ackTs != null) {
+              final ackDt = ackTs.toDate();
+              totalWaitMins += ackDt.difference(dt).inSeconds / 60.0;
+              waitCount++;
+            }
+          }
+        } else {
+          todayCount++;
         }
       }
-      
+
       setState(() {
         passengersToday = todayCount;
         avgWaitTimeMins = waitCount > 0 ? (totalWaitMins / waitCount) : 0.0;
@@ -178,6 +332,7 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
   @override
   void dispose() {
     _shuttlesSub?.cancel();
+    _rtdbSub?.cancel();
     _ridesSub?.cancel();
     super.dispose();
   }
@@ -822,15 +977,29 @@ class LeftColumnContent extends StatelessWidget {
 
                     if (confirm == true) {
                       try {
+                        // 1. Reset in Firestore
                         final snapshot = await FirebaseFirestore.instance.collection('shuttles').get();
                         final batch = FirebaseFirestore.instance.batch();
                         for (var doc in snapshot.docs) {
-                          batch.update(doc.reference, {
-                            'status': 'offline',
-                            'passenger_status': 'offline'
-                          });
+                          // batch.update(doc.reference, {
+                          //   'status': 'offline',
+                          //   'passenger_status': 'offline'
+                          // });
                         }
                         await batch.commit();
+                        
+                        // 2. Reset in RTDB
+                        final rtdbSnapshot = await FirebaseDatabase.instance.ref('shuttles').get();
+                        if (rtdbSnapshot.exists) {
+                          final updates = <String, dynamic>{};
+                          final data = rtdbSnapshot.value as Map<dynamic, dynamic>;
+                          data.forEach((key, value) {
+                            updates['$key/status'] = 'offline';
+                            updates['$key/passenger_status'] = 'offline';
+                          });
+                          await FirebaseDatabase.instance.ref('shuttles').update(updates);
+                        }
+
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('รีเซ็ตรถทุกคันเป็นออฟไลน์เรียบร้อยแล้ว')),
@@ -1127,8 +1296,116 @@ class LeftColumnContent extends StatelessWidget {
   }
 }
 
-class RightColumnContent extends StatelessWidget {
+class RightColumnContent extends StatefulWidget {
   const RightColumnContent({super.key});
+
+  @override
+  State<RightColumnContent> createState() => _RightColumnContentState();
+}
+
+class _RightColumnContentState extends State<RightColumnContent> {
+  StreamSubscription? _ridesSub;
+  StreamSubscription? _rtdbSub;
+
+  List<double> _hourlyCounts = [0, 0, 0, 0, 0, 0, 0];
+  String _peakTimeText = '-';
+  int _totalCompletedTrips = 0;
+  int _totalRideRequests = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _listenToRealtimeData();
+  }
+
+  void _listenToRealtimeData() {
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+
+    _ridesSub = FirebaseFirestore.instance
+        .collection('ride_requests')
+        .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+
+      int totalRequests = snapshot.docs.length;
+      List<double> buckets = List.filled(7, 0.0);
+      Map<int, int> hourCounts = {}; // hour (0-23) -> count
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final Timestamp? ts = data['timestamp'] as Timestamp?;
+        if (ts != null) {
+          final dt = ts.toDate();
+          int h = dt.hour;
+          hourCounts[h] = (hourCounts[h] ?? 0) + 1;
+
+          // Map to 7 buckets: 7:00, 8:00, 10:00, 12:00, 14:00, 16:00, 18:00
+          if (h <= 7) {
+            buckets[0]++;
+          } else if (h <= 8) {
+            buckets[1]++;
+          } else if (h <= 10) {
+            buckets[2]++;
+          } else if (h <= 12) {
+            buckets[3]++;
+          } else if (h <= 14) {
+            buckets[4]++;
+          } else if (h <= 16) {
+            buckets[5]++;
+          } else {
+            buckets[6]++;
+          }
+        }
+      }
+
+      // Calculate peak time (hour with max requests)
+      String peak = '-';
+      if (hourCounts.isNotEmpty) {
+        int maxHour = 12;
+        int maxCount = -1;
+        hourCounts.forEach((hour, reqCount) {
+          if (reqCount > maxCount) {
+            maxCount = reqCount;
+            maxHour = hour;
+          }
+        });
+        String paddedH = maxHour.toString().padLeft(2, '0');
+        peak = '$paddedH:00 น.';
+      }
+
+      setState(() {
+        _totalRideRequests = totalRequests;
+        _hourlyCounts = buckets;
+        _peakTimeText = peak;
+      });
+    });
+
+    _rtdbSub = FirebaseDatabase.instance.ref('shuttles').onValue.listen((event) {
+      if (!mounted) return;
+      int tripsSum = 0;
+      if (event.snapshot.exists && event.snapshot.value is Map) {
+        final data = event.snapshot.value as Map<dynamic, dynamic>;
+        data.forEach((key, val) {
+          if (val is Map && val.containsKey('daily_rounds')) {
+            tripsSum += (val['daily_rounds'] as num).toInt();
+          }
+        });
+      }
+
+      setState(() {
+        _totalCompletedTrips = tripsSum;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _ridesSub?.cancel();
+    _rtdbSub?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1193,7 +1470,7 @@ class RightColumnContent extends StatelessWidget {
               SizedBox(
                 height: 200,
                 width: double.infinity,
-                child: CustomPaint(painter: ChartPainter()),
+                child: CustomPaint(painter: ChartPainter(values: _hourlyCounts)),
               ),
               const SizedBox(height: 16),
               const Row(
@@ -1235,9 +1512,9 @@ class RightColumnContent extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildChartStat('เวลาที่กดเรียกรถเยอะที่สุด', '12:30 น.'),
-                  _buildChartStat('เที่ยวรถรวม', '42'),
-                  _buildChartStat('กดเรียกรถทั้งหมด', '12 ครั้ง'),
+                  _buildChartStat('เวลาที่กดเรียกรถเยอะที่สุด', _peakTimeText),
+                  _buildChartStat('เที่ยวรถรวม', '$_totalCompletedTrips เที่ยว'),
+                  _buildChartStat('กดเรียกรถทั้งหมด', '$_totalRideRequests ครั้ง'),
                 ],
               ),
             ],
@@ -1348,6 +1625,9 @@ class RightColumnContent extends StatelessWidget {
 }
 
 class ChartPainter extends CustomPainter {
+  final List<double> values;
+  ChartPainter({this.values = const [0, 0, 0, 0, 0, 0, 0]});
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
@@ -1355,34 +1635,35 @@ class ChartPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3;
 
-    final path = Path();
-    path.moveTo(0, size.height * 0.7);
+    final points = <Offset>[];
+    double maxV = values.reduce((a, b) => a > b ? a : b);
+    if (maxV == 0) maxV = 1.0;
 
-    // Create a smooth bezier curve for the chart
-    path.cubicTo(
-      size.width * 0.15,
-      size.height * 0.6,
-      size.width * 0.25,
-      size.height * 0.3,
-      size.width * 0.4,
-      size.height * 0.3,
-    );
-    path.cubicTo(
-      size.width * 0.55,
-      size.height * 0.3,
-      size.width * 0.6,
-      size.height * 0.2,
-      size.width * 0.7,
-      size.height * 0.5,
-    );
-    path.cubicTo(
-      size.width * 0.85,
-      size.height * 0.5,
-      size.width * 0.9,
-      size.height * 0.2,
-      size.width,
-      size.height * 0.3,
-    );
+    for (int i = 0; i < values.length; i++) {
+      double x = size.width * (i / (values.length - 1));
+      double normY = values[i] / maxV;
+      double y = size.height * 0.85 - (size.height * 0.65 * normY);
+      points.add(Offset(x, y));
+    }
+
+    final path = Path();
+    if (points.isNotEmpty) {
+      path.moveTo(points[0].dx, points[0].dy);
+      for (int i = 0; i < points.length - 1; i++) {
+        final p0 = points[i];
+        final p1 = points[i + 1];
+        final controlPoint1 = Offset(p0.dx + (p1.dx - p0.dx) / 2, p0.dy);
+        final controlPoint2 = Offset(p0.dx + (p1.dx - p0.dx) / 2, p1.dy);
+        path.cubicTo(
+          controlPoint1.dx,
+          controlPoint1.dy,
+          controlPoint2.dx,
+          controlPoint2.dy,
+          p1.dx,
+          p1.dy,
+        );
+      }
+    }
 
     // Draw Gradient Fill
     final fillPath = Path.from(path);
@@ -1412,11 +1693,13 @@ class ChartPainter extends CustomPainter {
       canvas.drawCircle(offset, 4, dotPaint);
     }
 
-    drawDot(Offset(size.width * 0.4, size.height * 0.3));
-    drawDot(Offset(size.width * 0.7, size.height * 0.5));
-    drawDot(Offset(size.width * 0.95, size.height * 0.23));
+    for (var pt in points) {
+      drawDot(pt);
+    }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant ChartPainter oldDelegate) =>
+      oldDelegate.values != values;
 }
+

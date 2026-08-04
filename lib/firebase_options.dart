@@ -45,6 +45,7 @@ class DefaultFirebaseOptions {
     appId: '1:249582330017:web:fe1453861a17eab4f7d0e0',
     messagingSenderId: '249582330017',
     projectId: 'psru-shuttle-app',
+    databaseURL: 'https://psru-shuttle-app-default-rtdb.asia-southeast1.firebasedatabase.app',
     authDomain: 'psru-shuttle-app.firebaseapp.com',
     storageBucket: 'psru-shuttle-app.firebasestorage.app',
     measurementId: 'G-09XSK0GZ57',
@@ -54,6 +55,7 @@ class DefaultFirebaseOptions {
     appId: '1:249582330017:android:be7661e6cb0d8daaf7d0e0',
     messagingSenderId: '249582330017',
     projectId: 'psru-shuttle-app',
+    databaseURL: 'https://psru-shuttle-app-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'psru-shuttle-app.firebasestorage.app',
   );
 
@@ -80,8 +82,9 @@ class DefaultFirebaseOptions {
     appId: '1:249582330017:web:5fc04def31081cc2f7d0e0',
     messagingSenderId: '249582330017',
     projectId: 'psru-shuttle-app',
+    databaseURL: 'https://psru-shuttle-app-default-rtdb.firebaseio.com',
     authDomain: 'psru-shuttle-app.firebaseapp.com',
     storageBucket: 'psru-shuttle-app.firebasestorage.app',
-    measurementId: 'G-HB8BKHERN6',
+    measurementId: 'G-7C1C4H5ZZT',
   );
 }

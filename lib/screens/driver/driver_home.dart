@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:flutter/foundation.dart'; // ✨ สำหรับเช็ค kIsWeb
 import 'package:flutter/services.dart'; // ✨ สำหรับ HapticFeedback
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -39,16 +41,18 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   String _ttsLang = "th-TH"; // ✨ เก็บค่ารหัสภาษาที่ใช้งานได้จริงบนอุปกรณ์นั้นๆ
   StreamSubscription<Position>? positionStream;
   StreamSubscription<QuerySnapshot>? requestStream;
-  StreamSubscription<DocumentSnapshot>?
-  myShuttleSubscription; // ✨ ฟังสถานะตัวเอง
+  StreamSubscription? myShuttleSubscription; // ✨ ฟังสถานะตัวเอง
   Timer?
   _heartbeatTimer; // ✨ Heartbeat สำหรับอัปเดตเวลาให้สดใหม่อยู่เสมอตอนจอดรอรับส่ง
   String _currentPassengerStatus = 'available';
   final AudioPlayer _alertPlayer = AudioPlayer(); // ✨ ตัวเล่นเสียงแจ้งเตือน
 
   StreamSubscription<QuerySnapshot>? _chatNotificationSub;
-  bool _isInitialChatLoad = true; // ✨ เช็คว่าเป็นการดึงข้อมูลแชทครั้งแรกหรือไม่ // ✨ ฟังข้อความแชทใหม่
-  Timestamp? _chatListenerStartTime; // ✨ เวลาเริ่มฟังแชท
+  StreamSubscription? _chatSubscription;
+  DateTime _chatListenerStartTime = DateTime.now();
+  Map<String, dynamic>? _incomingChatNotification;
+  Timer? _chatNotificationTimer;
+  String? _lastNotifiedMessageId;
 
   final MapController _mapController = MapController();
 
@@ -59,6 +63,51 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   );
 
   List<Map<String, dynamic>> busStops = [];
+
+  // ✨ จัดกลุ่มจุดจอดที่อยู่ใกล้กันให้แสดงเป็นหมุดเดียว (สอดคล้องกับฝั่งนักศึกษา)
+  final Map<String, List<String>> _groupedStops = {
+    '7-Eleven PSRU และตึก IT': ['7-Eleven PSRU', 'ตึก IT '],
+    'คณะสังคมศาสตร์ และคณะพยาบาลศาสตร์': ['คณะสังคมศาสตร์', 'คณะพยาบาลศาสตร์'],
+  };
+
+  // ✨ ข้อมูลจุดจอดสำหรับแสดงบนแผนที่ (ยุบรวมจุดที่จัดกลุ่มแล้ว)
+  List<Map<String, dynamic>> get _visualStops {
+    List<Map<String, dynamic>> result = [];
+    Set<String> groupedNames = {};
+
+    _groupedStops.forEach((groupName, memberNames) {
+      var members = busStops
+          .where((s) => memberNames.contains(s['name']))
+          .toList();
+      if (members.isNotEmpty) {
+        double avgLat =
+            members
+                .map((e) => (e['lat'] as num).toDouble())
+                .reduce((a, b) => a + b) /
+            members.length;
+        double avgLng =
+            members
+                .map((e) => (e['lng'] as num).toDouble())
+                .reduce((a, b) => a + b) /
+            members.length;
+        result.add({
+          'isGroup': true,
+          'name': groupName,
+          'lat': avgLat,
+          'lng': avgLng,
+          'members': members,
+        });
+        groupedNames.addAll(memberNames);
+      }
+    });
+
+    for (var stop in busStops) {
+      if (!groupedNames.contains(stop['name'])) {
+        result.add(stop);
+      }
+    }
+    return result;
+  }
 
   String? waitingStudentStop;
   List<String> activeRequestIds = []; // ✨ เก็บไอดีคำขอทั้งหมดในป้ายที่กำลังรอ
@@ -71,7 +120,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
   // ✨ ตัวแปรสำหรับเก็บข้อมูลรถคันอื่นๆ ที่กำลังออนไลน์
   List<Map<String, dynamic>> activeShuttles = [];
-  StreamSubscription<QuerySnapshot>? allShuttlesSubscription;
+  StreamSubscription? allShuttlesSubscription;
   Map<String, LatLng> _otherCurrentLocations = {};
   Map<String, LatLng> _otherOldLocations = {};
   Map<String, LatLng> _otherTargetLocations = {};
@@ -182,44 +231,47 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         final userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
-            .get();
+            .get()
+            .timeout(const Duration(seconds: 10));
         _shuttleName = userDoc.data()?['shuttle_name'];
         _shuttleNumber = userDoc.data()?['shuttle_number']?.toString();
 
         if (_shuttleName != null) {
-          final shuttleQuery = await FirebaseFirestore.instance
-              .collection('shuttles')
-              .where('name', isEqualTo: _shuttleName)
-              .limit(1)
-              .get();
+          final shuttleQuery = await FirebaseDatabase.instance
+              .ref('shuttles')
+              .orderByChild('name')
+              .equalTo(_shuttleName)
+              .limitToFirst(1)
+              .get()
+              .timeout(const Duration(seconds: 10));
 
           String? docId;
-          if (shuttleQuery.docs.isNotEmpty) {
-            docId = shuttleQuery.docs.first.id;
+          if (shuttleQuery.exists && shuttleQuery.value != null) {
+            final data = shuttleQuery.value as Map<dynamic, dynamic>;
+            docId = data.keys.first.toString();
           } else {
             // ลองค้นหาตาม number
-            final numQuery = await FirebaseFirestore.instance
-                .collection('shuttles')
-                .where(
-                  'number',
-                  isEqualTo: userDoc.data()?['shuttle_number'] ?? '',
-                )
-                .limit(1)
-                .get();
-            if (numQuery.docs.isNotEmpty) {
-              docId = numQuery.docs.first.id;
+            final numQuery = await FirebaseDatabase.instance
+                .ref('shuttles')
+                .orderByChild('number')
+                .equalTo(userDoc.data()?['shuttle_number'] ?? '')
+                .limitToFirst(1)
+                .get()
+                .timeout(const Duration(seconds: 10));
+            if (numQuery.exists && numQuery.value != null) {
+              final data = numQuery.value as Map<dynamic, dynamic>;
+              docId = data.keys.first.toString();
             } else {
               // สร้างรถคันใหม่ในระบบ
-              final newDoc = await FirebaseFirestore.instance
-                  .collection('shuttles')
-                  .add({
-                    'name': _shuttleName,
-                    'number': userDoc.data()?['shuttle_number'] ?? '1',
-                    'status': 'offline',
-                    'lat': 16.82753,
-                    'lng': 100.20686,
-                  });
-              docId = newDoc.id;
+              final newRef = FirebaseDatabase.instance.ref('shuttles').push();
+              await newRef.set({
+                'name': _shuttleName,
+                'number': userDoc.data()?['shuttle_number'] ?? '1',
+                'status': 'offline',
+                'lat': 16.82753,
+                'lng': 100.20686,
+              });
+              docId = newRef.key;
             }
           }
 
@@ -233,28 +285,31 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             final driverName = userDoc.data()?['name'] ?? 'คนขับรถประจำคัน';
             final driverAvatar =
                 userDoc.data()?['avatar'] ?? 'assets/images/man1.png';
-            FirebaseFirestore.instance.collection('shuttles').doc(docId).set({
+
+            final shuttleRef = FirebaseDatabase.instance
+                .ref('shuttles')
+                .child(docId);
+            await shuttleRef.update({
               'driver_name': driverName,
               'driver_avatar': driverAvatar,
               'driver_uid': user.uid,
-            }, SetOptions(merge: true));
+            });
+
+            // ตั้งค่า onDisconnect เพื่อให้เปลี่ยนเป็น offline เมื่อหลุดการเชื่อมต่อ
+            shuttleRef.child('status').onDisconnect().set('offline');
 
             // ✨ เริ่มฟังเอกสารรถคันนี้ เพื่อคอยอัปเดตสถานะแบบ Real-time ให้สีหมุดเปลี่ยนตาม
-            myShuttleSubscription = FirebaseFirestore.instance
-                .collection('shuttles')
-                .doc(docId)
-                .snapshots()
-                .handleError((e) => print("Firestore Error (shuttles doc): $e"))
-                .listen((doc) {
-                  if (doc.exists && mounted) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    if (data.containsKey('passenger_status')) {
-                      setState(() {
-                        _currentPassengerStatus = data['passenger_status'];
-                      });
-                    }
-                  }
-                });
+            myShuttleSubscription = shuttleRef.onValue.listen((event) {
+              if (event.snapshot.exists && mounted) {
+                final data = event.snapshot.value as Map<dynamic, dynamic>;
+                if (data.containsKey('passenger_status')) {
+                  setState(() {
+                    _currentPassengerStatus = data['passenger_status']
+                        .toString();
+                  });
+                }
+              }
+            }, onError: (e) => print("RTDB Error (shuttles doc): $e"));
           }
         }
       }
@@ -266,42 +321,79 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     }
   }
 
-  // ✨ ฟังก์ชันฟังสัญญาณข้อความแชทใหม่ เพื่อเล่นเสียงแจ้งเตือน
+  // ✨ ฟังก์ชันฟังสัญญาณข้อความแชทใหม่ เพื่อเล่นเสียงและแสดงป๊อปอัปแจ้งเตือน
   void _listenToChatMessages() {
-    if (_shuttleDocId == null) return;
     _chatNotificationSub?.cancel();
-    _isInitialChatLoad = true; // ✨ รีเซ็ตสถานะเมื่อเริ่มฟังใหม่
-    
-    // ✨ ดึงข้อมูลล่าสุด 10 ข้อความโดยไม่สนใจเวลาของเครื่อง เพื่อแก้ปัญหาเวลาเพี้ยนอย่างเด็ดขาด
-    _chatNotificationSub = FirebaseFirestore.instance
+    _chatSubscription?.cancel();
+
+    String cleanNum = (_shuttleNumber ?? _shuttleName ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+    if (cleanNum.isEmpty && _shuttleDocId != null && !_shuttleDocId!.startsWith('-')) {
+      cleanNum = _shuttleDocId!.replaceAll(RegExp(r'[^0-9]'), '');
+    }
+    String baseRoom = 'shuttle_01';
+    if (cleanNum.isNotEmpty) {
+      int numVal = int.tryParse(cleanNum) ?? 1;
+      baseRoom = 'shuttle_${numVal.toString().padLeft(2, '0')}';
+    } else if (_shuttleDocId != null && !_shuttleDocId!.startsWith('-')) {
+      baseRoom = _shuttleDocId!;
+    }
+
+    final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
+    final String roomId = '${baseRoom}_$todayDate';
+
+    bool isInitial = true;
+
+    _chatSubscription = FirebaseFirestore.instance
         .collection('chats')
-        .doc(_shuttleDocId)
+        .doc(roomId)
         .collection('messages')
         .orderBy('timestamp', descending: true)
-        .limit(10)
+        .limit(5)
         .snapshots()
         .listen((snapshot) {
-          if (_isInitialChatLoad) {
-            _isInitialChatLoad = false;
-            return; // ✨ ข้ามข้อความเก่าทั้งหมดที่ได้จากการโหลดครั้งแรก
-          }
-          
-          for (var change in snapshot.docChanges) {
-            if (change.type == DocumentChangeType.added) {
-              final data = change.doc.data() as Map<String, dynamic>?;
-              if (data != null && data['senderRole'] == 'student') {
-                _alertPlayer.setVolume(1.0);
-                _alertPlayer.play(AssetSource('voice/chat_sound.mp3'));
-                
+      if (isInitial) {
+        isInitial = false;
+        return; // ข้ามข้อความเก่าทั้งหมดที่ได้จากการเปิดฟังครั้งแรก
+      }
+
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+
+      for (var change in snapshot.docChanges) {
+        if (change.type == DocumentChangeType.added) {
+          final data = change.doc.data();
+          if (data == null) continue;
+
+          final String senderRole = (data['sender_role'] ?? data['senderRole'] ?? '').toString();
+          final String senderId = (data['sender_id'] ?? data['senderId'] ?? '').toString();
+
+          if (senderId != currentUserId && (senderRole == 'student' || senderRole.isEmpty)) {
+            final String senderName = (data['sender_name'] ?? data['senderName'] ?? 'นักศึกษา').toString();
+            final String messageText = (data['text'] ?? (data['image_url'] != null ? '📷 ได้ส่งรูปภาพ' : 'ข้อความใหม่')).toString();
+
+            _triggerVoiceAlertForChat();
+
+            if (mounted) {
+              _chatNotificationTimer?.cancel();
+              setState(() {
+                _incomingChatNotification = {
+                  'sender': senderName,
+                  'text': messageText,
+                  'id': change.doc.id,
+                };
+              });
+
+              _chatNotificationTimer = Timer(const Duration(seconds: 7), () {
                 if (mounted) {
-                  final senderName = data['senderName'] ?? 'นักศึกษา';
-                  final text = data['text'] ?? 'ส่งรูปภาพ/ข้อความใหม่';
-                  TopToast.show(context, '💬 $senderName: $text', isError: false); // ✨ แจ้งเตือนแชทเข้า (สีเขียว)
+                  setState(() {
+                    _incomingChatNotification = null;
+                  });
                 }
-              }
+              });
             }
           }
-        });
+        }
+      }
+    });
   }
 
   // ✨ ฟังก์ชันสำหรับเพิ่มจำนวนรอบการวิ่งในวันนี้
@@ -322,7 +414,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         final data = userDoc.data() as Map<String, dynamic>;
         int currentRounds = 0;
         if (data['last_round_date'] == todayStr) {
-          currentRounds = (data['daily_round_count'] ?? 0) as int;
+          currentRounds = ((data['daily_round_count'] ?? 0) as num).toInt();
         }
 
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
@@ -339,46 +431,47 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
   // ✨ ฟังก์ชันฟังสัญญาณรถทุกคันที่กำลังออนไลน์ (เพื่อนำมาแสดงจุดบนแผนที่ให้คนขับเห็นกันเอง)
   void _listenToAllShuttles() {
-    allShuttlesSubscription = FirebaseFirestore.instance
-        .collection('shuttles')
-        .where('status', isEqualTo: 'online')
-        .snapshots()
-        .handleError((e) => print("Firestore Error (all shuttles): $e"))
-        .listen((snapshot) {
-          if (mounted) {
+    allShuttlesSubscription = FirebaseDatabase.instance
+        .ref('shuttles')
+        .onValue
+        .listen((event) {
+          if (mounted && event.snapshot.exists) {
             bool shouldAnimate = false;
+            final data = event.snapshot.value as Map<dynamic, dynamic>;
             final now = DateTime.now();
-            final validDocs = snapshot.docs.where((doc) {
-              final data = doc.data();
-              if (data.containsKey('last_updated') &&
-                  data['last_updated'] != null) {
-                final lastUpdated = (data['last_updated'] as Timestamp)
-                    .toDate();
-                // ถ้ารถอัปเดตล่าสุดภายใน 2 นาที ถือว่ายังออนไลน์อยู่จริงๆ
-                return now.difference(lastUpdated).inMinutes <= 2;
-              }
-              return false;
-            }).toList();
 
-            final newShuttles = validDocs
-                .map(
-                  (doc) => {
-                    'id': doc.id,
-                    'number': doc.data().containsKey('number')
-                        ? doc['number']
-                        : null,
-                    'lat': (doc['lat'] as num).toDouble(),
-                    'lng': (doc['lng'] as num).toDouble(),
-                    'passenger_status':
-                        doc.data().containsKey('passenger_status')
-                        ? doc['passenger_status']
-                        : 'available', // ✨ เพิ่มการดึงสถานะ
-                  },
-                )
-                .where(
-                  (shuttle) => shuttle['id'] != _shuttleDocId,
-                ) // ไม่เอาหมุดของตัวเองมาซ้ำ
-                .toList();
+            final List<Map<String, dynamic>> newShuttles = [];
+
+            data.forEach((key, value) {
+              if (value != null && value is Map) {
+                final status = value['status'];
+                if (status == 'online') {
+                  final lastUpdatedMillis = value['last_updated'];
+                  bool isRecentlyUpdated = false;
+                  if (lastUpdatedMillis != null) {
+                    final lastUpdated = DateTime.fromMillisecondsSinceEpoch(
+                      (lastUpdatedMillis as num).toInt(),
+                    );
+                    isRecentlyUpdated =
+                        now.difference(lastUpdated).inMinutes <= 2;
+                  }
+
+                  if (isRecentlyUpdated && key.toString() != _shuttleDocId) {
+                    newShuttles.add({
+                      'id': key.toString(),
+                      'number': value.containsKey('number')
+                          ? value['number']
+                          : null,
+                      'lat': (value['lat'] as num).toDouble(),
+                      'lng': (value['lng'] as num).toDouble(),
+                      'passenger_status': value.containsKey('passenger_status')
+                          ? value['passenger_status']
+                          : 'available',
+                    });
+                  }
+                }
+              }
+            });
 
             for (var shuttle in newShuttles) {
               final String id = shuttle['id'];
@@ -524,7 +617,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     _otherMarkersAnimationController.dispose();
     positionStream?.cancel();
     requestStream?.cancel();
-    _chatNotificationSub?.cancel(); // ✨ ปิดตัวฟังแชท
+    _chatNotificationSub?.cancel();
+    _chatSubscription?.cancel();
+    _chatNotificationTimer?.cancel();
     myShuttleSubscription?.cancel();
     allShuttlesSubscription?.cancel();
     super.dispose();
@@ -532,14 +627,20 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
   Future<void> _logout() async {
     _alertPlayer.dispose(); // ✨ คืนหน่วยความจำ
+
+    // ✨ หยุดการติดตามและปิด Stream ทั้งหมดก่อน Logout เพื่อป้องกัน Error: Permission Denied
+    _stopTracking();
+    _chatNotificationSub?.cancel();
+    myShuttleSubscription?.cancel();
+    allShuttlesSubscription?.cancel();
+
     if (_shuttleDocId != null) {
-      FirebaseFirestore.instance
-          .collection('shuttles')
-          .doc(_shuttleDocId)
-          .set({'status': 'offline'}, SetOptions(merge: true))
+      FirebaseDatabase.instance
+          .ref('shuttles')
+          .child(_shuttleDocId!)
+          .update({'status': 'offline'})
           .catchError((e) => print(e));
     }
-    myShuttleSubscription?.cancel();
 
     await FirebaseAuth.instance.signOut();
     if (mounted) {
@@ -603,10 +704,11 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       _lastVoiceAlertStopName = stopName;
       try {
         HapticFeedback.heavyImpact();
+        FlutterRingtonePlayer().playNotification(); // ✨ เสียงกระดิ่งแจ้งเตือน
         await _alertPlayer.setVolume(1.0);
         await _alertPlayer.play(
           AssetSource('voice/glass_1.mp3'),
-        ); // ✨ เปลี่ยนเป็นเสียงกระดิ่ง (glass_2.mp3)
+        ); // ✨ เสียงแจ้งเตือนเมื่อนักศึกษากดเรียกรถ (glass_1.mp3)
       } catch (e) {
         print("Error playing alert sound: $e");
       }
@@ -638,20 +740,22 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     });
   }
 
-  // ✨ ฟังก์ชันเล่นเสียงแจ้งเตือนจุดลงรถ
+  // ✨ ฟังก์ชันเล่นเสียงแจ้งเตือนกระดิ่งเมื่อถึงจุดหมาย
   Future<void> _triggerDropOffVoiceAlert(String stopName) async {
     if (!mounted || !isOnline) return;
 
     try {
       HapticFeedback.heavyImpact();
+      FlutterRingtonePlayer()
+          .playNotification(); // ✨ เล่นเสียงกระดิ่งแจ้งเตือนจุดหมาย
       await _alertPlayer.setVolume(1.0);
       await _alertPlayer.play(
-        AssetSource('voice/glass_2.mp3'),
-      ); // ✨ เปลี่ยนเป็นเสียงกระดิ่ง (glass_2.mp3)
+        AssetSource('voice/glass_1.mp3'),
+      ); // ✨ เสียงแจ้งเตือนจุดลงรถ (glass_2.mp3)
 
       await Future.delayed(
-        const Duration(milliseconds: 1500),
-      ); // รอให้เสียงแจ้งเตือนจบ
+        const Duration(milliseconds: 1200),
+      ); // รอให้เสียงกระดิ่งจบ
 
       await flutterTts.stop();
       String phoneticStopName = stopName
@@ -693,6 +797,15 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
     if (!serviceEnabled) {
       TopToast.show(context, '⚠️ กรุณาเปิด GPS ในอุปกรณ์ของคุณ', isError: true);
+      return;
+    }
+
+    if (_shuttleDocId == null) {
+      TopToast.show(
+        context,
+        '⚠️ ไม่พบข้อมูลรถของคุณ (การเชื่อมต่อฐานข้อมูลล้มเหลว) กรุณารีสตาร์ทแอป',
+        isError: true,
+      );
       return;
     }
 
@@ -796,7 +909,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           }
           _lastPassedStopOrder = closestOrder;
           int maxOrder = busStops
-              .map((s) => (s['order'] ?? 0) as int)
+              .map((s) => ((s['order'] ?? 0) as num).toInt())
               .reduce((a, b) => a > b ? a : b);
           if (maxOrder == 0) maxOrder = 23;
           _currentTargetStopOrder = (closestOrder % maxOrder) + 1;
@@ -816,15 +929,15 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         if (_shuttleDocId != null) {
           _lastFirebaseUpdate = DateTime.now();
           _lastUploadedLocation = newLoc;
-          FirebaseFirestore.instance
-              .collection('shuttles')
-              .doc(_shuttleDocId)
-              .set({
+          FirebaseDatabase.instance
+              .ref('shuttles')
+              .child(_shuttleDocId!)
+              .update({
                 'lat': newLoc.latitude,
                 'lng': newLoc.longitude,
                 'status': 'online',
-                'last_updated': FieldValue.serverTimestamp(),
-              }, SetOptions(merge: true));
+                'last_updated': ServerValue.timestamp,
+              });
         }
       }
     } catch (e) {
@@ -840,15 +953,15 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         if (_shuttleDocId != null && _currentLocation != null) {
           _lastFirebaseUpdate = DateTime.now();
           _lastUploadedLocation = _currentLocation;
-          FirebaseFirestore.instance
-              .collection('shuttles')
-              .doc(_shuttleDocId)
-              .set({
+          FirebaseDatabase.instance
+              .ref('shuttles')
+              .child(_shuttleDocId!)
+              .update({
                 'lat': _currentLocation!.latitude,
                 'lng': _currentLocation!.longitude,
                 'status': 'online',
-                'last_updated': FieldValue.serverTimestamp(),
-              }, SetOptions(merge: true));
+                'last_updated': ServerValue.timestamp,
+              });
         }
       }
     }
@@ -911,7 +1024,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         if (busStops.isNotEmpty) {
           try {
             int maxOrder = busStops
-                .map((s) => (s['order'] ?? 0) as int)
+                .map((s) => ((s['order'] ?? 0) as num).toInt())
                 .reduce((a, b) => a > b ? a : b);
             if (maxOrder == 0) maxOrder = 23;
 
@@ -929,7 +1042,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
             // ตรวจจับว่าเข้าใกล้ป้ายใดใน Window หรือไม่
             for (var stop in busStops) {
-              int order = (stop['order'] ?? 0) as int;
+              int order = ((stop['order'] ?? 0) as num).toInt();
               if (upcomingStops.contains(order) &&
                   stop['lat'] != null &&
                   stop['lng'] != null) {
@@ -997,10 +1110,13 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           }
         }
 
+        print(
+          "🔍 [GPS Check] id=$_shuttleDocId, dist=$distanceMoved, lastUpd=$_lastFirebaseUpdate",
+        );
         if (_shuttleDocId != null &&
-            distanceMoved >= 5.0 &&
+            distanceMoved >= 2.0 &&
             (_lastFirebaseUpdate == null ||
-                now.difference(_lastFirebaseUpdate!).inMilliseconds >= 5000)) {
+                now.difference(_lastFirebaseUpdate!).inMilliseconds >= 2000)) {
           _lastFirebaseUpdate = now;
           _lastUploadedLocation = newLoc;
 
@@ -1008,17 +1124,18 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             'lat': newLoc.latitude,
             'lng': newLoc.longitude,
             'status': 'online',
-            'last_updated': FieldValue.serverTimestamp(),
+            'last_updated': ServerValue.timestamp,
           };
           // ✨ แนบ last_passed_stop ไปด้วย
           if (_lastPassedStopOrder != null) {
             updateData['last_passed_stop'] = _lastPassedStopOrder as Object;
           }
 
-          FirebaseFirestore.instance
-              .collection('shuttles')
-              .doc(_shuttleDocId)
-              .set(updateData, SetOptions(merge: true));
+          FirebaseDatabase.instance
+              .ref('shuttles')
+              .child(_shuttleDocId!)
+              .update(updateData);
+          print("🚀 [DriverHome] Updated location in RTDB: $updateData");
         }
       },
       onError: (error) {
@@ -1040,7 +1157,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           if (snapshot.docs.isNotEmpty) {
             // ✨ กรองเอาเฉพาะคำขอที่เจาะจงเรียกรถคันนี้เท่านั้น และต้องไม่เก่าเกิน 2 ชั่วโมง (ป้องกันข้อมูลค้างในระบบ)
             final validDocs = snapshot.docs.where((doc) {
-              final data = doc.data() as Map<String, dynamic>;
+              final data = doc.data();
 
               if (data.containsKey('timestamp') && data['timestamp'] != null) {
                 final requestTime = (data['timestamp'] as Timestamp).toDate();
@@ -1059,8 +1176,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             // ✨ เรียงลำดับคำขอตามเวลา (เก่าสุดขึ้นก่อน - เข้าคิวก่อนได้ก่อน FIFO)
             final docs = validDocs;
             docs.sort((a, b) {
-              final aData = a.data() as Map<String, dynamic>;
-              final bData = b.data() as Map<String, dynamic>;
+              final aData = a.data();
+              final bData = b.data();
               final aTime = aData['timestamp'] as Timestamp?;
               final bTime = bData['timestamp'] as Timestamp?;
               if (aTime == null && bTime == null) return 0;
@@ -1072,7 +1189,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             // ✨ ดึงตำแหน่งนักศึกษาทั้งหมดที่รอหรือกำลังรอรถ (ซ่อนเมื่อขึ้นรถแล้ว)
             final List<Map<String, dynamic>> students = [];
             for (var doc in docs) {
-              final data = doc.data() as Map<String, dynamic>;
+              final data = doc.data();
               if (data['status'] != 'on_board' &&
                   data.containsKey('student_lat') &&
                   data.containsKey('student_lng')) {
@@ -1088,7 +1205,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             // ✨ อัปเดตรายชื่อจุดลงรถของคนที่อยู่บนรถ (on_board)
             final Set<String> dropOffStops = {};
             for (var doc in docs) {
-              final data = doc.data() as Map<String, dynamic>;
+              final data = doc.data();
               if (data['status'] == 'on_board' &&
                   data.containsKey('dropoff_stop') &&
                   data['dropoff_stop'] != null) {
@@ -1168,9 +1285,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         return;
       }
       _lastFirebaseUpdate = DateTime.now();
-      FirebaseFirestore.instance.collection('shuttles').doc(_shuttleDocId).set({
-        'last_updated': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      FirebaseDatabase.instance.ref('shuttles').child(_shuttleDocId!).update({
+        'last_updated': ServerValue.timestamp,
+      });
     });
   }
 
@@ -1196,10 +1313,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     }
 
     if (_shuttleDocId != null) {
-      FirebaseFirestore.instance
-          .collection('shuttles')
-          .doc(_shuttleDocId)
-          .set({'status': 'offline'}, SetOptions(merge: true))
+      FirebaseDatabase.instance
+          .ref('shuttles')
+          .child(_shuttleDocId!)
+          .update({'status': 'offline'})
           .catchError((e) => print(e));
     }
   }
@@ -1228,6 +1345,195 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     }
   }
 
+  Future<void> _triggerVoiceAlertForChat() async {
+    try {
+      HapticFeedback.heavyImpact();
+      FlutterRingtonePlayer().playNotification();
+      await _alertPlayer.setVolume(1.0);
+      await _alertPlayer.play(AssetSource('voice/chat_sound.mp3'));
+    } catch (e) {
+      print("Error playing chat alert sound: $e");
+    }
+  }
+
+  Widget _buildIncomingChatPopup() {
+    if (_incomingChatNotification == null) return const SizedBox.shrink();
+
+    final String sender = _incomingChatNotification!['sender'] ?? 'นักศึกษา';
+    final String text = _incomingChatNotification!['text'] ?? '';
+    final double topPadding = MediaQuery.of(context).padding.top > 0
+        ? MediaQuery.of(context).padding.top + 8
+        : 16;
+
+    return Positioned(
+      top: topPadding,
+      left: 16,
+      right: 16,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFF176a21),
+                Color(0xFF0F4D17),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.25),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.25),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 6,
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.chat_bubble_rounded,
+                  color: Color(0xFF176a21),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            sender,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14.5,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            'นักศึกษา',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      text,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        fontSize: 13,
+                        height: 1.2,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkWell(
+                    onTap: () {
+                      _chatNotificationTimer?.cancel();
+                      setState(() {
+                        _incomingChatNotification = null;
+                        _selectedIndex = 2; // สลับไปหน้าแชตทันที
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.1),
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                      child: const Text(
+                        'ตอบกลับ',
+                        style: TextStyle(
+                          color: Color(0xFF176a21),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.all(4),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.white70,
+                      size: 20,
+                    ),
+                    onPressed: () {
+                      _chatNotificationTimer?.cancel();
+                      setState(() {
+                        _incomingChatNotification = null;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1241,12 +1547,15 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               _buildMapScreen(), // หน้าแผนที่ (หน้า 0)
               const DriverStatusScreen(), // ✨ หน้าสถานะรถ (หน้า 1)
               DriverChatScreen(
-                shuttleDocId: _shuttleDocId,
-                shuttleName: _shuttleName,
+                shuttleDocId: _shuttleDocId ?? _shuttleNumber ?? '1',
+                shuttleName: _shuttleName ?? 'Shuttle #01',
               ), // ✨ หน้าแชทคนขับรถ (หน้า 2)
               const DriverProfileScreen(), // ✨ หน้าโปรไฟล์คนขับรถ (หน้า 3)
             ],
           ),
+
+          // ✨ ป๊อปอัปแจ้งเตือนข้อความแชตใหม่จากนักศึกษา
+          _buildIncomingChatPopup(),
 
           // ✨ Bottom Navigation Bar สไตล์ Curved Notch โมเดิร์นเหมือนฝั่งนักศึกษา
           Positioned(
@@ -1318,18 +1627,26 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
               MarkerLayer(
                 markers: [
-                  // ✨ แสดงป้ายจอดพร้อมชื่อป้ายเหมือนฝั่งนักศึกษา
-                  ...busStops.map((stop) {
-                    bool isSelected = waitingStudentStop == stop['name'];
+                  // ✨ แสดงป้ายจอดแบบยุบกลุ่มจุดจอดที่อยู่ใกล้กัน (เหมือนฝั่งนักศึกษา)
+                  ..._visualStops.map((vStop) {
+                    bool isSelected = false;
+                    if (vStop['isGroup'] == true) {
+                      isSelected = (vStop['members'] as List).any(
+                        (m) => m['name'] == waitingStudentStop,
+                      );
+                    } else {
+                      isSelected = waitingStudentStop == vStop['name'];
+                    }
+
                     return Marker(
-                      key: ValueKey('stop_${stop['name']}'),
-                      point: LatLng(stop['lat'], stop['lng']),
+                      key: ValueKey('stop_${vStop['name']}'),
+                      point: LatLng(vStop['lat'], vStop['lng']),
                       width: isSelected ? 150 : 130,
                       height: isSelected ? 75 : 65,
                       child: RepaintBoundary(
                         child: _buildStopMarker(
                           isSelected: isSelected,
-                          name: stop['name'] ?? '',
+                          name: vStop['name'] ?? '',
                         ),
                       ),
                     );

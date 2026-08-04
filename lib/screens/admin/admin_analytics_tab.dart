@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 class AdminAnalyticsTab extends StatelessWidget {
   const AdminAnalyticsTab({super.key});
@@ -58,26 +59,26 @@ class AdminAnalyticsTab extends StatelessWidget {
         Positioned(
           bottom: 24,
           right: 24,
-          child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('shuttles')
-                .where('status', isEqualTo: 'online')
-                .snapshots(),
+          child: StreamBuilder<DatabaseEvent>(
+            stream: FirebaseDatabase.instance.ref('shuttles').onValue,
             builder: (context, snapshot) {
               int activeCount = 0;
-              if (snapshot.hasData) {
+              if (snapshot.hasData && snapshot.data!.snapshot.value != null) {
                 final now = DateTime.now();
-                final validDocs = snapshot.data!.docs.where((doc) {
-                  final data = doc.data() as Map<String, dynamic>;
-                  if (data.containsKey('last_updated') && data['last_updated'] != null) {
-                    final Timestamp? lastUpdated = data['last_updated'] as Timestamp?;
-                    if (lastUpdated != null && now.difference(lastUpdated.toDate()).inMinutes >= 3) {
-                      return false; 
+                final data = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+                
+                int count = 0;
+                data.forEach((key, value) {
+                  if (value is Map && value['status'] == 'online') {
+                    if (value.containsKey('last_updated') && value['last_updated'] != null) {
+                      final lastUpdated = DateTime.fromMillisecondsSinceEpoch((value['last_updated'] as num).toInt());
+                      if (now.difference(lastUpdated).inMinutes <= 3) {
+                        count++;
+                      }
                     }
                   }
-                  return true;
                 });
-                activeCount = validDocs.length;
+                activeCount = count;
               }
 
               int avgWaitTime = activeCount > 0 ? (30 / activeCount).ceil() : 0;
@@ -546,9 +547,9 @@ class AnalyticsTopCharts extends StatelessWidget {
         if (snapshot.hasData && snapshot.data!.exists) {
           final data = snapshot.data!.data() as Map<String, dynamic>?;
           if (data != null) {
-            onTime = (data['on_time_trips'] ?? 0) as int;
-            delayed = (data['delayed_trips'] ?? 0) as int;
-            cancelled = (data['cancelled_trips'] ?? 0) as int;
+            onTime = ((data['on_time_trips'] ?? 0) as num).toInt();
+            delayed = ((data['delayed_trips'] ?? 0) as num).toInt();
+            cancelled = ((data['cancelled_trips'] ?? 0) as num).toInt();
           }
         }
 
@@ -707,7 +708,7 @@ class WaitTimeTrendsChart extends StatelessWidget {
             final hourly = Map<String, dynamic>.from(data['hourly_counts']);
             for (int i = 0; i < 13; i++) {
               final hStr = (i + 7).toString().padLeft(2, '0');
-              lastWeekData[i] = (hourly[hStr] ?? 0) as int;
+              lastWeekData[i] = ((hourly[hStr] ?? 0) as num).toInt();
             }
           }
         }
@@ -725,7 +726,7 @@ class WaitTimeTrendsChart extends StatelessWidget {
                 final hourly = Map<String, dynamic>.from(data['hourly_counts']);
                 for (int i = 0; i < 13; i++) {
                   final hStr = (i + 7).toString().padLeft(2, '0');
-                  todayData[i] = (hourly[hStr] ?? 0) as int;
+                  todayData[i] = ((hourly[hStr] ?? 0) as num).toInt();
                 }
               }
             }
@@ -931,4 +932,7 @@ class AnalyticsLinePainter extends CustomPainter {
     return true;
   }
 }
+
+
+
 
