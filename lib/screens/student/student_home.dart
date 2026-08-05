@@ -248,12 +248,8 @@ class _StudentHomeState extends State<StudentHome>
         final data = event.snapshot.value as Map<dynamic, dynamic>;
 
         final List<Map<String, dynamic>> newShuttles = [];
-        print(
-          "🚀 [StudentHome] RTDB snapshot received. Exists: ${event.snapshot.exists}, Value: ${event.snapshot.value}",
-        );
 
         data.forEach((key, value) {
-          print("🚀 [StudentHome] Checking shuttle $key: $value");
           if (value != null && value is Map) {
             final status = value['status'];
             if (status == 'online') {
@@ -265,13 +261,6 @@ class _StudentHomeState extends State<StudentHome>
                 );
                 isRecentlyUpdated =
                     now.difference(lastUpdated).inMinutes.abs() <= 5;
-                print(
-                  "🚀 [StudentHome] Shuttle $key is online. Last updated: $lastUpdated, difference: ${now.difference(lastUpdated).inMinutes} mins. isRecentlyUpdated: $isRecentlyUpdated",
-                );
-              } else {
-                print(
-                  "🚀 [StudentHome] Shuttle $key is online but has no last_updated field.",
-                );
               }
 
               if (isRecentlyUpdated) {
@@ -1652,6 +1641,9 @@ class _StudentHomeState extends State<StudentHome>
                             shuttleId: shuttleId ?? 'shuttle_01',
                             shuttleName: shuttleName ?? 'Shuttle #01',
                             driverName: sender,
+                            onSelectTab: (index) {
+                              setState(() => _selectedIndex = index);
+                            },
                           ),
                         ),
                       );
@@ -1719,9 +1711,16 @@ class _StudentHomeState extends State<StudentHome>
               _buildMapScreen(),
               StudentLiveStatusScreen(
                 busStops: busStops,
+                onSelectTab: (index) {
+                  setState(() => _selectedIndex = index);
+                },
               ), // ✨ หน้า Live Status ตามดีไซน์
               // ✨ เปลี่ยนเป็นหน้า StudentChatListScreen ที่รวมรายการแชททุกคัน
-              const StudentChatListScreen(),
+              StudentChatListScreen(
+                onSelectTab: (index) {
+                  setState(() => _selectedIndex = index);
+                },
+              ),
 
               const StudentProfileScreen(),
             ],
@@ -2137,7 +2136,7 @@ class _StudentHomeState extends State<StudentHome>
     final prefs = await SharedPreferences.getInstance();
 
     // 💡 ลบคอมเมนต์บรรทัดล่างนี้ออกเพื่อ "บังคับรีเซ็ต" ให้ Tutorial กลับมาแสดงอีกครั้ง (สำหรับการทดสอบ)
-    await prefs.setBool('hasSeenTutorial', false);
+    //await prefs.setBool('hasSeenTutorial', false);
 
     final bool hasSeenTutorial = prefs.getBool('hasSeenTutorial') ?? false;
 

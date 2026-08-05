@@ -11,6 +11,7 @@ class StudentChatScreen extends StatefulWidget {
   final String? shuttleName;
   final String? driverName;
   final String? driverAvatar;
+  final Function(int)? onSelectTab;
 
   const StudentChatScreen({
     super.key,
@@ -18,6 +19,7 @@ class StudentChatScreen extends StatefulWidget {
     this.shuttleName,
     this.driverName,
     this.driverAvatar,
+    this.onSelectTab,
   });
 
   @override
@@ -176,32 +178,197 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDesktop = MediaQuery.of(context).size.width > 800;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF0F2F5), // สีพื้นหลังเทาอ่อนตามแบบ
       body: SafeArea(
-        bottom: false, // ปล่อย bottom ไว้เพื่อให้ไม่บังพื้นที่ด้านล่าง
-        child: Column(
+        bottom: false,
+        child: Stack(
           children: [
-            _buildHeader(context),
-            Expanded(
+            // ส่วนแสดงข้อความแชทและช่องพิมพ์ข้อความ (เว้นระยะด้านล่างไม่ให้ถูก Nav Bar บัง)
+            Positioned.fill(
+              bottom: isDesktop ? 95 : 75,
+              child: Column(
+                children: [
+                  _buildHeader(context),
+                  Expanded(
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 800),
+                        child: Column(
+                          children: [
+                            Expanded(
+                              child: _buildMessageList(),
+                            ),
+                            _buildMessageInput(),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // แถบ Bottom Navigation Bar โค้งเว้า (Curved Notch) ล็อคอยู่ที่ขอบล่างสุดของหน้าจอแบบเดียวกับ StudentHome
+            Positioned(
+              bottom: isDesktop ? 20 : 0,
+              left: 0,
+              right: 0,
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 800),
-                  child: Column(
-                    children: [
-                      Expanded(
-              child: _buildMessageList(),
-            ),
-            _buildMessageInput(),
-            const SizedBox(height: 20), // เว้นระยะช่องพิมพ์ข้อความด้านล่างเล็กน้อย
-                    ],
-                  ),
+                  child: _buildBottomNav(),
                 ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  // ✨ แถบ Bottom Navigation Bar ดีไซน์โค้งเว้าพร้อมปุ่มวงกลมลอย (Curved Notch) แบบเดียวกับ StudentHome
+  Widget _buildBottomNav() {
+    final List<Map<String, dynamic>> navItems = [
+      {'icon': Icons.map_outlined, 'activeIcon': Icons.map, 'label': 'Map'},
+      {
+        'icon': Icons.directions_bus_outlined,
+        'activeIcon': Icons.directions_bus,
+        'label': 'Live Status',
+      },
+      {
+        'icon': Icons.chat_bubble_outline,
+        'activeIcon': Icons.chat_bubble,
+        'label': 'Chat',
+      },
+      {
+        'icon': Icons.person_outline,
+        'activeIcon': Icons.person,
+        'label': 'Profile',
+      },
+    ];
+
+    const int selectedIndex = 2; // หน้า Chat คือ Index 2
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double width = constraints.maxWidth;
+        final double itemWidth = width / navItems.length;
+        final double targetX = itemWidth * selectedIndex + itemWidth / 2;
+        final bool isDesktop = MediaQuery.of(context).size.width > 800;
+
+        return SizedBox(
+          height: 85,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // พื้นหลังบาร์สีขาวพร้อมรอยบาก (Curved Notch)
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: targetX, end: targetX),
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.easeOutCubic,
+                builder: (context, animatedX, child) {
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      CustomPaint(
+                        size: Size(width, 85),
+                        painter: _StudentChatCurvedNavPainter(
+                          notchCenter: animatedX,
+                          isDesktop: isDesktop,
+                        ),
+                      ),
+                      // ปุ่มวงกลมสีเขียวลอยในรอยบาก
+                      Positioned(
+                        top: 2,
+                        left: animatedX - 24,
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF176a21),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(
+                                  0xFF176a21,
+                                ).withOpacity(0.35),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            navItems[selectedIndex]['activeIcon'],
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+
+              // รายการปุ่มกดแต่ละ Tab
+              Positioned(
+                top: 18,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Row(
+                  children: List.generate(navItems.length, (index) {
+                    final bool isActive = selectedIndex == index;
+                    return Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          if (isActive) return;
+                          Navigator.of(context).popUntil((route) => route.isFirst);
+                          widget.onSelectTab?.call(index);
+                        },
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (!isActive) ...[
+                              Icon(
+                                navItems[index]['icon'],
+                                color: const Color(0xFF757778),
+                                size: 24,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                navItems[index]['label'],
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF757778),
+                                ),
+                              ),
+                            ] else ...[
+                              const SizedBox(height: 28),
+                              Text(
+                                navItems[index]['label'],
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF176a21),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -482,5 +649,89 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
         ],
       ),
     );
+  }
+}
+
+// ✨ CustomPainter สำหรับวาด Curved Bottom Navigation Bar โค้งเว้า (Curved Notch) แบบเดียวกับ StudentHome
+class _StudentChatCurvedNavPainter extends CustomPainter {
+  final double notchCenter;
+  final bool isDesktop;
+
+  _StudentChatCurvedNavPainter({required this.notchCenter, this.isDesktop = false});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const double barTop = 18.0;
+    const double notchDepth = 30.0;
+    const double notchHalfWidth = 42.0;
+
+    double radius = isDesktop ? 30.0 : 0.0;
+
+    Path path = Path();
+    path.moveTo(radius, barTop);
+
+    path.lineTo(notchCenter - notchHalfWidth, barTop);
+
+    path.cubicTo(
+      notchCenter - 22,
+      barTop,
+      notchCenter - 26,
+      barTop + notchDepth,
+      notchCenter,
+      barTop + notchDepth,
+    );
+
+    path.cubicTo(
+      notchCenter + 26,
+      barTop + notchDepth,
+      notchCenter + 22,
+      barTop,
+      notchCenter + notchHalfWidth,
+      barTop,
+    );
+
+    path.lineTo(size.width - radius, barTop);
+
+    if (radius > 0) {
+      path.arcToPoint(
+        Offset(size.width, barTop + radius),
+        radius: Radius.circular(radius),
+        clockwise: true,
+      );
+      path.lineTo(size.width, size.height - radius);
+      path.arcToPoint(
+        Offset(size.width - radius, size.height),
+        radius: Radius.circular(radius),
+        clockwise: true,
+      );
+      path.lineTo(radius, size.height);
+      path.arcToPoint(
+        Offset(0, size.height - radius),
+        radius: Radius.circular(radius),
+        clockwise: true,
+      );
+      path.lineTo(0, barTop + radius);
+      path.arcToPoint(
+        Offset(radius, barTop),
+        radius: Radius.circular(radius),
+        clockwise: true,
+      );
+    } else {
+      path.lineTo(size.width, size.height);
+      path.lineTo(0, size.height);
+    }
+
+    path.close();
+
+    canvas.drawShadow(path, Colors.black.withOpacity(0.08), 15.0, true);
+
+    Paint paint = Paint()..color = Colors.white;
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _StudentChatCurvedNavPainter oldDelegate) {
+    return oldDelegate.notchCenter != notchCenter ||
+        oldDelegate.isDesktop != isDesktop;
   }
 }

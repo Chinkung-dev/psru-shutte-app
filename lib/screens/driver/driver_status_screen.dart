@@ -5,7 +5,12 @@ import 'package:firebase_database/firebase_database.dart';
 import '../../widgets/top_toast.dart';
 
 class DriverStatusScreen extends StatefulWidget {
-  const DriverStatusScreen({super.key});
+  final String? shuttleDocId;
+
+  const DriverStatusScreen({
+    super.key,
+    this.shuttleDocId,
+  });
 
   @override
   State<DriverStatusScreen> createState() => _DriverStatusScreenState();
@@ -20,48 +25,96 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
   @override
   void initState() {
     super.initState();
+    _shuttleDocId = widget.shuttleDocId;
     _fetchCurrentStatus();
+  }
+
+  @override
+  void didUpdateWidget(covariant DriverStatusScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.shuttleDocId != widget.shuttleDocId) {
+      _shuttleDocId = widget.shuttleDocId;
+      _fetchCurrentStatus();
+    }
   }
 
   Future<void> _fetchCurrentStatus() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        // 1. ดึงข้อมูลคนขับ
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get()
-            .timeout(const Duration(seconds: 5));
-        final shuttleName = userDoc.data()?['shuttle_name'];
+        String? keyToUse = _shuttleDocId;
 
-        if (shuttleName != null) {
-          final shuttleQuery = await FirebaseDatabase.instance
-              .ref('shuttles')
-              .orderByChild('name')
-              .equalTo(shuttleName)
-              .limitToFirst(1)
-              .get()
-              .timeout(const Duration(seconds: 5));
+        if (keyToUse == null || keyToUse.isEmpty) {
+          String? docId;
+          String? sName;
+          String? sNumber;
 
-          if (shuttleQuery.exists && shuttleQuery.value != null) {
-            final data = shuttleQuery.value as Map<dynamic, dynamic>;
-            _shuttleDocId = data.keys.first.toString();
-            
-            // 3. ดึงสถานะเดิมมาแสดง (จาก RTDB)
-            final rtdbSnapshot = await FirebaseDatabase.instance
-                .ref('shuttles')
-                .child(_shuttleDocId!)
+          // 1. ดึงข้อมูลจาก Firestore shuttles ก่อน
+          try {
+            final firestoreShuttleQuery = await FirebaseFirestore.instance
+                .collection('shuttles')
+                .where('driver_uid', isEqualTo: user.uid)
+                .limit(1)
                 .get()
                 .timeout(const Duration(seconds: 5));
-            if (rtdbSnapshot.exists) {
-              final rtdbData = rtdbSnapshot.value as Map<dynamic, dynamic>;
-              if (rtdbData.containsKey('passenger_status')) {
-                if (mounted) {
-                  setState(() {
-                    _currentStatus = rtdbData['passenger_status'].toString();
-                  });
-                }
+
+            if (firestoreShuttleQuery.docs.isNotEmpty) {
+              final doc = firestoreShuttleQuery.docs.first;
+              docId = doc.id;
+              sName = doc.data()['name']?.toString();
+              sNumber = doc.data()['number']?.toString();
+            }
+          } catch (e) {
+            print("Error querying Firestore in DriverStatusScreen: $e");
+          }
+
+          // 2. ถ้าไม่พบ ให้ค้นจาก users/{uid}
+          if (sName == null || sName.isEmpty) {
+            try {
+              final userDoc = await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(user.uid)
+                  .get()
+                  .timeout(const Duration(seconds: 5));
+              final uData = userDoc.data();
+              sName = uData?['shuttle_name']?.toString() ?? uData?['name']?.toString();
+              sNumber = uData?['shuttle_number']?.toString() ?? uData?['number']?.toString();
+            } catch (e) {
+              print("Error querying user doc in DriverStatusScreen: $e");
+            }
+          }
+
+          // 3. กำหนด Key ในรูปแบบเดียวกับ driver_home.dart
+          String cleanNum = (sNumber ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+          if (cleanNum.isEmpty && sName != null) {
+            cleanNum = sName.replaceAll(RegExp(r'[^0-9]'), '');
+          }
+
+          if (cleanNum.isNotEmpty) {
+            keyToUse = 'shuttle_${cleanNum.padLeft(2, '0')}';
+          } else if (docId != null && docId.isNotEmpty) {
+            keyToUse = docId;
+          } else {
+            keyToUse = user.uid;
+          }
+        }
+
+        _shuttleDocId = keyToUse;
+
+        // 4. ดึงสถานะเดิมมาแสดง (จาก RTDB)
+        if (_shuttleDocId != null) {
+          final rtdbSnapshot = await FirebaseDatabase.instance
+              .ref('shuttles')
+              .child(_shuttleDocId!)
+              .get()
+              .timeout(const Duration(seconds: 5));
+          if (rtdbSnapshot.exists) {
+            final rtdbData = rtdbSnapshot.value as Map<dynamic, dynamic>;
+            if (rtdbData.containsKey('passenger_status')) {
+              if (mounted) {
+                setState(() {
+                  _currentStatus = rtdbData['passenger_status'].toString();
+                });
               }
             }
           }
@@ -77,7 +130,19 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
   }
 
   Future<void> _updateStatus(String newStatus) async {
-    if (_shuttleDocId == null) return;
+    String? keyToUpdate = _shuttleDocId ?? widget.shuttleDocId;
+
+    if (keyToUpdate == null || keyToUpdate.isEmpty) {
+      await _fetchCurrentStatus();
+      keyToUpdate = _shuttleDocId ?? widget.shuttleDocId;
+    }
+
+    if (keyToUpdate == null || keyToUpdate.isEmpty) {
+      if (mounted) {
+        TopToast.show(context, 'ไม่พบข้อมูลรถของคุณ กรุณาลองใหม่อีกครั้ง', isError: true);
+      }
+      return;
+    }
 
     setState(() {
       _currentStatus = newStatus;
@@ -86,7 +151,7 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
     try {
       await FirebaseDatabase.instance
           .ref('shuttles')
-          .child(_shuttleDocId!)
+          .child(keyToUpdate)
           .update({
             'passenger_status': newStatus,
             'last_updated': ServerValue.timestamp,
@@ -97,6 +162,9 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
       }
     } catch (e) {
       print("Error updating status: $e");
+      if (mounted) {
+        TopToast.show(context, 'เกิดข้อผิดพลาดในการอัปเดตสถานะ', isError: true);
+      }
     }
   }
 

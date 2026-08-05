@@ -8,9 +8,12 @@ import 'student_chat_screen.dart';
 class StudentLiveStatusScreen extends StatefulWidget {
   final List<Map<String, dynamic>> busStops;
 
+  final Function(int)? onSelectTab;
+
   const StudentLiveStatusScreen({
     super.key,
     required this.busStops,
+    this.onSelectTab,
   });
 
   @override
@@ -57,32 +60,45 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
   }
 
   void _mergeAndRefreshShuttles() {
-    List<Map<String, dynamic>> list = [];
+    final Map<String, Map<String, dynamic>> shuttleMap = {};
     final now = DateTime.now();
     final Distance distance = Distance();
 
-    final Set<String> processedKeys = {};
-
     // 1. ดึงข้อมูลจาก Realtime Database (RTDB) เป็นหลัก เพราะพิกัดและสถานะออนไลน์จริงจะอัปเดตที่ RTDB
     _rtdbShuttles.forEach((rtdbKey, rtdbDoc) {
+      if (rtdbDoc is! Map) return;
+
       // ค้นหา Firestore doc ที่สอดคล้องกัน (ลองค้นหาด้วย ID, เลขคันรถ, หรือชื่อรถ)
       Map<String, dynamic>? matchingFsDoc;
+      final String rtdbNumStr = (rtdbDoc['number'] ?? '').toString();
+      final String rtdbCleanNum = rtdbNumStr.replaceAll(RegExp(r'[^0-9]'), '');
+      final String rtdbNameStr = (rtdbDoc['name'] ?? '').toString();
+
       for (var fsDoc in _firestoreShuttles) {
-        if (fsDoc['id'] == rtdbKey ||
-            (fsDoc['number'] != null &&
-                fsDoc['number'].toString() == rtdbDoc['number']?.toString()) ||
-            (fsDoc['name'] != null &&
-                fsDoc['name'].toString() == rtdbDoc['name']?.toString())) {
+        final String fsNumStr = (fsDoc['number'] ?? '').toString();
+        final String fsCleanNum = fsNumStr.replaceAll(RegExp(r'[^0-9]'), '');
+        final String fsNameStr = (fsDoc['name'] ?? '').toString();
+        final String fsId = fsDoc['id'].toString();
+
+        if (fsId == rtdbKey ||
+            (fsCleanNum.isNotEmpty && rtdbCleanNum.isNotEmpty && fsCleanNum == rtdbCleanNum) ||
+            (fsNameStr.isNotEmpty && fsNameStr == rtdbNameStr)) {
           matchingFsDoc = fsDoc;
           break;
         }
       }
 
-      final String shuttleId = rtdbKey;
       final String name =
           (rtdbDoc['name'] ?? matchingFsDoc?['name'] ?? 'Shuttle').toString();
       final String number =
           (rtdbDoc['number'] ?? matchingFsDoc?['number'] ?? '').toString();
+
+      String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
+      if (cleanNum.isEmpty) {
+        cleanNum = name.replaceAll(RegExp(r'[^0-9]'), '');
+      }
+      final String shuttleKey =
+          cleanNum.isNotEmpty ? cleanNum : name.toLowerCase().trim();
 
       String rtdbStatus = (rtdbDoc['status'] ?? 'offline').toString();
       bool isOnline = false;
@@ -104,7 +120,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
 
       final String status = isOnline ? 'online' : 'offline';
       final String passengerStatus = isOnline
-          ? (rtdbDoc['passenger_status'] ?? 'available').toString()
+          ? (rtdbDoc['passenger_status'] ?? matchingFsDoc?['passenger_status'] ?? 'available').toString()
           : 'offline';
 
       final double lat = (rtdbDoc['lat'] as num?)?.toDouble() ??
@@ -114,7 +130,6 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
           (matchingFsDoc?['lng'] as num?)?.toDouble() ??
           100.20686;
 
-      String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
       final String badgeText =
           cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : name;
 
@@ -153,53 +168,57 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
               'assets/images/man1.png')
           .toString();
 
-      list.add({
-        'shuttleId': shuttleId,
-        'name': name,
-        'number': number,
-        'cleanNum': cleanNum,
-        'badgeText': badgeText,
-        'driverName': driverName,
-        'driverAvatar': driverAvatar,
-        'status': status,
-        'passengerStatus': passengerStatus,
-        'isOnline': isOnline,
-        'nearestStopName': nearestStopName,
-        'etaMinutes': etaMinutes,
-      });
-
-      processedKeys.add(shuttleId);
-      if (matchingFsDoc != null) {
-        processedKeys.add(matchingFsDoc['id'].toString());
+      if (!shuttleMap.containsKey(shuttleKey) || isOnline) {
+        shuttleMap[shuttleKey] = {
+          'shuttleId': rtdbKey.toString(),
+          'name': name,
+          'number': number,
+          'cleanNum': cleanNum,
+          'badgeText': badgeText,
+          'driverName': driverName,
+          'driverAvatar': driverAvatar,
+          'status': status,
+          'passengerStatus': passengerStatus,
+          'isOnline': isOnline,
+          'nearestStopName': nearestStopName,
+          'etaMinutes': etaMinutes,
+        };
       }
     });
 
     // 2. เติมเอกสารจาก Firestore ที่ยังไม่มีใน RTDB (รถออฟไลน์ที่ลงทะเบียนไว้ในระบบ)
     for (var fsDoc in _firestoreShuttles) {
-      final String fsId = fsDoc['id'].toString();
-      if (processedKeys.contains(fsId)) continue;
-
-      final String name = (fsDoc['name'] ?? fsId).toString();
+      final String name = (fsDoc['name'] ?? fsDoc['id']).toString();
       final String number = (fsDoc['number'] ?? '').toString();
       String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
-      final String badgeText =
-          cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : name;
+      if (cleanNum.isEmpty) {
+        cleanNum = name.replaceAll(RegExp(r'[^0-9]'), '');
+      }
+      final String shuttleKey =
+          cleanNum.isNotEmpty ? cleanNum : name.toLowerCase().trim();
 
-      list.add({
-        'shuttleId': fsId,
-        'name': name,
-        'number': number,
-        'cleanNum': cleanNum,
-        'badgeText': badgeText,
-        'driverName': (fsDoc['driver_name'] ?? 'คนขับรถประจำคัน').toString(),
-        'driverAvatar': (fsDoc['driver_avatar'] ?? 'assets/images/man1.png').toString(),
-        'status': 'offline',
-        'passengerStatus': 'offline',
-        'isOnline': false,
-        'nearestStopName': 'ภายในมหาวิทยาลัย',
-        'etaMinutes': 3,
-      });
+      if (!shuttleMap.containsKey(shuttleKey)) {
+        final String badgeText =
+            cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : name;
+
+        shuttleMap[shuttleKey] = {
+          'shuttleId': fsDoc['id'].toString(),
+          'name': name,
+          'number': number,
+          'cleanNum': cleanNum,
+          'badgeText': badgeText,
+          'driverName': (fsDoc['driver_name'] ?? 'คนขับรถประจำคัน').toString(),
+          'driverAvatar': (fsDoc['driver_avatar'] ?? 'assets/images/man1.png').toString(),
+          'status': 'offline',
+          'passengerStatus': 'offline',
+          'isOnline': false,
+          'nearestStopName': 'ภายในมหาวิทยาลัย',
+          'etaMinutes': 3,
+        };
+      }
     }
+
+    final List<Map<String, dynamic>> list = shuttleMap.values.toList();
 
     list.sort((a, b) {
       bool aOnline = a['isOnline'];
@@ -607,6 +626,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
               shuttleName: shuttle['name'],
               driverName: shuttle['driverName'],
               driverAvatar: shuttle['driverAvatar'],
+              onSelectTab: widget.onSelectTab,
             ),
           ),
         );

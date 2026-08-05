@@ -7,7 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'student_chat_screen.dart';
 
 class StudentChatListScreen extends StatefulWidget {
-  const StudentChatListScreen({super.key});
+  final Function(int)? onSelectTab;
+  const StudentChatListScreen({super.key, this.onSelectTab});
 
   @override
   State<StudentChatListScreen> createState() => _StudentChatListScreenState();
@@ -471,13 +472,13 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
             }
 
             return GestureDetector(
-              onTap: () {
+              onTap: () async {
                 if (prefSnapshot.hasData) {
                   prefSnapshot.data!.setInt('last_read_$targetRoom', DateTime.now().millisecondsSinceEpoch);
                   setState(() {});
                 }
 
-                Navigator.push(
+                await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) => StudentChatScreen(
@@ -485,11 +486,13 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
                       shuttleName: shuttleName,
                       driverName: driverName,
                       driverAvatar: driverAvatar,
+                      onSelectTab: widget.onSelectTab,
                     ),
                   ),
-                ).then((_) {
+                );
+                if (mounted) {
                   setState(() {});
-                });
+                }
               },
               child: Container(
                 margin: const EdgeInsets.only(bottom: 16),

@@ -139,6 +139,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   int _currentTargetStopOrder = 1; // เริ่มที่ป้าย order 1
   final Set<String> _announcedDropOffStops = {}; // กัน TTS พูดซ้ำ
   Set<String> _activeDropOffStops = {}; // รายชื่อป้ายที่มีคนจะลง
+  Map<String, int> _dropOffCounts = {}; // จำนวนนักศึกษาที่จะลงแต่ละป้าย
 
   @override
   void initState() {
@@ -227,91 +228,163 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   Future<void> _fetchDriverShuttle() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
+      if (user == null) return;
+
+      String? docId;
+      Map<String, dynamic>? shuttleData;
+
+      // 1. ค้นหาเอกสารรถใน Firestore collection 'shuttles' ที่ driver_uid ตรงกับ uid ของคนขับคนนี้
+      try {
+        final firestoreShuttleQuery = await FirebaseFirestore.instance
+            .collection('shuttles')
+            .where('driver_uid', isEqualTo: user.uid)
+            .limit(1)
+            .get()
+            .timeout(const Duration(seconds: 8));
+
+        if (firestoreShuttleQuery.docs.isNotEmpty) {
+          final doc = firestoreShuttleQuery.docs.first;
+          docId = doc.id;
+          shuttleData = doc.data();
+          _shuttleName = shuttleData['name']?.toString().trim();
+          _shuttleNumber = shuttleData['number']?.toString().trim();
+        }
+      } catch (e) {
+        print("Error querying Firestore shuttles by driver_uid: $e");
+      }
+
+      // 2. ถ้าไม่พบจาก driver_uid ใน shuttles ให้ไปค้นจากเอกสาร users/{uid}
+      if (_shuttleName == null || _shuttleName!.isEmpty) {
+        try {
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .get()
+              .timeout(const Duration(seconds: 8));
+
+          final uData = userDoc.data();
+          _shuttleName = uData?['shuttle_name']?.toString().trim() ?? uData?['name']?.toString().trim();
+          _shuttleNumber = uData?['shuttle_number']?.toString().trim() ?? uData?['number']?.toString().trim();
+        } catch (e) {
+          print("Error querying user doc: $e");
+        }
+      }
+
+      // 3. หากยังไม่พบอีก ให้ใช้ค่าตั้งต้น
+      if (_shuttleName == null || _shuttleName!.isEmpty) {
+        _shuttleName = 'รถรับส่ง สาย 1';
+        _shuttleNumber = '1';
+      }
+
+      // 4. ดึงข้อมูล User (ชื่อและรูป Avatar) สำหรับอัปเดตใส่เอกสารรถ
+      String driverName = 'คนขับรถประจำคัน';
+      String driverAvatar = 'assets/images/man1.png';
+      try {
         final userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
             .get()
-            .timeout(const Duration(seconds: 10));
-        _shuttleName = userDoc.data()?['shuttle_name'];
-        _shuttleNumber = userDoc.data()?['shuttle_number']?.toString();
+            .timeout(const Duration(seconds: 5));
+        if (userDoc.exists) {
+          driverName = userDoc.data()?['name'] ?? driverName;
+          driverAvatar = userDoc.data()?['avatar'] ?? driverAvatar;
+        }
+      } catch (e) {
+        print("Error getting driver user profile: $e");
+      }
 
-        if (_shuttleName != null) {
-          final shuttleQuery = await FirebaseDatabase.instance
-              .ref('shuttles')
-              .orderByChild('name')
-              .equalTo(_shuttleName)
-              .limitToFirst(1)
-              .get()
-              .timeout(const Duration(seconds: 10));
+      // 5. ตรวจสอบ Realtime Database (RTDB) node 'shuttles'
+      // กำหนด Key ใน RTDB เป็นชื่อคันรถที่อ่านง่าย (เช่น shuttle_01, shuttle_02)
+      String targetRtdbKey = '';
+      String cleanNum = (_shuttleNumber ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+      if (cleanNum.isEmpty && _shuttleName != null) {
+        cleanNum = _shuttleName!.replaceAll(RegExp(r'[^0-9]'), '');
+      }
 
-          String? docId;
-          if (shuttleQuery.exists && shuttleQuery.value != null) {
-            final data = shuttleQuery.value as Map<dynamic, dynamic>;
-            docId = data.keys.first.toString();
-          } else {
-            // ลองค้นหาตาม number
-            final numQuery = await FirebaseDatabase.instance
-                .ref('shuttles')
-                .orderByChild('number')
-                .equalTo(userDoc.data()?['shuttle_number'] ?? '')
-                .limitToFirst(1)
-                .get()
-                .timeout(const Duration(seconds: 10));
-            if (numQuery.exists && numQuery.value != null) {
-              final data = numQuery.value as Map<dynamic, dynamic>;
-              docId = data.keys.first.toString();
-            } else {
-              // สร้างรถคันใหม่ในระบบ
-              final newRef = FirebaseDatabase.instance.ref('shuttles').push();
-              await newRef.set({
-                'name': _shuttleName,
-                'number': userDoc.data()?['shuttle_number'] ?? '1',
-                'status': 'offline',
-                'lat': 16.82753,
-                'lng': 100.20686,
+      if (cleanNum.isNotEmpty) {
+        targetRtdbKey = 'shuttle_${cleanNum.padLeft(2, '0')}';
+      } else if (docId != null && docId.isNotEmpty) {
+        targetRtdbKey = docId;
+      } else {
+        targetRtdbKey = user.uid;
+      }
+
+      // หากมีการสลับมาใช้ Key รูปแบบอ่านง่าย ให้ลบ Node เก่าที่เป็น Firestore Doc ID หรือ User UID ค้างไว้ทิ้ง
+      if (docId != null && docId != targetRtdbKey) {
+        try {
+          final oldDocNode = FirebaseDatabase.instance.ref('shuttles').child(docId);
+          final oldSnap = await oldDocNode.get().timeout(const Duration(seconds: 3));
+          if (oldSnap.exists) {
+            await oldDocNode.remove();
+          }
+        } catch (e) {
+          print("Error removing old docId RTDB node: $e");
+        }
+      }
+      if (user.uid != targetRtdbKey) {
+        try {
+          final oldUserNode = FirebaseDatabase.instance.ref('shuttles').child(user.uid);
+          final oldSnap = await oldUserNode.get().timeout(const Duration(seconds: 3));
+          if (oldSnap.exists) {
+            await oldUserNode.remove();
+          }
+        } catch (e) {
+          print("Error removing old user.uid RTDB node: $e");
+        }
+      }
+
+      final rtdbRef = FirebaseDatabase.instance.ref('shuttles').child(targetRtdbKey);
+      DatabaseEvent? rtdbSnap;
+      try {
+        rtdbSnap = await rtdbRef.once().timeout(const Duration(seconds: 8));
+      } catch (e) {
+        print("RTDB check error: $e");
+      }
+
+      if (rtdbSnap == null || !rtdbSnap.snapshot.exists) {
+        // ถ้ายังไม่มี node ใน RTDB ให้สร้างใหม่
+        await rtdbRef.set({
+          'name': _shuttleName,
+          'number': _shuttleNumber ?? '1',
+          'status': 'offline',
+          'lat': 16.82753,
+          'lng': 100.20686,
+          'driver_name': driverName,
+          'driver_avatar': driverAvatar,
+          'driver_uid': user.uid,
+        });
+      } else {
+        // ถ้ามี node ใน RTDB แล้ว ให้อัปเดตข้อมูลคนขับล่าสุด
+        await rtdbRef.update({
+          'driver_name': driverName,
+          'driver_avatar': driverAvatar,
+          'driver_uid': user.uid,
+          if (_shuttleName != null) 'name': _shuttleName,
+          if (_shuttleNumber != null) 'number': _shuttleNumber,
+        });
+      }
+
+      if (mounted) {
+        setState(() {
+          _shuttleDocId = targetRtdbKey;
+        });
+        _listenToChatMessages(); // ✨ เริ่มฟังเสียงแจ้งเตือนข้อความแชทใหม่
+
+        // ตั้งค่า onDisconnect เพื่อให้เปลี่ยนเป็น offline เมื่อหลุดการเชื่อมต่อ
+        rtdbRef.child('status').onDisconnect().set('offline');
+
+        // ✨ เริ่มฟังเอกสารรถคันนี้ เพื่อคอยอัปเดตสถานะแบบ Real-time ให้สีหมุดเปลี่ยนตาม
+        myShuttleSubscription = rtdbRef.onValue.listen((event) {
+          if (event.snapshot.exists && mounted) {
+            final data = event.snapshot.value as Map<dynamic, dynamic>;
+            if (data.containsKey('passenger_status')) {
+              setState(() {
+                _currentPassengerStatus = data['passenger_status']
+                    .toString();
               });
-              docId = newRef.key;
             }
           }
-
-          if (docId != null) {
-            setState(() {
-              _shuttleDocId = docId;
-            });
-            _listenToChatMessages(); // ✨ เริ่มฟังเสียงแจ้งเตือนข้อความแชทใหม่
-
-            // ✨ บันทึกชื่อและรูป Avatar คนขับลงในเอกสารรถเพื่อให้หน้านักศึกษาดึงไปแสดงผล
-            final driverName = userDoc.data()?['name'] ?? 'คนขับรถประจำคัน';
-            final driverAvatar =
-                userDoc.data()?['avatar'] ?? 'assets/images/man1.png';
-
-            final shuttleRef = FirebaseDatabase.instance
-                .ref('shuttles')
-                .child(docId);
-            await shuttleRef.update({
-              'driver_name': driverName,
-              'driver_avatar': driverAvatar,
-              'driver_uid': user.uid,
-            });
-
-            // ตั้งค่า onDisconnect เพื่อให้เปลี่ยนเป็น offline เมื่อหลุดการเชื่อมต่อ
-            shuttleRef.child('status').onDisconnect().set('offline');
-
-            // ✨ เริ่มฟังเอกสารรถคันนี้ เพื่อคอยอัปเดตสถานะแบบ Real-time ให้สีหมุดเปลี่ยนตาม
-            myShuttleSubscription = shuttleRef.onValue.listen((event) {
-              if (event.snapshot.exists && mounted) {
-                final data = event.snapshot.value as Map<dynamic, dynamic>;
-                if (data.containsKey('passenger_status')) {
-                  setState(() {
-                    _currentPassengerStatus = data['passenger_status']
-                        .toString();
-                  });
-                }
-              }
-            }, onError: (e) => print("RTDB Error (shuttles doc): $e"));
-          }
-        }
+        }, onError: (e) => print("RTDB Error (shuttles doc): $e"));
       }
 
       // ✨ เริ่มฟังสัญญาณรถทุกคัน เพื่อนำมาแสดงจุดบนแผนที่ให้คนขับเห็นกันเอง
@@ -801,6 +874,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     }
 
     if (_shuttleDocId == null) {
+      await _fetchDriverShuttle();
+    }
+
+    if (_shuttleDocId == null) {
       TopToast.show(
         context,
         '⚠️ ไม่พบข้อมูลรถของคุณ (การเชื่อมต่อฐานข้อมูลล้มเหลว) กรุณารีสตาร์ทแอป',
@@ -1202,17 +1279,19 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               }
             }
 
-            // ✨ อัปเดตรายชื่อจุดลงรถของคนที่อยู่บนรถ (on_board)
+            // ✨ อัปเดตรายชื่อจุดลงรถและนับจำนวนคนที่ลงแต่ละป้าย (ทั้งคนที่อยู่บนรถ และคนที่เรียกรถอยู่)
             final Set<String> dropOffStops = {};
+            final Map<String, int> dropOffCounts = {};
             for (var doc in docs) {
               final data = doc.data();
-              if (data['status'] == 'on_board' &&
-                  data.containsKey('dropoff_stop') &&
-                  data['dropoff_stop'] != null) {
-                dropOffStops.add(data['dropoff_stop']);
+              if (data.containsKey('dropoff_stop') &&
+                  data['dropoff_stop'] != null &&
+                  data['dropoff_stop'].toString().trim().isNotEmpty) {
+                final String dStop = data['dropoff_stop'].toString().trim();
+                dropOffStops.add(dStop);
+                dropOffCounts[dStop] = (dropOffCounts[dStop] ?? 0) + 1;
               }
             }
-            _activeDropOffStops = dropOffStops;
 
             // ✨ ค้นหาคำขอที่มีสถานะ 'waiting' เพื่อเป็นป้ายหลัก (active)
             QueryDocumentSnapshot? activeDoc;
@@ -1249,6 +1328,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               }
 
               setState(() {
+                _activeDropOffStops = dropOffStops;
+                _dropOffCounts = dropOffCounts;
                 waitingStudentsList = students;
                 waitingStudentStop = targetStop;
                 activeRequestIds = targetIds;
@@ -1256,8 +1337,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 currentRequestStatus = 'waiting';
               });
             } else {
-              // ถ้าไม่มีคำขอ waiting เลย (อาจจะ acknowledged หมดแล้ว)
+              // ถ้าไม่มีคำขอ waiting เลย (อาจจะ acknowledged หรือ on_board หมดแล้ว)
               setState(() {
+                _activeDropOffStops = dropOffStops;
+                _dropOffCounts = dropOffCounts;
                 waitingStudentsList = students;
                 waitingStudentStop = null;
                 activeRequestIds = [];
@@ -1266,7 +1349,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               });
             }
           } else {
+            // เมื่อนักศึกษาลงรถเสร็จสิ้น/ลบคำขอออกจาก Firestore ทั้งหมด
             setState(() {
+              _activeDropOffStops = {};
+              _dropOffCounts = {};
               waitingStudentsList = [];
               waitingStudentStop = null;
               activeRequestIds = [];
@@ -1545,7 +1631,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             index: _selectedIndex,
             children: [
               _buildMapScreen(), // หน้าแผนที่ (หน้า 0)
-              const DriverStatusScreen(), // ✨ หน้าสถานะรถ (หน้า 1)
+              DriverStatusScreen(shuttleDocId: _shuttleDocId), // ✨ หน้าสถานะรถ (หน้า 1)
               DriverChatScreen(
                 shuttleDocId: _shuttleDocId ?? _shuttleNumber ?? '1',
                 shuttleName: _shuttleName ?? 'Shuttle #01',
@@ -1627,26 +1713,46 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
               MarkerLayer(
                 markers: [
-                  // ✨ แสดงป้ายจอดแบบยุบกลุ่มจุดจอดที่อยู่ใกล้กัน (เหมือนฝั่งนักศึกษา)
+                  // ✨ แสดงป้ายจอดแบบยุบกลุ่มจุดจอดที่อยู่ใกล้กัน (พร้อมแสดงจุดหมายนักศึกษาเป็นสีเขียว)
                   ..._visualStops.map((vStop) {
-                    bool isSelected = false;
+                    final String name = (vStop['name'] ?? '').toString();
+                    bool isPickupSelected = false;
+                    bool isDropoffSelected = false;
+                    int dropoffCount = 0;
+
                     if (vStop['isGroup'] == true) {
-                      isSelected = (vStop['members'] as List).any(
+                      final members = vStop['members'] as List;
+                      isPickupSelected = members.any(
                         (m) => m['name'] == waitingStudentStop,
                       );
+                      for (var m in members) {
+                        final String mName = (m['name'] ?? '').toString();
+                        if (_activeDropOffStops.contains(mName)) {
+                          isDropoffSelected = true;
+                          dropoffCount += (_dropOffCounts[mName] ?? 0);
+                        }
+                      }
                     } else {
-                      isSelected = waitingStudentStop == vStop['name'];
+                      isPickupSelected = (waitingStudentStop == name);
+                      if (_activeDropOffStops.contains(name)) {
+                        isDropoffSelected = true;
+                        dropoffCount = (_dropOffCounts[name] ?? 0);
+                      }
                     }
 
+                    final bool isHighlighted = isPickupSelected || isDropoffSelected;
+
                     return Marker(
-                      key: ValueKey('stop_${vStop['name']}'),
+                      key: ValueKey('stop_${name}'),
                       point: LatLng(vStop['lat'], vStop['lng']),
-                      width: isSelected ? 150 : 130,
-                      height: isSelected ? 75 : 65,
+                      width: isHighlighted ? 150 : 130,
+                      height: isHighlighted ? 80 : 65,
                       child: RepaintBoundary(
                         child: _buildStopMarker(
-                          isSelected: isSelected,
-                          name: vStop['name'] ?? '',
+                          name: name,
+                          isPickupSelected: isPickupSelected,
+                          isDropoffSelected: isDropoffSelected,
+                          dropoffCount: dropoffCount,
                         ),
                       ),
                     );
@@ -2317,46 +2423,122 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildStopMarker({required bool isSelected, required String name}) {
+  Widget _buildStopMarker({
+    required String name,
+    required bool isPickupSelected,
+    required bool isDropoffSelected,
+    int dropoffCount = 0,
+  }) {
+    final bool isHighlighted = isPickupSelected || isDropoffSelected;
+
+    // กำหนดสีตามสถานะ: ป้ายลงรถเป็นสีเขียวเข้ม #176a21 / ป้ายขึ้นรถเป็นสีส้ม #F28522
+    Color pinBgColor = Colors.white;
+    Color pinBorderColor = const Color(0xFF757778);
+    Color pinIconColor = const Color(0xFF757778);
+    Color labelBgColor = Colors.white;
+    Color labelTextColor = const Color(0xFF2C2F30);
+    Color labelBorderColor = const Color(0xFF176a21);
+    IconData iconData = Icons.hail;
+
+    if (isDropoffSelected) {
+      pinBgColor = const Color(0xFF176a21);
+      pinBorderColor = Colors.white;
+      pinIconColor = Colors.white;
+      labelBgColor = const Color(0xFF176a21);
+      labelTextColor = Colors.white;
+      labelBorderColor = Colors.white;
+      iconData = Icons.location_on;
+    } else if (isPickupSelected) {
+      pinBgColor = const Color(0xFFF28522);
+      pinBorderColor = Colors.white;
+      pinIconColor = Colors.white;
+      labelBgColor = const Color(0xFFF28522);
+      labelTextColor = Colors.white;
+      labelBorderColor = Colors.white;
+      iconData = Icons.hail;
+    }
+
     return Stack(
       clipBehavior: Clip.none,
       alignment: Alignment.center,
       children: [
         // หมุดไอคอนจุดจอด (อยู่ตรงกลาง LatLng พอดีเป๊ะ)
         Container(
-          width: isSelected ? 34 : 28,
-          height: isSelected ? 34 : 28,
+          width: isHighlighted ? 34 : 28,
+          height: isHighlighted ? 34 : 28,
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF176a21) : Colors.white,
+            color: pinBgColor,
             shape: BoxShape.circle,
             border: Border.all(
-              color: isSelected ? Colors.white : const Color(0xFF757778),
-              width: isSelected ? 2.5 : 1,
+              color: pinBorderColor,
+              width: isHighlighted ? 2.5 : 1,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(isSelected ? 0.3 : 0.1),
-                blurRadius: isSelected ? 6 : 3,
+                color: isDropoffSelected
+                    ? const Color(0xFF176a21).withOpacity(0.5)
+                    : (isPickupSelected
+                        ? const Color(0xFFF28522).withOpacity(0.5)
+                        : Colors.black.withOpacity(0.1)),
+                blurRadius: isHighlighted ? 8 : 3,
+                spreadRadius: isHighlighted ? 2 : 0,
                 offset: const Offset(0, 2),
               ),
             ],
           ),
           child: Icon(
-            Icons.hail,
-            color: isSelected ? Colors.white : const Color(0xFF757778),
-            size: isSelected ? 18 : 15,
+            iconData,
+            color: pinIconColor,
+            size: isHighlighted ? 18 : 15,
           ),
         ),
+
+        // ป้ายแสดงจำนวนคนลงรถ (ถ้ามีนักศึกษาระบุลงป้ายนี้)
+        if (isDropoffSelected && dropoffCount > 0)
+          Positioned(
+            top: -24,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF176a21),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white, width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.person_pin_circle, color: Colors.white, size: 12),
+                  const SizedBox(width: 2),
+                  Text(
+                    'ลง $dropoffCount คน',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
         // ป้ายชื่อจุดจอดรถ (ลอยอยู่ด้านบน)
         Positioned(
-          bottom: isSelected ? 48 : 40,
+          bottom: isHighlighted ? 48 : 40,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFF176a21) : Colors.white,
+              color: labelBgColor,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: isSelected ? Colors.white : const Color(0xFF176a21),
+                color: labelBorderColor,
                 width: 1.5,
               ),
               boxShadow: [
@@ -2370,9 +2552,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             child: Text(
               name,
               style: TextStyle(
-                fontSize: isSelected ? 11 : 10,
+                fontSize: isHighlighted ? 11 : 10,
                 fontWeight: FontWeight.bold,
-                color: isSelected ? Colors.white : const Color(0xFF2C2F30),
+                color: labelTextColor,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
