@@ -180,12 +180,16 @@ final List<List<LatLng>> shuttleRoutes = [
     const LatLng(16.82868940, 100.21206010),
     const LatLng(16.82888520, 100.21191690),
   ],
+
+  // Segment 11 (เส้นทางอัปเดตใหม่)
   [
-    const LatLng(16.82912010, 100.21173570),
-    const LatLng(16.82887120, 100.21140550),
-    const LatLng(16.82857190, 100.21101690),
-    const LatLng(16.82810600, 100.21040910),
+    const LatLng(16.82811100, 100.21041050),
+    const LatLng(16.82836140, 100.21073800),
+    const LatLng(16.82857350, 100.21101740),
+    const LatLng(16.82888380, 100.21142390),
+    const LatLng(16.82912120, 100.21173690),
   ],
+
   // Segment 9
   [
     const LatLng(16.82911870, 100.21173270),
@@ -204,22 +208,6 @@ final List<List<LatLng>> shuttleRoutes = [
     const LatLng(16.82888610, 100.21191320),
     const LatLng(16.82835480, 100.21123790),
     const LatLng(16.82857170, 100.21101810),
-  ],
-  // Segment 11
-  [
-    const LatLng(16.82836030, 100.21073650),
-    const LatLng(16.82828450, 100.21078650),
-    const LatLng(16.82819290, 100.21082810),
-    const LatLng(16.82811310, 100.21085940),
-    const LatLng(16.82803340, 100.21087810),
-    const LatLng(16.82794970, 100.21088020),
-    const LatLng(16.82786790, 100.21086980),
-    const LatLng(16.82778420, 100.21083950),
-    const LatLng(16.82771650, 100.21080720),
-    const LatLng(16.82763990, 100.21075020),
-    const LatLng(16.82758690, 100.21071020),
-    const LatLng(16.82753090, 100.21062560),
-    const LatLng(16.82787260, 100.21034620),
   ],
   // Segment 12
   [
@@ -240,43 +228,44 @@ final List<List<LatLng>> shuttleRoutes = [
     const LatLng(16.82764580, 100.20672220),
     const LatLng(16.82772560, 100.20665560),
     const LatLng(16.82789970, 100.20651070),
-    const LatLng(16.82835000, 100.20612730),
-    const LatLng(16.82847530, 100.20602360),
-    const LatLng(16.82851210, 100.20598750),
   ],
-  // Segment 13 (Updated Roundabout)
+  // Segment 13 (ขาเข้า อาคารทีปวิชญ์ - Red Line)
   [
-    const LatLng(16.82851540, 100.20598310),
-    const LatLng(16.82803520, 100.20534820),
-    const LatLng(16.82819960, 100.20520710),
-    const LatLng(16.82836620, 100.20506350),
-    const LatLng(16.82842520, 100.20501330),
-    const LatLng(16.82848360, 100.20497020),
-    const LatLng(16.82850790, 100.20497270),
-    const LatLng(16.82863050, 100.20503620),
-    const LatLng(16.82873300, 100.20503620),
-    const LatLng(16.82881540, 100.20501640),
-    const LatLng(16.82884460, 100.20503080),
-    const LatLng(16.82914190, 100.20546950),
-    const LatLng(16.82904120, 100.20556670),
-    const LatLng(16.8290922, 100.2056497),
-    const LatLng(16.8291101, 100.2057965),
-    const LatLng(16.8290778, 100.2058926),
-    const LatLng(16.8289818, 100.2059973),
-    const LatLng(16.828896, 100.2060338),
-    const LatLng(16.8287707, 100.206031),
-    const LatLng(16.828685, 100.2059894),
-    const LatLng(16.8286088, 100.2059091),
-    const LatLng(16.828518, 100.2059848),
+    const LatLng(16.8278942, 100.2065133),
+    const LatLng(16.8285182, 100.2059854),
+    const LatLng(16.8280335, 100.2053533),
+    const LatLng(16.8284791, 100.2049708),
+    const LatLng(16.8285056, 100.2049708),
+    const LatLng(16.8286266, 100.2050358),
+    const LatLng(16.8287326, 100.2050370),
   ],
-  // Segment 16
+  // Segment 14 (ขาออก อาคารทีปวิชญ์ -> วงเวียน -> หอประชุมศรีวชิรโชติ - Blue Line Part 1)
   [
-    const LatLng(16.82847710, 100.20601810),
-    const LatLng(16.82894970, 100.20675130),
-    const LatLng(16.82924790, 100.20721310),
-    const LatLng(16.82915040, 100.20727850),
-    const LatLng(16.82883760, 100.20683010),
-    const LatLng(16.82834880, 100.20612640),
+    const LatLng(16.8286828, 100.2050371),
+    const LatLng(16.8287322, 100.2050371),
+    const LatLng(16.8288146, 100.2050164),
+    const LatLng(16.8288431, 100.2050314),
+    const LatLng(16.8291442, 100.2054685),
+    const LatLng(16.8290421, 100.2055660),
+    const LatLng(16.8290924, 100.2056503),
+    const LatLng(16.8291100, 100.2057962),
+    const LatLng(16.8290785, 100.2058910),
+    const LatLng(16.8289830, 100.2059967),
+    const LatLng(16.8288941, 100.2060336),
+    const LatLng(16.8287701, 100.2060300),
+    const LatLng(16.8286845, 100.2059882),
+    const LatLng(16.8286106, 100.2059092),
+    const LatLng(16.8284757, 100.2060200),
+    const LatLng(16.8286878, 100.2063453),
+    const LatLng(16.8289481, 100.2067499),
+    const LatLng(16.8292465, 100.2072120),
+    const LatLng(16.8293284, 100.2073433),
+  ],
+  // Segment 15 (เพิ่มเส้นทางออกจากวงเวียนลงใต้ ตามเส้นสีน้ำเงิน)
+  [
+    const LatLng(16.8284757, 100.2060200), // จุดขอบวงเวียนด้านใต้ (เชื่อมจาก Segment 14)
+    const LatLng(16.8283489, 100.2061277),
+    const LatLng(16.82789970, 100.20651070), // ✨ วิ่งกลับมาบรรจบที่ทางแยกหลัก (ต่อกับ Segment 12)
   ],
   // Segment 17
   [
@@ -319,5 +308,13 @@ final List<List<LatLng>> shuttleRoutes = [
   [
     const LatLng(16.82924650, 100.20720980),
     const LatLng(16.82932810, 100.20734120),
+  ],
+  // Segment 23 (เพิ่มกลับตาม GeoJSON ล่าสุด)
+  [
+    const LatLng(16.82925150, 100.20720840),
+    const LatLng(16.82914860, 100.20727960),
+    const LatLng(16.82899790, 100.20706090),
+    const LatLng(16.82883400, 100.20682760),
+    const LatLng(16.82834990, 100.20612490),
   ],
 ];

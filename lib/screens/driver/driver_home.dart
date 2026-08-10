@@ -701,12 +701,6 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   Future<void> _logout() async {
     _alertPlayer.dispose(); // ✨ คืนหน่วยความจำ
 
-    // ✨ หยุดการติดตามและปิด Stream ทั้งหมดก่อน Logout เพื่อป้องกัน Error: Permission Denied
-    _stopTracking();
-    _chatNotificationSub?.cancel();
-    myShuttleSubscription?.cancel();
-    allShuttlesSubscription?.cancel();
-
     if (_shuttleDocId != null) {
       FirebaseDatabase.instance
           .ref('shuttles')
@@ -715,9 +709,19 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           .catchError((e) => print(e));
     }
 
-    await FirebaseAuth.instance.signOut();
+    // 1. พาผู้ใช้กลับไปหน้า Login ทันที (เพื่อให้ Navigator ทำลาย Widget ปัจจุบันและปิด Stream ย่อยทั้งหมดในแอปอัตโนมัติ)
     if (mounted) {
       Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+    }
+    
+    // 2. หน่วงเวลา 500ms เพื่อให้กระบวนการเปลี่ยนหน้าและ Dispose ทำงานเสร็จสิ้น ป้องกัน Firebase Error / แอปค้าง
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    // 3. ออกจากระบบ (กำหนดเวลา Timeout กันแอปค้างถ้าเน็ตหลุด)
+    try {
+      await FirebaseAuth.instance.signOut().timeout(const Duration(seconds: 3));
+    } catch (e) {
+      debugPrint("Logout Error: $e");
     }
   }
 
@@ -776,8 +780,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       _lastVoiceAlertTime = now;
       _lastVoiceAlertStopName = stopName;
       try {
-        HapticFeedback.heavyImpact();
-        FlutterRingtonePlayer().playNotification(); // ✨ เสียงกระดิ่งแจ้งเตือน
+        if (!kIsWeb) {
+          HapticFeedback.heavyImpact(); // ✨ ระบบสั่นเมื่อมีการเรียกรถ
+        }
         await _alertPlayer.setVolume(1.0);
         await _alertPlayer.play(
           AssetSource('voice/glass_1.mp3'),
@@ -818,9 +823,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     if (!mounted || !isOnline) return;
 
     try {
-      HapticFeedback.heavyImpact();
-      FlutterRingtonePlayer()
-          .playNotification(); // ✨ เล่นเสียงกระดิ่งแจ้งเตือนจุดหมาย
+      if (!kIsWeb) {
+        HapticFeedback.heavyImpact(); // ✨ ระบบสั่นเมื่อถึงจุดหมาย
+      }
       await _alertPlayer.setVolume(1.0);
       await _alertPlayer.play(
         AssetSource('voice/glass_1.mp3'),
@@ -927,10 +932,16 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
     try {
       // 1. ดึงพิกัดล่าสุดในแคชเครื่องก่อน (Last Known Position) มักจะได้ผลทันทีโดยไม่ต้องรอสัญญาณดาวเทียม
-      Position? lastPos = await Geolocator.getLastKnownPosition(
-        forceAndroidLocationManager:
-            Theme.of(context).platform == TargetPlatform.android,
-      );
+      Position? lastPos;
+      try {
+        lastPos = await Geolocator.getLastKnownPosition(
+          forceAndroidLocationManager:
+              Theme.of(context).platform == TargetPlatform.android,
+        );
+      } catch (e) {
+        // Fallback for Web platform
+      }
+      
       if (lastPos != null) {
         LatLng lastLoc = _snapToRoute(
           LatLng(lastPos.latitude, lastPos.longitude),
@@ -1105,9 +1116,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 .reduce((a, b) => a > b ? a : b);
             if (maxOrder == 0) maxOrder = 23;
 
-            // ✨ Smart Window Routing: คาดการณ์ป้ายล่วงหน้า 8 ป้าย เพื่อรองรับกรณีขับข้ามป้าย (ลัดคิว)
+            // ✨ Strict Window Routing: คาดการณ์ป้ายล่วงหน้า 3 ป้ายเป็นหลัก
             List<int> upcomingStops = [];
-            for (int i = 0; i < 8; i++) {
+            for (int i = 0; i < 3; i++) {
               int nextOrder =
                   ((_currentTargetStopOrder - 1 + i) % maxOrder) + 1;
               upcomingStops.add(nextOrder);
@@ -1133,6 +1144,42 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                   detectedStopOrder = order;
                   detectedStopData = stop;
                 }
+              }
+            }
+
+
+            // ✨ ระบบกู้คืน (Smart Recovery Mode): ค้นหาจากทุกป้าย แต่จำกัดการกระโดดข้ามอย่างเข้มงวด
+            if (detectedStopOrder == -1) {
+              minDistance = 30.0;
+              for (var stop in busStops) {
+                int order = ((stop['order'] ?? 0) as num).toInt();
+                if (stop['lat'] != null && stop['lng'] != null) {
+                  final targetLoc = LatLng(stop['lat'], stop['lng']);
+                  final distanceToTarget = const Distance().distance(newLoc, targetLoc);
+                  
+                  if (distanceToTarget <= minDistance) {
+                    bool isAllowed = true;
+                    if (_lastPassedStopOrder != null) {
+                      int jump = order - _lastPassedStopOrder!;
+                      if (jump < 0) jump += maxOrder;
+                      
+                      // ✨ กฎเหล็ก: อนุญาตให้ข้ามได้สูงสุดแค่ 3 ป้ายเท่านั้น (เผื่อ GPS หลุดไป 1-2 ป้าย)
+                      // จะป้องกันการข้ามไกลๆ เช่น 12 ไป 18 (jump = 6) ซึ่งจะโดนบล็อกแน่นอน
+                      if (jump > 3 && jump < maxOrder - 3) {
+                        isAllowed = false;
+                      }
+                    }
+                    
+                    if (isAllowed) {
+                      minDistance = distanceToTarget;
+                      detectedStopOrder = order;
+                      detectedStopData = stop;
+                    }
+                  }
+                }
+              }
+              if (detectedStopOrder != -1) {
+                print("🔄 [Smart Recovery] กู้คืนพิกัด GPS โดยกระโดดไปป้ายที่ $detectedStopOrder");
               }
             }
 
@@ -1371,9 +1418,17 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         return;
       }
       _lastFirebaseUpdate = DateTime.now();
+      
+      // 1. เลี้ยงการเชื่อมต่อ Realtime Database
       FirebaseDatabase.instance.ref('shuttles').child(_shuttleDocId!).update({
         'last_updated': ServerValue.timestamp,
       });
+
+      // 2. ✨ เลี้ยงการเชื่อมต่อ Firestore (สำคัญมาก!) 
+      // ป้องกันบั๊กมือถือตัดการเชื่อมต่อ Firestore เมื่อเปิดทิ้งไว้นานๆ ทำให้ไม่เห็นคนเรียกรถ
+      FirebaseFirestore.instance.collection('shuttles_ping').doc(_shuttleDocId!).set({
+        'last_ping': FieldValue.serverTimestamp(),
+      }).catchError((e) => print("Firestore Ping Error: $e"));
     });
   }
 

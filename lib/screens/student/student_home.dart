@@ -50,6 +50,8 @@ class _StudentHomeState extends State<StudentHome>
   String?
   targetedShuttleId; // ✨ เก็บ ID ของรถคันที่ใกล้ที่สุดเพื่อส่งคำขอเจาะจง
   LatLng? _myLocation; // ✨ ตำแหน่งปัจจุบันของนักศึกษา
+  StreamSubscription<Position>?
+  _positionSubscription; // ✨ ฟังตำแหน่งแบบเรียลไทม์
 
   final MapController _mapController = MapController();
 
@@ -196,7 +198,7 @@ class _StudentHomeState extends State<StudentHome>
         });
   }
 
-  // ✨ ดึงตำแหน่งปัจจุบันของนักศึกษาแล้วซูมแผนที่ไป
+  // ✨ ดึงตำแหน่งปัจจุบันของนักศึกษาแล้วซูมแผนที่ไป พร้อมติดตามแบบ Real-time
   Future<void> _zoomToUserLocation() async {
     bool serviceEnabled;
     LocationPermission permission;
@@ -213,25 +215,50 @@ class _StudentHomeState extends State<StudentHome>
     if (permission == LocationPermission.deniedForever) return;
 
     try {
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10),
-      );
+      // 1. ดึงตำแหน่งล่าสุด (Last Known) เพื่อให้แอปโหลดตำแหน่งได้เร็วที่สุด (Instant Loading)
+      Position? lastPosition;
+      try {
+        lastPosition = await Geolocator.getLastKnownPosition();
+      } catch (e) {
+        // Fallback for Web platform where getLastKnownPosition is unsupported
+      }
 
-      if (mounted) {
-        final loc = LatLng(position.latitude, position.longitude);
+      if (lastPosition != null && mounted) {
+        final loc = LatLng(lastPosition.latitude, lastPosition.longitude);
         setState(() {
           _myLocation = loc;
         });
         _mapController.move(loc, 17.0);
 
-        // ✨ เช็คและแสดง Tutorial หลังจากซูมเสร็จ
         Future.delayed(const Duration(milliseconds: 1500), () {
-          if (mounted) {
-            _checkAndShowTutorial();
-          }
+          if (mounted) _checkAndShowTutorial();
         });
       }
+
+      // 2. ฟังการอัปเดตตำแหน่งแบบเรียลไทม์
+      _positionSubscription =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: 5, // อัปเดตเมื่อขยับ 5 เมตรขึ้นไป
+            ),
+          ).listen((Position position) {
+            if (mounted) {
+              final loc = LatLng(position.latitude, position.longitude);
+              setState(() {
+                _myLocation = loc;
+              });
+
+              // หากไม่มี Last Known Position ค่อยซูมครั้งแรกที่นี่
+              if (lastPosition == null) {
+                _mapController.move(loc, 17.0);
+                lastPosition = position;
+                Future.delayed(const Duration(milliseconds: 1500), () {
+                  if (mounted) _checkAndShowTutorial();
+                });
+              }
+            }
+          });
     } catch (e) {
       debugPrint("Error getting location: $e");
     }
@@ -566,22 +593,62 @@ class _StudentHomeState extends State<StudentHome>
   // ---------------------------------------------------------
   void _buildRouteGraph() {
     const distanceCalc = Distance();
+
+    Set<LatLng> endpoints = {};
     for (var segment in shuttleRoutes) {
+      if (segment.isNotEmpty) {
+        endpoints.add(segment.first);
+        endpoints.add(segment.last);
+      }
+    }
+
+    // ✨ กำหนด Segment ที่เป็น One-way (อ้างอิงจากจุดเริ่มต้นของ Segment)
+    // เพื่อป้องกันระบบคำนวณเส้นทางย้อนศร (เช่น ย้อนกลับไปใช้ทางลัด)
+    List<LatLng> oneWaySegments = [
+      const LatLng(
+        16.8278942,
+        100.2065133,
+      ), // Segment 13 (ขาเข้า อาคารทีปวิชญ์)
+      const LatLng(
+        16.8286828,
+        100.2050371,
+      ), // Segment 14 (ขาออก อาคารทีปวิชญ์ -> วงเวียน)
+      const LatLng(16.8284757, 100.2060200), // Segment 15 (วงเวียนลงใต้)
+      const LatLng(16.82925150, 100.20720840), // Segment 23 (ทางลัดลงใต้)
+    ];
+
+    for (var segment in shuttleRoutes) {
+      bool isOneWay = false;
+      if (segment.isNotEmpty) {
+        if (oneWaySegments.contains(segment.first)) {
+          isOneWay = true;
+        }
+      }
+      for (var point in segment) {
+        _routeGraph.putIfAbsent(point, () => []);
+      }
       for (int i = 0; i < segment.length - 1; i++) {
         final p1 = segment[i];
         final p2 = segment[i + 1];
-        _routeGraph.putIfAbsent(p1, () => []).add(p2);
-        _routeGraph.putIfAbsent(p2, () => []).add(p1);
+        _routeGraph[p1]!.add(p2);
+
+        // ถ้าไม่ใช่ One-way ให้เติมเส้นทางย้อนกลับเพื่อให้เป็น Undirected Graph
+        if (!isOneWay) {
+          _routeGraph[p2]!.add(p1);
+        }
       }
     }
 
     List<LatLng> allNodes = _routeGraph.keys.toList();
     for (int i = 0; i < allNodes.length; i++) {
       for (int j = i + 1; j < allNodes.length; j++) {
-        if (distanceCalc.distance(allNodes[i], allNodes[j]) <= 20.0) {
-          if (!_routeGraph[allNodes[i]]!.contains(allNodes[j])) {
-            _routeGraph[allNodes[i]]!.add(allNodes[j]);
-            _routeGraph[allNodes[j]]!.add(allNodes[i]);
+        if (endpoints.contains(allNodes[i]) ||
+            endpoints.contains(allNodes[j])) {
+          if (distanceCalc.distance(allNodes[i], allNodes[j]) <= 20.0) {
+            if (!_routeGraph[allNodes[i]]!.contains(allNodes[j])) {
+              _routeGraph[allNodes[i]]!.add(allNodes[j]);
+              _routeGraph[allNodes[j]]!.add(allNodes[i]);
+            }
           }
         }
       }
@@ -664,9 +731,26 @@ class _StudentHomeState extends State<StudentHome>
           curr = previous[curr];
         }
       }
+      
+      print("🚀 DEBUG: Path calculated length = ${path.length}");
+      if (path.isEmpty) {
+        print("🚀 DEBUG: Path is EMPTY between ${startNode.latitude},${startNode.longitude} and ${endNode.latitude},${endNode.longitude}");
+      }
 
       if (path.isNotEmpty) {
         if (i == 0) {
+          // ✨ ถ้าเส้นทางมีจุดต่อไป ให้เช็คว่ารถวิ่งเลย startNode มาหรือยัง
+          // ถ้าระยะจากรถไป node ถัดไป สั้นกว่าจาก startNode ไป node ถัดไป = รถวิ่งเลยมาแล้ว
+          if (path.length > 1) {
+            double distBusToNext = distanceCalc.distance(startLoc, path[1]);
+            double distStartNodeToNext = distanceCalc.distance(
+              path[0],
+              path[1],
+            );
+            if (distBusToNext <= distStartNodeToNext) {
+              path.removeAt(0); // ลบ startNode ที่อยู่ข้างหลังทิ้ง
+            }
+          }
           path.insert(0, startLoc);
         } else {
           if (fullPath.isNotEmpty && fullPath.last == path.first) {
@@ -803,16 +887,24 @@ class _StudentHomeState extends State<StudentHome>
     requestSubscription?.cancel();
     userSubscription?.cancel();
     shuttleSubscription?.cancel(); // ✨ ยกเลิกฟังตำแหน่งรถ
+    _positionSubscription?.cancel(); // ✨ ยกเลิกฟังตำแหน่งนักศึกษา
     super.dispose();
   }
 
   Future<void> _logout() async {
-    requestSubscription?.cancel();
-    userSubscription?.cancel();
-    shuttleSubscription?.cancel(); // ✨ ยกเลิกฟังตำแหน่งรถ
-    await FirebaseAuth.instance.signOut();
+    // 1. พาผู้ใช้กลับไปหน้า Login ทันที (เพื่อให้ Navigator ทำลาย Widget ปัจจุบันและปิด Stream ย่อยทั้งหมดในแอปอัตโนมัติ)
     if (mounted) {
       Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+    }
+
+    // 2. หน่วงเวลา 500ms เพื่อให้กระบวนการเปลี่ยนหน้าและ Dispose ทำงานเสร็จสิ้น ป้องกัน Firebase Error / แอปค้าง
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // 3. ออกจากระบบ (กำหนดเวลา Timeout กันแอปค้างถ้าเน็ตหลุด)
+    try {
+      await FirebaseAuth.instance.signOut().timeout(const Duration(seconds: 3));
+    } catch (e) {
+      debugPrint("Logout Error: $e");
     }
   }
 
@@ -966,47 +1058,114 @@ class _StudentHomeState extends State<StudentHome>
     const distanceCalc = Distance();
     double directDistToTarget = distanceCalc.distance(closestBusLoc, target);
 
-    // ✨ Smart Check: ถ้าพิกัดรถอยู่ใกล้กับป้ายเป้าหมายมาก (< 80 เมตร) หรือรถจอดอยู่ที่ป้ายแล้ว
-    // ให้ลากเส้นตรงไปยังป้ายทันที ไม่ต้องวนลูปป้าย 23 จุดรอบมหาวิทยาลัย
-    if (directDistToTarget <= 80.0) {
-      waypoints.add(target);
-      remainingStops = 0;
-    } else if (busStops.isNotEmpty) {
+    // ระบบ Smart Check แบบเก่าที่ใช้ระยะ 80m ถูกเอาออกไปเพื่อป้องกันไม่ให้รถตัดจบลัดคิว
+    if (busStops.isNotEmpty) {
       int maxOrder = busStops
           .map((s) => ((s['order'] ?? 0) as num).toInt())
           .reduce((a, b) => a > b ? a : b);
       if (maxOrder == 0) maxOrder = 23;
 
-      // ถ้าไม่มี last_passed_stop ให้หาป้ายที่รถอยู่ใกล้ที่สุดทางกายภาพมาใช้แทน order = 1
+      // ✨ Fix: ค้นหาป้ายที่อยู่ใกล้รถมากที่สุดในปัจจุบัน เพื่อใช้เป็นจุดเริ่มต้นของการลากเส้น
+      // ป้องกันปัญหารถวิ่งไปไกลแล้วแต่ last_passed_stop ในฐานข้อมูลยังไม่อัปเดต ซึ่งจะทำให้เส้นไฮไลท์ลากย้อนกลับไปมา (Zig-zag)
       int currentOrder = closestBusLastPassed ?? 1;
-      if (closestBusLastPassed == null && busStops.isNotEmpty) {
+      if (busStops.isNotEmpty) {
         double minStopDist = double.infinity;
+        int tempCurrentOrder = currentOrder;
         for (var stop in busStops) {
           LatLng sLoc = LatLng(stop['lat'], stop['lng']);
           double d = distanceCalc.distance(closestBusLoc, sLoc);
           if (d < minStopDist) {
             minStopDist = d;
-            currentOrder = ((stop['order'] ?? 1) as num).toInt();
+            tempCurrentOrder = ((stop['order'] ?? 1) as num).toInt();
           }
+        }
+
+        // ✨ ป้องกันปัญหาระยะกระจัดหลอก (เช่น รถอยู่ตรงทางแยก ป้าย 13 อยู่ใกล้กว่าป้าย 12 ในแนวเส้นตรง)
+        // ทำให้ระบบคิดว่ารถข้ามป้าย 12 ไปแล้ว ทั้งๆ ที่ยังไม่ถึง
+        if (closestBusLastPassed != null) {
+          int expectedNext = closestBusLastPassed + 1;
+          if (expectedNext > maxOrder) expectedNext -= maxOrder;
+
+          int stepsFromExpected = tempCurrentOrder - expectedNext;
+          if (stepsFromExpected < 0) stepsFromExpected += maxOrder;
+
+          // ✨ ถ้าระบบไปจับป้ายที่ "ผ่านไปแล้ว" หรืออยู่ข้างหลัง (stepsFromExpected > 11)
+          // ให้บังคับมุ่งหน้าไปที่ expectedNext เสมอ ห้ามวาดเส้นถอยหลังกลับไปหาป้ายเดิม
+          if (stepsFromExpected > 11) {
+            tempCurrentOrder = expectedNext;
+          } else {
+            int stepsAhead = tempCurrentOrder - closestBusLastPassed;
+            if (stepsAhead < 0) stepsAhead += maxOrder;
+
+            // ถ้าระบบคิดว่ารถกระโดดข้ามป้ายไปไกลกว่า 1 ป้าย (เช่นจาก 11 ไป 13)
+            if (stepsAhead > 1) {
+              // จะยอมให้ข้ามก็ต่อเมื่อรถอยู่ใกล้ป้ายนั้นจริงๆ (< 40 เมตร)
+              // ถ้าไม่ใช่ แสดงว่าเป็นระยะกระจัดหลอกตรงทางแยก ให้พิจารณากลับมาที่ป้ายถัดไปที่ควรจะไป (expectedNext)
+              if (minStopDist >= 40.0) {
+                // ✨ แต่จะกลับไปหา expectedNext ก็ต่อเมื่อมันไม่ได้อยู่ไกลเกินไป (< 200m)
+                // เพื่อป้องกันเคสที่ last_passed_stop ค้างเป็นค่าเก่ามากๆ
+                try {
+                  final expectedStop = busStops.firstWhere(
+                    (s) => s['order'] == expectedNext,
+                  );
+                  LatLng expectedLoc = LatLng(
+                    expectedStop['lat'],
+                    expectedStop['lng'],
+                  );
+                  if (distanceCalc.distance(closestBusLoc, expectedLoc) < 200.0) {
+                    tempCurrentOrder = expectedNext;
+                  }
+                } catch (_) {}
+              }
+            }
+          }
+        }
+
+        // ✨ ป้องกันปัญหา currentOrder กระโดดข้ามป้ายเป้าหมาย
+        int stepWithTemp = targetOrder - tempCurrentOrder;
+        if (stepWithTemp < 0) stepWithTemp += maxOrder;
+
+        int stepWithLastPassed = targetOrder - (closestBusLastPassed ?? 1);
+        if (stepWithLastPassed < 0) stepWithLastPassed += maxOrder;
+
+        // ✨ เช็คว่า stepWithTemp > 11 ด้วย เพื่อแยกระหว่าง "รถวิ่งเลยป้ายเป้าหมาย (step จะเป็น 20+)"
+        // กับ "ข้อมูล last_passed เก่าตกค้าง (step เป็น 1-3)"
+        if (stepWithTemp > stepWithLastPassed &&
+            stepWithTemp > 11 &&
+            closestBusLastPassed != null) {
+          currentOrder = closestBusLastPassed;
+        } else {
+          currentOrder = tempCurrentOrder;
         }
       }
 
       int stepCount = targetOrder - currentOrder;
       if (stepCount < 0) stepCount += maxOrder;
 
-      // ถ้าคำนวณได้ 0 หรือตรงจุดเป้าหมาย หรือระยะทางตรงใกล้มาก ให้ไปที่ target ทันที
-      if (stepCount == 0 || directDistToTarget < 120.0) {
+      // ถ้าคำนวณได้ 0 (คือป้ายเป้าหมายคือป้ายถัดไป) ให้ไปที่ target ทันที
+      if (stepCount == 0) {
         waypoints.add(target);
         remainingStops = 0;
+        
+        // ✨ Auto-Arrive System ย้ายมาไว้ตรงนี้
+        // จะปิดงานอัตโนมัติก็ต่อเมื่อ "ไม่มีป้ายให้ต้องไปก่อนหน้าแล้ว" (stepCount == 0) 
+        // และเข้าใกล้จุดหมายจริงๆ (< 15 เมตร)
+        if (isOnBoard && directDistToTarget <= 15.0) {
+          _handleAutoArrive();
+          return;
+        }
       } else {
-        // เพิ่ม intermediate stops เพื่อบังคับเส้นทางให้วิ่งตามลำดับป้าย
-        for (int i = 1; i < stepCount; i++) {
+        remainingStops =
+            stepCount; // ✨ อัปเดตจำนวนป้ายที่เหลือให้ตรงกับเส้นทางจริง
+        // ✨ บังคับให้เส้นทางต้องผ่านทุกป้าย (เริ่มที่ i = 0 เสมอ)
+        for (int i = 0; i < stepCount; i++) {
           int nextOrder = currentOrder + i;
           if (nextOrder > maxOrder) nextOrder -= maxOrder;
 
           try {
             final stop = busStops.firstWhere((s) => s['order'] == nextOrder);
             LatLng stopLoc = LatLng(stop['lat'], stop['lng']);
+
             waypoints.add(stopLoc);
           } catch (e) {
             // ข้ามถ้าไม่เจอป้าย
@@ -1042,20 +1201,6 @@ class _StudentHomeState extends State<StudentHome>
   }
 
   Future<void> _resetRideState() async {
-    LatLng? newLocationOverride;
-
-    // ✨ ถ้าเพิ่งลงจากรถ (isOnBoard เป็น true) ให้จำลองว่าตัวเราไปอยู่ที่จุดหมายแล้ว (สำหรับการเทสบนเว็บ)
-    if (isOnBoard && selectedDropOffName != null) {
-      try {
-        final stop = busStops.firstWhere(
-          (s) => s['name'] == selectedDropOffName,
-        );
-        newLocationOverride = LatLng(stop['lat'], stop['lng']);
-      } catch (e) {
-        // ข้ามถ้าหาป้ายไม่เจอ
-      }
-    }
-
     if (activeRequestId != null) {
       try {
         await FirebaseFirestore.instance
@@ -1079,10 +1224,6 @@ class _StudentHomeState extends State<StudentHome>
         selectedStopLatLng = null;
         estimatedArrivalText = null;
         highlightedPath.clear();
-
-        if (newLocationOverride != null) {
-          _myLocation = newLocationOverride;
-        }
       });
 
       // ✨ เลื่อนกล้องกลับมาที่ตำแหน่งของนักศึกษาเมื่อลงรถเสร็จสิ้น
@@ -1218,10 +1359,50 @@ class _StudentHomeState extends State<StudentHome>
     }
   }
 
+  Future<void> _handleAutoArrive() async {
+    // ✨ ถ้าเพิ่งลงจากรถ ให้จำลองว่าตัวเราไปอยู่ที่จุดหมายแล้ว (สำหรับการเทสบนเว็บ)
+    if (selectedDropOffName != null) {
+      try {
+        final stop = busStops.firstWhere(
+          (s) => s['name'] == selectedDropOffName,
+        );
+        if (mounted) {
+          setState(() {
+            _myLocation = LatLng(stop['lat'], stop['lng']);
+          });
+        }
+      } catch (e) {
+        // ข้ามถ้าหาป้ายไม่เจอ
+      }
+    }
+
+    // 1. ลบคำขอเรียกรถออกจาก Firestore ทันที เพื่อคืนคิวให้ระบบ
+    if (activeRequestId != null) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('ride_requests')
+            .doc(activeRequestId)
+            .delete();
+        activeRequestId = null;
+      } catch (e) {
+        print("Error deleting request during auto-arrive: $e");
+      }
+    }
+
+    // 2. ปิดสถานะการเดินทาง
+    if (mounted) {
+      setState(() {
+        isOnBoard = false;
+      });
+      // 3. เด้ง Popup ให้คะแนน
+      _showRatingDialog();
+    }
+  }
+
   Future<void> _toggleWaitState() async {
     if (isOnBoard) {
-      // ✨ ถ้านักศึกษาอยู่บนรถ และกดเสร็จสิ้น ให้เด้ง Popup ให้คะแนน
-      _showRatingDialog();
+      // ✨ ถ้านักศึกษาอยู่บนรถ และกดเสร็จสิ้น ให้เรียกใช้งาน Auto-Arrive แบบเดียวกัน
+      await _handleAutoArrive();
       return;
     }
 

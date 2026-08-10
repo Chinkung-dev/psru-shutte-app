@@ -454,6 +454,14 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                       ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Version 1.0.0', // ✨ เปลี่ยนเลขเวอร์ชันตรงนี้เวลามีอัปเดต
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade400,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 40),
