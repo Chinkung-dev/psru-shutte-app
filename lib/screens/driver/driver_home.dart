@@ -1116,9 +1116,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 .reduce((a, b) => a > b ? a : b);
             if (maxOrder == 0) maxOrder = 23;
 
-            // ✨ Strict Window Routing: คาดการณ์ป้ายล่วงหน้า 3 ป้ายเป็นหลัก
+            // ✨ Strict Window Routing: คาดการณ์ป้ายล่วงหน้า 1 ป้ายเป็นหลัก
             List<int> upcomingStops = [];
-            for (int i = 0; i < 3; i++) {
+            for (int i = 0; i < 1; i++) {
               int nextOrder =
                   ((_currentTargetStopOrder - 1 + i) % maxOrder) + 1;
               upcomingStops.add(nextOrder);
@@ -1153,6 +1153,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               minDistance = 30.0;
               for (var stop in busStops) {
                 int order = ((stop['order'] ?? 0) as num).toInt();
+                
+                // ✨ ป้องกันการ Spam ตรวจจับป้ายเดิมซ้ำๆ (jump = 0)
+                if (_lastPassedStopOrder != null && order == _lastPassedStopOrder) {
+                  continue;
+                }
+
                 if (stop['lat'] != null && stop['lng'] != null) {
                   final targetLoc = LatLng(stop['lat'], stop['lng']);
                   final distanceToTarget = const Distance().distance(newLoc, targetLoc);
@@ -1163,9 +1169,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                       int jump = order - _lastPassedStopOrder!;
                       if (jump < 0) jump += maxOrder;
                       
-                      // ✨ กฎเหล็ก: อนุญาตให้ข้ามได้สูงสุดแค่ 3 ป้ายเท่านั้น (เผื่อ GPS หลุดไป 1-2 ป้าย)
-                      // จะป้องกันการข้ามไกลๆ เช่น 12 ไป 18 (jump = 6) ซึ่งจะโดนบล็อกแน่นอน
-                      if (jump > 3 && jump < maxOrder - 3) {
+                      // ✨ กฎเหล็ก: อนุญาตให้ข้ามได้สูงสุดแค่ 1 ป้ายเท่านั้น
+                      // จะป้องกันการข้ามไกลๆ ซึ่งจะโดนบล็อกแน่นอน
+                      if (jump > 1 && jump < maxOrder - 1) {
                         isAllowed = false;
                       }
                     }

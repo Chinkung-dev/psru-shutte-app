@@ -40,6 +40,7 @@ class _StudentHomeState extends State<StudentHome>
   bool isAcknowledged = false; // ✨ เพิ่มสถานะเมื่อคนขับกดรับทราบแล้ว
   bool isOnBoard = false; // ✨ เพิ่มสถานะเมื่อนักศึกษาขึ้นรถแล้ว
   bool isCardMinimized = false; // ✨ ย่อการ์ดเหลือแค่ปุ่มเมื่อกดที่แผนที่
+  bool _isAutoArriving = false; // ✨ เช็คว่ากำลังนับถอยหลังปิดงานออโต้หรือไม่
   bool _isTutorialCardHidden =
       false; // ✨ ซ่อนการ์ดระหว่าง Tutorial ขั้นตอนที่ 4 เพื่อให้เห็นจุดจอดบนแผนที่ชัดเจน
   String? selectedStopName;
@@ -1149,8 +1150,8 @@ class _StudentHomeState extends State<StudentHome>
         
         // ✨ Auto-Arrive System ย้ายมาไว้ตรงนี้
         // จะปิดงานอัตโนมัติก็ต่อเมื่อ "ไม่มีป้ายให้ต้องไปก่อนหน้าแล้ว" (stepCount == 0) 
-        // และเข้าใกล้จุดหมายจริงๆ (< 15 เมตร)
-        if (isOnBoard && directDistToTarget <= 15.0) {
+        // และรถแจ้งว่าได้วิ่งผ่านป้ายเป้าหมายแล้ว (อ้างอิงจากระบบคนขับ)
+        if (isOnBoard && closestBusLastPassed == targetOrder) {
           _handleAutoArrive();
           return;
         }
@@ -1161,6 +1162,11 @@ class _StudentHomeState extends State<StudentHome>
         for (int i = 0; i < stepCount; i++) {
           int nextOrder = currentOrder + i;
           if (nextOrder > maxOrder) nextOrder -= maxOrder;
+
+          // 🚀 FIX: ป้องกันการวาดเส้นทางย้อนกลับไปหาป้ายที่เพิ่งวิ่งผ่านมาแล้ว
+          if (closestBusLastPassed != null && nextOrder == closestBusLastPassed) {
+            continue;
+          }
 
           try {
             final stop = busStops.firstWhere((s) => s['order'] == nextOrder);
@@ -1359,7 +1365,22 @@ class _StudentHomeState extends State<StudentHome>
     }
   }
 
-  Future<void> _handleAutoArrive() async {
+  Future<void> _handleAutoArrive({bool isManual = false}) async {
+    if (!isManual) {
+      if (_isAutoArriving) return;
+      _isAutoArriving = true;
+      
+      // หน่วงเวลา 5 วินาทีเมื่อถึงจุดหมาย
+      await Future.delayed(const Duration(seconds: 5));
+      
+      if (!mounted) return;
+      if (!isOnBoard) { // ถ้าผู้ใช้กดปิดเองไปแล้วระหว่างรอ 5 วิ
+        _isAutoArriving = false;
+        return; 
+      }
+      _isAutoArriving = false;
+    }
+
     // ✨ ถ้าเพิ่งลงจากรถ ให้จำลองว่าตัวเราไปอยู่ที่จุดหมายแล้ว (สำหรับการเทสบนเว็บ)
     if (selectedDropOffName != null) {
       try {
@@ -1402,7 +1423,7 @@ class _StudentHomeState extends State<StudentHome>
   Future<void> _toggleWaitState() async {
     if (isOnBoard) {
       // ✨ ถ้านักศึกษาอยู่บนรถ และกดเสร็จสิ้น ให้เรียกใช้งาน Auto-Arrive แบบเดียวกัน
-      await _handleAutoArrive();
+      await _handleAutoArrive(isManual: true);
       return;
     }
 
