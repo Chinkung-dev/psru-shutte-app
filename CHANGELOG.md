@@ -6,6 +6,18 @@
 
 ## 🆕 อัปเดตล่าสุด (Recent Updates)
 
+**อัปเดตระบบแจ้งเตือน (Push Notifications & Cloud Functions)**
+- **Firebase Cloud Messaging (FCM):** เพิ่มระบบ Push Notification เต็มรูปแบบสำหรับการแจ้งเตือนสถานะรถ (เรียกรถ, ยอมรับ, เปลี่ยนสถานะรถ) และข้อความแชทใหม่ ทำงานได้ทั้งตอนปิดแอป (Background) และใช้งานแอปอยู่ (Foreground/Heads-up) โดยนำระบบแจ้งเตือนแบบเก่า (In-App Dialog) ออกเพื่อลดความซ้ำซ้อน
+- **Firebase Cloud Functions (Backend Logic):** อัปเกรดเซิร์ฟเวอร์เป็น **Node.js 20 (1st Gen)** และเขียนสคริปต์ทำงานเบื้องหลัง:
+  - **`onRideRequestStatusChanged` (Firestore):** ยิงแจ้งเตือนเมื่อสถานะการเรียกรถเปลี่ยน (เช่น รถยอมรับคิวแล้ว)
+  - **`onChatAdded` (Firestore):** ยิงแจ้งเตือนเมื่อมีข้อความแชทใหม่จากคนขับถึงนักศึกษา
+  - **`onShuttleStatusChanged` (Realtime Database):** ตรวจจับการเปลี่ยนแปลงสถานะของรถรับส่งในโหนด `shuttles` (รถว่าง, รถเต็ม, พักเบรค, นอกเวลา) เพื่อยิง Push Notification แจ้งเตือนนักศึกษาทุกคนที่สนใจแบบ Real-time ทันทีที่มีการสลับสถานะ
+  - **Firebase Admin SDK v13 Fix:** แก้ไขปัญหา Push Notification ไม่ทำงาน (Crash) ด้วยการปรับแก้ API จาก `sendToDevice` (Deprecated) เป็น `send()` และ `sendEachForMulticast()` ตามมาตรฐานล่าสุดของ Firebase Admin SDK
+- **User Experience (UX) & Permissions:** ปรับปรุง Flow การขอสิทธิ์การแจ้งเตือน (`requestPermission`) ให้ทำงาน **เฉพาะหลังจากที่นักศึกษาล็อกอินเข้าสู่ระบบสำเร็จแล้วเท่านั้น** เพื่อเพิ่มความเป็นมิตรต่อผู้ใช้งาน (ไม่รบกวนตั้งแต่หน้าแรก) พร้อมรองรับ Web VAPID Key สำหรับการทำงานบนเว็บเบราว์เซอร์
+- **Android Build & Dependency Fixes:**
+  - แก้ไขปัญหา Build Error `checkDebugAarMetadata` ที่เกิดจากแพ็กเกจ `flutter_local_notifications` โดยเปิดใช้งาน **Core Library Desugaring** ใน `build.gradle` และอัปเกรด `desugar_jdk_libs` เป็น `2.1.4` เพื่อรองรับ Java 8+ Features
+  - แก้ไขปัญหาการ Deploy Cloud Functions ไม่ผ่านเนื่องจากความขัดแย้งของ Dependency โดยล็อกเวอร์ชัน `firebase-admin@13.10.0` และ `firebase-functions@7.3.2` ให้ทำงานสอดคล้องกับ `firebase-functions-test` ได้อย่างสมบูรณ์
+
 **อัปเดตระบบเส้นทางและ GPS (Routing & GPS Optimization)**
 - **Smart Hybrid Routing (Driver App):** ปรับจูนระบบฝั่งคนขับให้บังคับใช้ **Lookahead Window คาดการณ์ล่วงหน้า 3 ป้าย** เป็นหลัก พร้อมกำหนดกฎเหล็กให้ **Recovery Mode ห้ามกระโดดข้ามเกิน 3 ป้าย** (แก้ไขปัญหา GPS คลาดเคลื่อนแล้วทำให้สถานะกระโดดข้ามจากป้าย 12 ไป 18 ในบริเวณทางแยก)
 - **Auto-Arrive System (Student App):** ปรับปรุงระบบปิดงานเรียกรถอัตโนมัติ โดยรถจะต้องเดินทางมาถึง "ป้ายเป้าหมายสุดท้ายจริง ๆ" (`stepCount == 0`) และมีระยะห่างน้อยกว่า 15 เมตรเท่านั้น ถึงจะปิดงาน ป้องกันระบบปิดงานก่อนกำหนดเมื่อรถขับผ่านป้ายเป้าหมายในรอบก่อนหน้า
@@ -162,6 +174,26 @@ $$t = \frac{\vec{AP} \cdot \vec{AB}}{|\vec{AB}|^2} = \frac{(p_x - a_x)(b_x - a_x
 
 ---
 
+### 6. ☁️ สถาปัตยกรรมคลาวด์ฟังก์ชันและการแจ้งเตือน (Cloud Functions & Push Notifications)
+
+> [!TIP]
+> ระบบแจ้งเตือน Notification ในโปรเจกต์นี้ใช้ **Firebase Cloud Functions** เป็น Backend ประมวลผลกลาง เพื่อให้ส่งแจ้งเตือนข้ามแพลตฟอร์มได้อย่างเสถียรและเป็นระบบอัตโนมัติ 
+
+1. **Firestore Triggers (Event-Driven Backend):**
+   - **ระบบเรียกรถ (`ride_requests`):** คลาวด์ฟังก์ชันตั้ง Trigger `onUpdate` คอยเฝ้าระวังเมื่อสถานะเปลี่ยนแปลง เช่น เมื่อคนขับกดยอมรับ (`acknowledged`) หรือเมื่อคนขับยกเลิกงาน ระบบจะดึง `fcmToken` ของนักศึกษาจากคอลเล็กชัน `users` แล้วสั่งยิง Push Notification แจ้งเตือนสถานะรถทันที
+   - **ระบบแชท (`chats`):** คลาวด์ฟังก์ชันตั้ง Trigger `onCreate` ดักจับเมื่อมีข้อความแชทใหม่ หากข้อความถูกส่งจากคนขับไปยังนักศึกษา ระบบจะดึง token แล้วยิงแจ้งเตือน Notification ไปยังหน้าจอมือถือนักศึกษาโดยอัตโนมัติ
+2. **การทำงานเบื้องหลัง (Background vs Foreground):**
+   - ใช้ **Firebase Cloud Messaging (FCM)** ในการยิงข้อความผ่านโครงข่ายของ Google/Apple
+   - เมื่อข้อความมาถึงแอปในขณะที่แอปถูกปิด (Background) ระบบ OS จะนำไปแสดงที่ Notification Center หรือหน้าจอล็อก (Lock Screen) ทันที
+   - เมื่อข้อความมาถึงขณะที่เปิดแอปอยู่ (Foreground) แพ็กเกจ `flutter_local_notifications` จะเข้ามาทำหน้าที่สร้างป๊อปอัปแจ้งเตือน (Heads-up Notification) ลอยเหนือหน้าจอแอปแบบอัตโนมัติ
+
+> 💡 **สรุปแบบเข้าใจง่าย (สำหรับบุคคลทั่วไป / ไม่ใช่สายไอที):**  
+> เปรียบเหมือน **"โอเปอเรเตอร์อัตโนมัติ 24 ชั่วโมง"**
+> - ในระบบแบบเก่า ถ้าคนขับจะบอกนักศึกษาว่า "กำลังไปรับนะ" มือถือคนขับจะต้องออกแรงส่งข้อมูลไปหามือถือนักศึกษาเอง (ซึ่งอาจล้มเหลวถ้าเน็ตฝั่งคนขับหลุด)
+> - ระบบใหม่นี้ เราสร้าง **"หุ่นยนต์บนคลาวด์" (Cloud Functions)** ให้นั่งเฝ้าฐานข้อมูลกลาง เมื่อไหร่ก็ตามที่หุ่นยนต์เห็นว่าคนขับกดรับงาน มันจะทำหน้าที่ชงเรื่องและส่งข้อความ Push เด้งไปหามือถือนักศึกษาด้วยตัวเองทันที ทำให้ระบบมีความแม่นยำและเสถียรระดับสากล
+
+---
+
 ## 🛠️ โครงสร้างไฟล์ในโปรเจกต์ (Project Directory Structure)
 
 ```
@@ -235,6 +267,8 @@ dart run flutter_launcher_icons
 - **`firebase_database` (^11.3.1)**: จัดการเชื่อมต่อและฟังการเปลี่ยนแปลงพิกัดตำแหน่งรถแบบ Real-time บน RTDB
 - **`firebase_auth` (^5.5.1)**: บริการล็อกอิน, สมัครสมาชิก, เปลี่ยนรหัสผ่าน และจัดการ Auth Session
 - **`firebase_storage` (^12.4.4)**: อัปโหลดและดึง URL รูปภาพโปรไฟล์และรูปภาพห้องแชท
+- **`firebase_messaging` (^15.x)**: รับส่งและจัดการข้อความ Push Notification จากเซิร์ฟเวอร์แบบเบื้องหลัง (Background)
+- **`flutter_local_notifications` (^17.x - 22.x)**: สร้างการแจ้งเตือนแบบ Heads-up ลอยบนหน้าจอเมื่อกำลังเปิดแอป (Foreground) และจัดการ Notification Channels ของระบบ OS
 
 #### 🗺️ แผนที่และคณิตศาสตร์ทางภูมิศาสตร์ (Map & Geographic Math Packages)
 - **`flutter_map` (^7.0.2)**: วิดเจ็ตแผนที่ OpenStreetMap แบบ Interactive รองรับการแสดงหมุด (Markers), เส้นโพลีไลน์ (Polylines), และการควบคุมกล้อง

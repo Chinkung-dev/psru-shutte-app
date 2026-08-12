@@ -717,10 +717,10 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    '${etaMinutes}m',
+                    '$etaMinutes นาที',
                     style: const TextStyle(
                       color: Color(0xFF176a21),
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),

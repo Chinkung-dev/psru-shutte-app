@@ -1495,7 +1495,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   Future<void> _triggerVoiceAlertForChat() async {
     try {
       HapticFeedback.heavyImpact();
-      FlutterRingtonePlayer().playNotification();
+      if (!kIsWeb) {
+        FlutterRingtonePlayer().playNotification();
+      }
       await _alertPlayer.setVolume(1.0);
       await _alertPlayer.play(AssetSource('voice/chat_sound.mp3'));
     } catch (e) {

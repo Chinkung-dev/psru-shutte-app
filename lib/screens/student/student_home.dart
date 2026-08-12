@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import '../../widgets/top_toast.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // ✨ สำหรับเช็ค kIsWeb
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,7 +15,7 @@ import 'student_profile.dart';
 import 'student_chat_list_screen.dart'; // ✨ Import หน้ารวมห้องแชท
 import 'student_live_status_screen.dart'; // ✨ Import หน้า Live Status
 import 'package:geolocator/geolocator.dart'; // ✨ เพิ่มเพื่อดึงตำแหน่งผู้ใช้
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'; // ✨ สำหรับแจ้งเตือนเสียงแชท
+import '../../services/notification_service.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/services.dart';
@@ -65,12 +66,6 @@ class _StudentHomeState extends State<StudentHome>
   List<Map<String, dynamic>> activeShuttles =
       []; // ✨ เก็บรายการรถที่กำลังออนไลน์
 
-  final Map<String, StreamSubscription<QuerySnapshot>> _chatSubscriptions =
-      {}; // ✨ จัดการตัวฟังแชทหลายห้อง
-  Map<String, dynamic>? _incomingChatNotification;
-  Timer? _chatNotificationTimer;
-  final AudioPlayer _chatAudioPlayer = AudioPlayer();
-  final Timestamp _chatListenerStartTime = Timestamp.now(); // ✨ เวลาเริ่มฟังแชท
   List<Map<String, dynamic>> busStops = [];
   bool _isLoadingStops = true;
 
@@ -152,12 +147,14 @@ class _StudentHomeState extends State<StudentHome>
     _buildRouteGraph();
     _listenToShuttles(); // ✨ เริ่มฟังตำแหน่งรถ
     _zoomToUserLocation(); // ✨ ดึงตำแหน่งผู้ใช้และซูมแผนที่
+    _setupPushNotifications(); // ✨ ตั้งค่า Push Notification
 
     // ✨ Setup animation controller for smooth marker movement (ตั้งเป็น 3200ms เพื่อให้สอดคล้องกับฝั่งคนขับที่ส่งข้อมูลทุก 3 วินาที ทำให้รถไหลลื่นตลอดเวลา)
     _markerAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 3200),
     );
+
     _markerAnimation =
         CurvedAnimation(
           parent: _markerAnimationController,
@@ -197,6 +194,25 @@ class _StudentHomeState extends State<StudentHome>
             });
           }
         });
+  }
+
+  Future<void> _setupPushNotifications() async {
+    final notificationService = NotificationService();
+    await notificationService.initialize(); // ✨ ขออนุญาตแจ้งเตือนเมื่อเปิดหน้าหลักนักศึกษา
+    String? token = await notificationService.getToken();
+    if (token != null) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        try {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+            'fcmToken': token,
+          }, SetOptions(merge: true));
+          debugPrint("FCM Token saved successfully");
+        } catch (e) {
+          debugPrint("Error saving FCM Token: $e");
+        }
+      }
+    }
   }
 
   // ✨ ดึงตำแหน่งปัจจุบันของนักศึกษาแล้วซูมแผนที่ไป พร้อมติดตามแบบ Real-time
@@ -334,24 +350,7 @@ class _StudentHomeState extends State<StudentHome>
             hasMeaningfulChange = true;
 
             // ✨ แจ้งเตือนถ้ารถเป้าหมายเปลี่ยนสถานะเป็นเต็มหรือพัก
-            if (targetedShuttleId == id &&
-                (isWaiting || isAcknowledged || selectedStopLatLng != null)) {
-              if (newPassengerStatus == 'full' &&
-                  oldPassengerStatus != 'full') {
-                TopToast.show(
-                  context,
-                  'แจ้งเตือน: รถรับส่งคันเป้าหมาย "ผู้โดยสารเต็ม" แล้วครับ',
-                  isError: true,
-                );
-              } else if (newPassengerStatus == 'break' &&
-                  oldPassengerStatus != 'break') {
-                TopToast.show(
-                  context,
-                  'แจ้งเตือน: รถรับส่งคันเป้าหมายกำลัง "พักเบรก" ครับ',
-                  isError: true,
-                );
-              }
-            }
+            // (ระบบถูกเปลี่ยนไปใช้ Push Notification ผ่าน Cloud Functions แล้ว จึงนำ TopToast ออก)
           }
 
           final targetLoc = _targetShuttleLocations[id];
@@ -404,8 +403,6 @@ class _StudentHomeState extends State<StudentHome>
           setState(() {
             activeShuttles = newShuttles;
           });
-          _syncChatListeners(); // ✨ ซิงค์ตัวฟังแชทเมื่อมีรถอัปเดต
-
           if (shouldAnimate) {
             // ✨ อัปเดตพิกัดเริ่มต้นใหม่ให้กับรถทุกคัน ป้องกันบั๊กหมุดเด้งถอยหลังเวลาอนิเมชันเริ่มใหม่กลางคัน
             for (var keyId in _targetShuttleLocations.keys) {
@@ -426,129 +423,6 @@ class _StudentHomeState extends State<StudentHome>
   }
 
   // ✨ ฟังข้อความแชทใหม่จากคนขับรถแบบ Real-time เพื่อส่งเสียงและแสดงป๊อปอัปแจ้งเตือน
-  void _syncChatListeners() {
-    final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
-
-    Set<String> targetShuttleKeys = {};
-    for (var bus in activeShuttles) {
-      final name = (bus['name'] ?? bus['id'] ?? '').toString();
-      final number = (bus['number'] ?? '').toString();
-      String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
-      if (cleanNum.isEmpty) {
-        cleanNum = name.replaceAll(RegExp(r'[^0-9]'), '');
-      }
-      if (cleanNum.isNotEmpty) {
-        int numVal = int.tryParse(cleanNum) ?? 1;
-        targetShuttleKeys.add('shuttle_${numVal.toString().padLeft(2, '0')}');
-      } else {
-        targetShuttleKeys.add('shuttle_01');
-      }
-    }
-    if (targetShuttleKeys.isEmpty) {
-      targetShuttleKeys.addAll([
-        'shuttle_01',
-        'shuttle_02',
-        'shuttle_03',
-        'shuttle_04',
-      ]);
-    }
-
-    _chatSubscriptions.removeWhere((key, sub) {
-      if (!targetShuttleKeys.contains(key)) {
-        sub.cancel();
-        return true;
-      }
-      return false;
-    });
-
-    for (var baseRoom in targetShuttleKeys) {
-      if (!_chatSubscriptions.containsKey(baseRoom)) {
-        final String roomId = '${baseRoom}_$todayDate';
-        bool isInitial = true;
-
-        _chatSubscriptions[baseRoom] = FirebaseFirestore.instance
-            .collection('chats')
-            .doc(roomId)
-            .collection('messages')
-            .orderBy('timestamp', descending: true)
-            .limit(5)
-            .snapshots()
-            .listen((snapshot) {
-              if (isInitial) {
-                isInitial = false;
-                return;
-              }
-
-              final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-
-              for (var change in snapshot.docChanges) {
-                if (change.type == DocumentChangeType.added) {
-                  final data = change.doc.data();
-                  if (data == null) continue;
-
-                  final String senderRole =
-                      (data['sender_role'] ?? data['senderRole'] ?? '')
-                          .toString();
-                  final String senderId =
-                      (data['sender_id'] ?? data['senderId'] ?? '').toString();
-
-                  if (senderId != currentUserId && senderRole == 'driver') {
-                    final String senderName =
-                        (data['sender_name'] ??
-                                data['senderName'] ??
-                                'คนขับรถรับส่ง')
-                            .toString();
-                    final String messageText =
-                        (data['text'] ??
-                                (data['image_url'] != null
-                                    ? '📷 ได้ส่งรูปภาพ'
-                                    : 'ข้อความใหม่'))
-                            .toString();
-
-                    _triggerVoiceAlertForStudentChat();
-
-                    if (mounted) {
-                      _chatNotificationTimer?.cancel();
-                      setState(() {
-                        _incomingChatNotification = {
-                          'sender': senderName,
-                          'text': messageText,
-                          'shuttle_id': baseRoom,
-                          'shuttle_name':
-                              'Shuttle #${baseRoom.replaceAll(RegExp(r'[^0-9]'), '')}',
-                          'id': change.doc.id,
-                        };
-                      });
-
-                      _chatNotificationTimer = Timer(
-                        const Duration(seconds: 7),
-                        () {
-                          if (mounted) {
-                            setState(() {
-                              _incomingChatNotification = null;
-                            });
-                          }
-                        },
-                      );
-                    }
-                  }
-                }
-              }
-            });
-      }
-    }
-  }
-
-  Future<void> _triggerVoiceAlertForStudentChat() async {
-    try {
-      HapticFeedback.heavyImpact();
-      FlutterRingtonePlayer().playNotification();
-      await _chatAudioPlayer.setVolume(1.0);
-      await _chatAudioPlayer.play(AssetSource('voice/chat_sound.mp3'));
-    } catch (e) {
-      print("Error playing chat sound for student: $e");
-    }
-  }
 
   void _listenToFavoriteStops() {
     final user = FirebaseAuth.instance.currentUser;
@@ -881,10 +755,6 @@ class _StudentHomeState extends State<StudentHome>
   @override
   void dispose() {
     _markerAnimationController.dispose();
-    for (var sub in _chatSubscriptions.values) {
-      sub.cancel();
-    }
-    _chatSubscriptions.clear();
     requestSubscription?.cancel();
     userSubscription?.cancel();
     shuttleSubscription?.cancel(); // ✨ ยกเลิกฟังตำแหน่งรถ
@@ -1711,195 +1581,6 @@ class _StudentHomeState extends State<StudentHome>
     );
   }
 
-  Widget _buildIncomingDriverChatPopup() {
-    if (_incomingChatNotification == null) return const SizedBox.shrink();
-
-    final String sender =
-        _incomingChatNotification!['sender'] ?? 'คนขับรถรับส่ง';
-    final String text = _incomingChatNotification!['text'] ?? '';
-    final String? shuttleId = _incomingChatNotification!['shuttle_id'];
-    final String? shuttleName = _incomingChatNotification!['shuttle_name'];
-    final double topPadding = MediaQuery.of(context).padding.top > 0
-        ? MediaQuery.of(context).padding.top + 8
-        : 16;
-
-    return Positioned(
-      top: topPadding,
-      left: 16,
-      right: 16,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF176a21), Color(0xFF0F4D17)],
-            ),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.25),
-              width: 1.2,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.25),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 6,
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.directions_bus_rounded,
-                  color: Color(0xFF176a21),
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            sender,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14.5,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text(
-                            'คนขับรถ',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      text,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        fontSize: 13,
-                        height: 1.2,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  InkWell(
-                    onTap: () {
-                      _chatNotificationTimer?.cancel();
-                      setState(() {
-                        _incomingChatNotification = null;
-                      });
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => StudentChatScreen(
-                            shuttleId: shuttleId ?? 'shuttle_01',
-                            shuttleName: shuttleName ?? 'Shuttle #01',
-                            driverName: sender,
-                            onSelectTab: (index) {
-                              setState(() => _selectedIndex = index);
-                            },
-                          ),
-                        ),
-                      );
-                    },
-                    borderRadius: BorderRadius.circular(16),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 4,
-                          ),
-                        ],
-                      ),
-                      child: const Text(
-                        'แชท/ตอบกลับ',
-                        style: TextStyle(
-                          color: Color(0xFF176a21),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12.5,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    constraints: const BoxConstraints(),
-                    padding: const EdgeInsets.all(4),
-                    icon: const Icon(
-                      Icons.close_rounded,
-                      color: Colors.white70,
-                      size: 20,
-                    ),
-                    onPressed: () {
-                      _chatNotificationTimer?.cancel();
-                      setState(() {
-                        _incomingChatNotification = null;
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1929,8 +1610,6 @@ class _StudentHomeState extends State<StudentHome>
           ),
 
           // ✨ ป๊อปอัปแจ้งเตือนข้อความแชตใหม่จากคนขับรถ
-          _buildIncomingDriverChatPopup(),
-
           // ✨ Bottom Navigation Bar สไตล์ Curved Notch โมเดิร์น
           Positioned(
             bottom: MediaQuery.of(context).size.width > 800 ? 20 : 0,
