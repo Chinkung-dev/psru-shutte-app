@@ -6,24 +6,28 @@
 
 ## 🆕 อัปเดตล่าสุด (Recent Updates)
 
-**อัปเดตระบบแจ้งเตือน (Push Notifications & Cloud Functions)**
-- **Firebase Cloud Messaging (FCM):** เพิ่มระบบ Push Notification เต็มรูปแบบสำหรับการแจ้งเตือนสถานะรถ (เรียกรถ, ยอมรับ, เปลี่ยนสถานะรถ) และข้อความแชทใหม่ ทำงานได้ทั้งตอนปิดแอป (Background) และใช้งานแอปอยู่ (Foreground/Heads-up) โดยนำระบบแจ้งเตือนแบบเก่า (In-App Dialog) ออกเพื่อลดความซ้ำซ้อน
-- **Firebase Cloud Functions (Backend Logic):** อัปเกรดเซิร์ฟเวอร์เป็น **Node.js 20 (1st Gen)** และเขียนสคริปต์ทำงานเบื้องหลัง:
-  - **`onRideRequestStatusChanged` (Firestore):** ยิงแจ้งเตือนเมื่อสถานะการเรียกรถเปลี่ยน (เช่น รถยอมรับคิวแล้ว)
-  - **`onChatAdded` (Firestore):** ยิงแจ้งเตือนเมื่อมีข้อความแชทใหม่จากคนขับถึงนักศึกษา
-  - **`onShuttleStatusChanged` (Realtime Database):** ตรวจจับการเปลี่ยนแปลงสถานะของรถรับส่งในโหนด `shuttles` (รถว่าง, รถเต็ม, พักเบรค, นอกเวลา) เพื่อยิง Push Notification แจ้งเตือนนักศึกษาทุกคนที่สนใจแบบ Real-time ทันทีที่มีการสลับสถานะ
-  - **Firebase Admin SDK v13 Fix:** แก้ไขปัญหา Push Notification ไม่ทำงาน (Crash) ด้วยการปรับแก้ API จาก `sendToDevice` (Deprecated) เป็น `send()` และ `sendEachForMulticast()` ตามมาตรฐานล่าสุดของ Firebase Admin SDK
-- **User Experience (UX) & Permissions:** ปรับปรุง Flow การขอสิทธิ์การแจ้งเตือน (`requestPermission`) ให้ทำงาน **เฉพาะหลังจากที่นักศึกษาล็อกอินเข้าสู่ระบบสำเร็จแล้วเท่านั้น** เพื่อเพิ่มความเป็นมิตรต่อผู้ใช้งาน (ไม่รบกวนตั้งแต่หน้าแรก) พร้อมรองรับ Web VAPID Key สำหรับการทำงานบนเว็บเบราว์เซอร์
-- **Android Build & Dependency Fixes:**
-  - แก้ไขปัญหา Build Error `checkDebugAarMetadata` ที่เกิดจากแพ็กเกจ `flutter_local_notifications` โดยเปิดใช้งาน **Core Library Desugaring** ใน `build.gradle` และอัปเกรด `desugar_jdk_libs` เป็น `2.1.4` เพื่อรองรับ Java 8+ Features
-  - แก้ไขปัญหาการ Deploy Cloud Functions ไม่ผ่านเนื่องจากความขัดแย้งของ Dependency โดยล็อกเวอร์ชัน `firebase-admin@13.10.0` และ `firebase-functions@7.3.2` ให้ทำงานสอดคล้องกับ `firebase-functions-test` ได้อย่างสมบูรณ์
+### Version 1.0.1+2
+- **Web App Deployment**: บิลด์และดีพลอยแอปพลิเคชันขึ้น Firebase Hosting
+- อัปเดตเวอร์ชันแอปพลิเคชันใน pubspec.yaml เป็น `1.0.1+2`
+
+**อัปเดตระบบแจ้งเตือน (In-App Notifications & Real-Time Sync)**
+- **ยกเลิกการใช้ Firebase Cloud Messaging (FCM) & Push Notifications:** ปิดการใช้งานระบบ Push Notification (FCM) แบบเดิมที่เคยทำงานร่วมกับ Cloud Functions ทั้งหมด เพื่อลดความซับซ้อนของโครงสร้างระบบ และหลีกเลี่ยงปัญหาความเข้ากันได้ (Compatibility) บน Web Browser / PWA
+- **เปลี่ยนกลับมาใช้ In-App Real-Time Notifications:** ใช้ระบบ Stream (Listen) จาก Cloud Firestore และ Realtime Database แทน เพื่อสร้างการแจ้งเตือนแบบ In-App (Custom Floating Popup / Top Toast) ลอยขึ้นมาบนหน้าจอขณะที่ใช้งานแอปอยู่ ซึ่งตอบสนองได้รวดเร็วกว่าและทำงานได้เสถียรบนทุกแพลตฟอร์ม
+- **การแจ้งเตือนเสียงข้ามสิทธิ์:** ยังคงรักษาฟีเจอร์การแจ้งเตือนด้วยเสียง (Sound Alerts & TTS) สำหรับการเรียกรถ การตอบรับ และแชทใหม่ ไว้ได้อย่างสมบูรณ์ผ่านการทำงานเบื้องหน้า (Foreground)
 
 **อัปเดตระบบเส้นทางและ GPS (Routing & GPS Optimization)**
 - **Smart Hybrid Routing (Driver App):** ปรับจูนระบบฝั่งคนขับให้บังคับใช้ **Lookahead Window คาดการณ์ล่วงหน้า 3 ป้าย** เป็นหลัก พร้อมกำหนดกฎเหล็กให้ **Recovery Mode ห้ามกระโดดข้ามเกิน 3 ป้าย** (แก้ไขปัญหา GPS คลาดเคลื่อนแล้วทำให้สถานะกระโดดข้ามจากป้าย 12 ไป 18 ในบริเวณทางแยก)
 - **Auto-Arrive System (Student App):** ปรับปรุงระบบปิดงานเรียกรถอัตโนมัติ โดยรถจะต้องเดินทางมาถึง "ป้ายเป้าหมายสุดท้ายจริง ๆ" (`stepCount == 0`) และมีระยะห่างน้อยกว่า 15 เมตรเท่านั้น ถึงจะปิดงาน ป้องกันระบบปิดงานก่อนกำหนดเมื่อรถขับผ่านป้ายเป้าหมายในรอบก่อนหน้า
 - **Dijkstra Algorithm & Map Nodes:** แก้ไขการสร้างกราฟถนน (`_routeGraph`) ให้รองรับเส้นทางเดินรถแบบ One-Way และแก้ปัญหาคีย์พิกัดสูญหาย รวมถึงปรับพิกัดทางแยก (Segment 14, 15, 23) ใน `route_data.dart` ให้จุดตัดเชื่อมต่อกันอย่างสมบูรณ์แบบ
+- **One-Way Route Fallback (Student App):** ดักจับเคสหาเส้นทางบนถนนเดินรถทางเดียว (One-Way) หากรถขับเลยป้ายและอัลกอริทึม (Dijkstra) ไม่สามารถลากเส้นย้อนศรได้ ระบบจะข้ามการลากเส้นตรงทะลุตึกเพื่อรออัปเดตพิกัดใหม่ ป้องกันแผนที่พัง
+- **Stop Wrapping Logic:** ปรับจูนระบบกระโดดข้ามป้าย (Jump) ทั้งฝั่งคนขับและนักศึกษา กำหนดขีดจำกัดข้ามไปข้างหน้าสูงสุด 2 ป้าย / ย้อนหลังสูงสุด 1 ป้าย และบังคับการวนลูปจากป้าย 23 ไปยังป้าย 1 เท่านั้น (ห้ามข้ามไป 2 หรือ 3)
 - **Firebase Realtime Database (RTDB):** เพิ่มการตั้งค่า `database.rules.json` สำหรับกำหนดสิทธิ์ความปลอดภัยให้รองรับการรับส่ง GPS สด
 - **Login Navigation Fix:** แก้ไขบั๊กการเปลี่ยนหน้า (Redirect) ผิดพลาดใน `login_screen.dart` ที่ทำให้เด้งไปหน้าแชทผิดจังหวะ
+
+**อัปเดตส่วนติดต่อผู้ใช้งาน (UI/UX Improvements)**
+- **Dynamic Shuttle Naming:** อัปเดตป๊อปอัปแจ้งเตือน (Top Toast) ให้แสดงชื่อและเบอร์รถ (เช่น `รถเบอร์ SH#01`) ที่นักศึกษากำลังสื่อสารด้วย แทนคำว่า "คันเป้าหมาย" เพื่อความชัดเจนและเจาะจง
+- **Consistent Chat Popup Design:** ปรับดีไซน์ป๊อปอัปแจ้งเตือนแชทฝั่งนักศึกษา ให้เข้ากับฝั่งคนขับ (ใช้ไอคอนรูปโปรไฟล์วงกลม, เปลี่ยน Label เป็น "คนขับรถ", และทำปุ่มแชทสีขาวตัวอักษรเขียว)
+- **Expandable Info Card (Student App):** เพิ่มฟีเจอร์ปุ่ม "ขยายการ์ดข้อมูล" เหนือปุ่มเป้าเล็ง GPS โดยจะแสดงขึ้นมาเฉพาะตอนที่นักศึกษาย่อการ์ดจุดหมายลงไป ทำให้สามารถเรียกการ์ดข้อมูลจุดจอดกลับมาดูแบบเต็มจอได้สะดวกยิ่งขึ้น
 
 ---
 

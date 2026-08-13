@@ -263,8 +263,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               .timeout(const Duration(seconds: 8));
 
           final uData = userDoc.data();
-          _shuttleName = uData?['shuttle_name']?.toString().trim() ?? uData?['name']?.toString().trim();
-          _shuttleNumber = uData?['shuttle_number']?.toString().trim() ?? uData?['number']?.toString().trim();
+          _shuttleName =
+              uData?['shuttle_name']?.toString().trim() ??
+              uData?['name']?.toString().trim();
+          _shuttleNumber =
+              uData?['shuttle_number']?.toString().trim() ??
+              uData?['number']?.toString().trim();
         } catch (e) {
           print("Error querying user doc: $e");
         }
@@ -296,7 +300,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       // 5. ตรวจสอบ Realtime Database (RTDB) node 'shuttles'
       // กำหนด Key ใน RTDB เป็นชื่อคันรถที่อ่านง่าย (เช่น shuttle_01, shuttle_02)
       String targetRtdbKey = '';
-      String cleanNum = (_shuttleNumber ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+      String cleanNum = (_shuttleNumber ?? '').replaceAll(
+        RegExp(r'[^0-9]'),
+        '',
+      );
       if (cleanNum.isEmpty && _shuttleName != null) {
         cleanNum = _shuttleName!.replaceAll(RegExp(r'[^0-9]'), '');
       }
@@ -312,8 +319,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       // หากมีการสลับมาใช้ Key รูปแบบอ่านง่าย ให้ลบ Node เก่าที่เป็น Firestore Doc ID หรือ User UID ค้างไว้ทิ้ง
       if (docId != null && docId != targetRtdbKey) {
         try {
-          final oldDocNode = FirebaseDatabase.instance.ref('shuttles').child(docId);
-          final oldSnap = await oldDocNode.get().timeout(const Duration(seconds: 3));
+          final oldDocNode = FirebaseDatabase.instance
+              .ref('shuttles')
+              .child(docId);
+          final oldSnap = await oldDocNode.get().timeout(
+            const Duration(seconds: 3),
+          );
           if (oldSnap.exists) {
             await oldDocNode.remove();
           }
@@ -323,8 +334,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       }
       if (user.uid != targetRtdbKey) {
         try {
-          final oldUserNode = FirebaseDatabase.instance.ref('shuttles').child(user.uid);
-          final oldSnap = await oldUserNode.get().timeout(const Duration(seconds: 3));
+          final oldUserNode = FirebaseDatabase.instance
+              .ref('shuttles')
+              .child(user.uid);
+          final oldSnap = await oldUserNode.get().timeout(
+            const Duration(seconds: 3),
+          );
           if (oldSnap.exists) {
             await oldUserNode.remove();
           }
@@ -333,7 +348,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         }
       }
 
-      final rtdbRef = FirebaseDatabase.instance.ref('shuttles').child(targetRtdbKey);
+      final rtdbRef = FirebaseDatabase.instance
+          .ref('shuttles')
+          .child(targetRtdbKey);
       DatabaseEvent? rtdbSnap;
       try {
         rtdbSnap = await rtdbRef.once().timeout(const Duration(seconds: 8));
@@ -379,8 +396,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             final data = event.snapshot.value as Map<dynamic, dynamic>;
             if (data.containsKey('passenger_status')) {
               setState(() {
-                _currentPassengerStatus = data['passenger_status']
-                    .toString();
+                _currentPassengerStatus = data['passenger_status'].toString();
               });
             }
           }
@@ -399,8 +415,13 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     _chatNotificationSub?.cancel();
     _chatSubscription?.cancel();
 
-    String cleanNum = (_shuttleNumber ?? _shuttleName ?? '').replaceAll(RegExp(r'[^0-9]'), '');
-    if (cleanNum.isEmpty && _shuttleDocId != null && !_shuttleDocId!.startsWith('-')) {
+    String cleanNum = (_shuttleNumber ?? _shuttleName ?? '').replaceAll(
+      RegExp(r'[^0-9]'),
+      '',
+    );
+    if (cleanNum.isEmpty &&
+        _shuttleDocId != null &&
+        !_shuttleDocId!.startsWith('-')) {
       cleanNum = _shuttleDocId!.replaceAll(RegExp(r'[^0-9]'), '');
     }
     String baseRoom = 'shuttle_01';
@@ -424,49 +445,62 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         .limit(5)
         .snapshots()
         .listen((snapshot) {
-      if (isInitial) {
-        isInitial = false;
-        return; // ข้ามข้อความเก่าทั้งหมดที่ได้จากการเปิดฟังครั้งแรก
-      }
+          if (isInitial) {
+            isInitial = false;
+            return; // ข้ามข้อความเก่าทั้งหมดที่ได้จากการเปิดฟังครั้งแรก
+          }
 
-      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+          final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
-      for (var change in snapshot.docChanges) {
-        if (change.type == DocumentChangeType.added) {
-          final data = change.doc.data();
-          if (data == null) continue;
+          for (var change in snapshot.docChanges) {
+            if (change.type == DocumentChangeType.added) {
+              final data = change.doc.data();
+              if (data == null) continue;
 
-          final String senderRole = (data['sender_role'] ?? data['senderRole'] ?? '').toString();
-          final String senderId = (data['sender_id'] ?? data['senderId'] ?? '').toString();
+              final String senderRole =
+                  (data['sender_role'] ?? data['senderRole'] ?? '').toString();
+              final String senderId =
+                  (data['sender_id'] ?? data['senderId'] ?? '').toString();
 
-          if (senderId != currentUserId && (senderRole == 'student' || senderRole.isEmpty)) {
-            final String senderName = (data['sender_name'] ?? data['senderName'] ?? 'นักศึกษา').toString();
-            final String messageText = (data['text'] ?? (data['image_url'] != null ? '📷 ได้ส่งรูปภาพ' : 'ข้อความใหม่')).toString();
+              if (senderId != currentUserId &&
+                  (senderRole == 'student' || senderRole.isEmpty)) {
+                final String senderName =
+                    (data['sender_name'] ?? data['senderName'] ?? 'นักศึกษา')
+                        .toString();
+                final String messageText =
+                    (data['text'] ??
+                            (data['image_url'] != null
+                                ? '📷 ได้ส่งรูปภาพ'
+                                : 'ข้อความใหม่'))
+                        .toString();
 
-            _triggerVoiceAlertForChat();
+                _triggerVoiceAlertForChat();
 
-            if (mounted) {
-              _chatNotificationTimer?.cancel();
-              setState(() {
-                _incomingChatNotification = {
-                  'sender': senderName,
-                  'text': messageText,
-                  'id': change.doc.id,
-                };
-              });
-
-              _chatNotificationTimer = Timer(const Duration(seconds: 7), () {
                 if (mounted) {
+                  _chatNotificationTimer?.cancel();
                   setState(() {
-                    _incomingChatNotification = null;
+                    _incomingChatNotification = {
+                      'sender': senderName,
+                      'text': messageText,
+                      'id': change.doc.id,
+                    };
                   });
+
+                  _chatNotificationTimer = Timer(
+                    const Duration(seconds: 7),
+                    () {
+                      if (mounted) {
+                        setState(() {
+                          _incomingChatNotification = null;
+                        });
+                      }
+                    },
+                  );
                 }
-              });
+              }
             }
           }
-        }
-      }
-    });
+        });
   }
 
   // ✨ ฟังก์ชันสำหรับเพิ่มจำนวนรอบการวิ่งในวันนี้
@@ -713,10 +747,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     if (mounted) {
       Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
     }
-    
+
     // 2. หน่วงเวลา 500ms เพื่อให้กระบวนการเปลี่ยนหน้าและ Dispose ทำงานเสร็จสิ้น ป้องกัน Firebase Error / แอปค้าง
     await Future.delayed(const Duration(milliseconds: 500));
-    
+
     // 3. ออกจากระบบ (กำหนดเวลา Timeout กันแอปค้างถ้าเน็ตหลุด)
     try {
       await FirebaseAuth.instance.signOut().timeout(const Duration(seconds: 3));
@@ -941,7 +975,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       } catch (e) {
         // Fallback for Web platform
       }
-      
+
       if (lastPos != null) {
         LatLng lastLoc = _snapToRoute(
           LatLng(lastPos.latitude, lastPos.longitude),
@@ -1116,12 +1150,18 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 .reduce((a, b) => a > b ? a : b);
             if (maxOrder == 0) maxOrder = 23;
 
-            // ✨ Strict Window Routing: คาดการณ์ป้ายล่วงหน้า 1 ป้ายเป็นหลัก
+            // ✨ Strict Window Routing: คาดการณ์ป้ายล่วงหน้า 2 ป้ายเป็นหลัก
             List<int> upcomingStops = [];
-            for (int i = 0; i < 1; i++) {
+            for (int i = 0; i < 2; i++) {
               int nextOrder =
                   ((_currentTargetStopOrder - 1 + i) % maxOrder) + 1;
               upcomingStops.add(nextOrder);
+              
+              // ✨ กฎพิเศษ: ถ้ารอบใหม่เริ่มต้นขึ้น (เป้าหมายคือป้าย 1) ไม่อนุญาตให้ข้าม
+              // ต้องบังคับให้ผ่านป้าย 1 เสมอ ป้องกันการกระโดดไป 2 หรือ 3
+              if (_currentTargetStopOrder == 1) {
+                break;
+              }
             }
 
             int detectedStopOrder = -1;
@@ -1147,35 +1187,41 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               }
             }
 
-
             // ✨ ระบบกู้คืน (Smart Recovery Mode): ค้นหาจากทุกป้าย แต่จำกัดการกระโดดข้ามอย่างเข้มงวด
             if (detectedStopOrder == -1) {
               minDistance = 30.0;
               for (var stop in busStops) {
                 int order = ((stop['order'] ?? 0) as num).toInt();
-                
+
                 // ✨ ป้องกันการ Spam ตรวจจับป้ายเดิมซ้ำๆ (jump = 0)
-                if (_lastPassedStopOrder != null && order == _lastPassedStopOrder) {
+                if (_lastPassedStopOrder != null &&
+                    order == _lastPassedStopOrder) {
                   continue;
                 }
 
                 if (stop['lat'] != null && stop['lng'] != null) {
                   final targetLoc = LatLng(stop['lat'], stop['lng']);
-                  final distanceToTarget = const Distance().distance(newLoc, targetLoc);
-                  
+                  final distanceToTarget = const Distance().distance(
+                    newLoc,
+                    targetLoc,
+                  );
+
                   if (distanceToTarget <= minDistance) {
                     bool isAllowed = true;
                     if (_lastPassedStopOrder != null) {
                       int jump = order - _lastPassedStopOrder!;
                       if (jump < 0) jump += maxOrder;
-                      
-                      // ✨ กฎเหล็ก: อนุญาตให้ข้ามได้สูงสุดแค่ 1 ป้ายเท่านั้น
-                      // จะป้องกันการข้ามไกลๆ ซึ่งจะโดนบล็อกแน่นอน
-                      if (jump > 1 && jump < maxOrder - 1) {
+                      // ✨ กฎใหม่: อนุญาตให้ข้ามได้สูงสุด 2 ป้าย และย้อนกลับได้แค่ 1 ป้าย
+                      if (jump > 2 && jump < maxOrder - 1) {
+                        isAllowed = false;
+                      }
+
+                      // ✨ กฎพิเศษ: ถ้าเพิ่งผ่านป้าย 23 ไม่อนุญาตให้ข้ามป้าย 1
+                      if (_lastPassedStopOrder == maxOrder && jump > 1 && jump < maxOrder - 1) {
                         isAllowed = false;
                       }
                     }
-                    
+
                     if (isAllowed) {
                       minDistance = distanceToTarget;
                       detectedStopOrder = order;
@@ -1185,7 +1231,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 }
               }
               if (detectedStopOrder != -1) {
-                print("🔄 [Smart Recovery] กู้คืนพิกัด GPS โดยกระโดดไปป้ายที่ $detectedStopOrder");
+                print(
+                  "🔄 [Smart Recovery] กู้คืนพิกัด GPS โดยกระโดดไปป้ายที่ $detectedStopOrder",
+                );
               }
             }
 
@@ -1424,17 +1472,19 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         return;
       }
       _lastFirebaseUpdate = DateTime.now();
-      
+
       // 1. เลี้ยงการเชื่อมต่อ Realtime Database
       FirebaseDatabase.instance.ref('shuttles').child(_shuttleDocId!).update({
         'last_updated': ServerValue.timestamp,
       });
 
-      // 2. ✨ เลี้ยงการเชื่อมต่อ Firestore (สำคัญมาก!) 
+      // 2. ✨ เลี้ยงการเชื่อมต่อ Firestore (สำคัญมาก!)
       // ป้องกันบั๊กมือถือตัดการเชื่อมต่อ Firestore เมื่อเปิดทิ้งไว้นานๆ ทำให้ไม่เห็นคนเรียกรถ
-      FirebaseFirestore.instance.collection('shuttles_ping').doc(_shuttleDocId!).set({
-        'last_ping': FieldValue.serverTimestamp(),
-      }).catchError((e) => print("Firestore Ping Error: $e"));
+      FirebaseFirestore.instance
+          .collection('shuttles_ping')
+          .doc(_shuttleDocId!)
+          .set({'last_ping': FieldValue.serverTimestamp()})
+          .catchError((e) => print("Firestore Ping Error: $e"));
     });
   }
 
@@ -1526,10 +1576,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                Color(0xFF176a21),
-                Color(0xFF0F4D17),
-              ],
+              colors: [Color(0xFF176a21), Color(0xFF0F4D17)],
             ),
             borderRadius: BorderRadius.circular(22),
             border: Border.all(
@@ -1694,7 +1741,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             index: _selectedIndex,
             children: [
               _buildMapScreen(), // หน้าแผนที่ (หน้า 0)
-              DriverStatusScreen(shuttleDocId: _shuttleDocId), // ✨ หน้าสถานะรถ (หน้า 1)
+              DriverStatusScreen(
+                shuttleDocId: _shuttleDocId,
+              ), // ✨ หน้าสถานะรถ (หน้า 1)
               DriverChatScreen(
                 shuttleDocId: _shuttleDocId ?? _shuttleNumber ?? '1',
                 shuttleName: _shuttleName ?? 'Shuttle #01',
@@ -1803,7 +1852,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                       }
                     }
 
-                    final bool isHighlighted = isPickupSelected || isDropoffSelected;
+                    final bool isHighlighted =
+                        isPickupSelected || isDropoffSelected;
 
                     return Marker(
                       key: ValueKey('stop_${name}'),
@@ -2541,8 +2591,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 color: isDropoffSelected
                     ? const Color(0xFF176a21).withOpacity(0.5)
                     : (isPickupSelected
-                        ? const Color(0xFFF28522).withOpacity(0.5)
-                        : Colors.black.withOpacity(0.1)),
+                          ? const Color(0xFFF28522).withOpacity(0.5)
+                          : Colors.black.withOpacity(0.1)),
                 blurRadius: isHighlighted ? 8 : 3,
                 spreadRadius: isHighlighted ? 2 : 0,
                 offset: const Offset(0, 2),
@@ -2577,7 +2627,11 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.person_pin_circle, color: Colors.white, size: 12),
+                  const Icon(
+                    Icons.person_pin_circle,
+                    color: Colors.white,
+                    size: 12,
+                  ),
                   const SizedBox(width: 2),
                   Text(
                     'ลง $dropoffCount คน',
@@ -2600,10 +2654,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             decoration: BoxDecoration(
               color: labelBgColor,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: labelBorderColor,
-                width: 1.5,
-              ),
+              border: Border.all(color: labelBorderColor, width: 1.5),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.15),
