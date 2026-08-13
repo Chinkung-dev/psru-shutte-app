@@ -1156,7 +1156,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               int nextOrder =
                   ((_currentTargetStopOrder - 1 + i) % maxOrder) + 1;
               upcomingStops.add(nextOrder);
-              
+
               // ✨ กฎพิเศษ: ถ้ารอบใหม่เริ่มต้นขึ้น (เป้าหมายคือป้าย 1) ไม่อนุญาตให้ข้าม
               // ต้องบังคับให้ผ่านป้าย 1 เสมอ ป้องกันการกระโดดไป 2 หรือ 3
               if (_currentTargetStopOrder == 1) {
@@ -1212,12 +1212,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                       int jump = order - _lastPassedStopOrder!;
                       if (jump < 0) jump += maxOrder;
                       // ✨ กฎใหม่: อนุญาตให้ข้ามได้สูงสุด 2 ป้าย และย้อนกลับได้แค่ 1 ป้าย
-                      if (jump > 2 && jump < maxOrder - 1) {
+                      if (jump > 2 && jump < maxOrder - 2) {
                         isAllowed = false;
                       }
 
                       // ✨ กฎพิเศษ: ถ้าเพิ่งผ่านป้าย 23 ไม่อนุญาตให้ข้ามป้าย 1
-                      if (_lastPassedStopOrder == maxOrder && jump > 1 && jump < maxOrder - 1) {
+                      if (_lastPassedStopOrder == maxOrder &&
+                          jump > 1 &&
+                          jump < maxOrder - 1) {
                         isAllowed = false;
                       }
                     }

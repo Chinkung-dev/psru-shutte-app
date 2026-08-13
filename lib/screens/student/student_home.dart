@@ -613,10 +613,13 @@ class _StudentHomeState extends State<StudentHome>
               } catch (_) {}
 
               if (newPassengerStatus == 'full') {
+                _alertPlayer.play(AssetSource('voice/glass_1.mp3'));
                 TopToast.show(context, 'แจ้งเตือน: $sName ที่กำลังมารับ "เต็มแล้ว" ⚠️', isError: true);
               } else if (newPassengerStatus == 'break') {
+                _alertPlayer.play(AssetSource('voice/glass_1.mp3'));
                 TopToast.show(context, 'แจ้งเตือน: $sName "ขอพักเบรค" ชั่วคราว ⚠️', isError: true);
               } else if (newPassengerStatus == 'available' && (oldPassengerStatus == 'full' || oldPassengerStatus == 'break')) {
+                _alertPlayer.play(AssetSource('voice/glass_1.mp3'));
                 TopToast.show(context, 'อัปเดต: $sName "ว่างแล้ว" 🟢', isError: false);
               }
             }
@@ -1594,6 +1597,33 @@ class _StudentHomeState extends State<StudentHome>
         return;
       }
 
+      // ✨ ตรวจสอบระยะห่างระหว่างนักศึกษากับป้ายที่เลือก
+      if (_myLocation == null) {
+        TopToast.show(
+          context,
+          'ไม่สามารถระบุตำแหน่งของคุณได้ กรุณาเปิด GPS ครับ',
+          isError: true,
+        );
+        return;
+      }
+
+      if (selectedStopLatLng != null) {
+        final double distanceToStop = const Distance().as(
+          LengthUnit.Meter,
+          _myLocation!,
+          selectedStopLatLng!,
+        );
+
+        if (distanceToStop > 50) { // ตั้งค่ารัศมี 50 เมตร
+          TopToast.show(
+            context,
+            'คุณต้องอยู่ใกล้ป้าย (รัศมี 50 เมตร) จึงจะเรียกรถได้ครับ\nระยะห่างปัจจุบัน: ${distanceToStop.toStringAsFixed(0)} เมตร',
+            isError: true,
+          );
+          return;
+        }
+      }
+
       setState(() {
         isWaiting = true;
         isAcknowledged = false;
@@ -2249,6 +2279,7 @@ class _StudentHomeState extends State<StudentHome>
             bottom: 210, // อยู่เหนือปุ่มเป้าเล็ง (150 + 60)
             right: 20,
             child: FloatingActionButton(
+              heroTag: 'expandCardBtn',
               key: const ValueKey('expandCardButton'),
               mini: true,
               backgroundColor: Colors.white,
@@ -2272,6 +2303,7 @@ class _StudentHomeState extends State<StudentHome>
               : 100, // กลับสู่ปกติเวลาปิดการ์ด
           right: 20,
           child: FloatingActionButton(
+            heroTag: 'myLocationBtn',
             key: keyMyLocationButton,
             mini: true,
             backgroundColor: _isAutoFollow
@@ -3326,30 +3358,10 @@ class _StudentHomeState extends State<StudentHome>
                         ),
                         if (!isWaiting)
                           GestureDetector(
-                            onTap: () async {
-                              if (activeRequestId != null) {
-                                try {
-                                  await FirebaseFirestore.instance
-                                      .collection('ride_requests')
-                                      .doc(activeRequestId)
-                                      .delete();
-                                } catch (e) {
-                                  print("Error deleting request: $e");
-                                }
-                                requestSubscription?.cancel();
-                              }
+                            onTap: () {
                               if (mounted) {
                                 setState(() {
-                                  isWaiting = false;
-                                  isAcknowledged = false;
-                                  isOnBoard = false;
-                                  isCardMinimized = false;
-                                  activeRequestId = null;
-                                  selectedStopName = null;
-                                  selectedDropOffName = null;
-                                  selectedStopLatLng = null;
-                                  estimatedArrivalText = null;
-                                  highlightedPath.clear();
+                                  isCardMinimized = true;
                                 });
                               }
                             },
