@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../widgets/top_toast.dart';
 
-
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -17,8 +16,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _obscurePassword = true;
   bool _isLoading = false;
-
-
 
   Future<void> _login() async {
     final email = _emailController.text.trim();
@@ -485,7 +482,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'Version 1.0.2', // ✨ เปลี่ยนเลขเวอร์ชันตรงนี้เวลามีอัปเดต
+                            'Version 1.0.3', // ✨ เปลี่ยนเลขเวอร์ชันตรงนี้เวลามีอัปเดต
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey.shade400,

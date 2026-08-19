@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io';
 
 class StudentChatScreen extends StatefulWidget {
   final String? shuttleId;
@@ -137,8 +138,10 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
   Future<void> _pickAndSendImage() async {
     try {
       final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera, // ✨ บังคับเปิดกล้องถ่ายสดเท่านั้น
-        imageQuality: 50, // บีบอัดรูปให้ประหยัดเน็ต
+        source: ImageSource.camera, // ✨ บังคับเปิดกล้องถ่ายสดเท่านั้น (ป้องกันอัปรูปจาก Gallery)
+        imageQuality: 50, // บีบอัดคุณภาพรูป
+        maxWidth: 1024, // จำกัดความกว้างไม่ให้เกิน 1024px
+        maxHeight: 1024, // จำกัดความสูงไม่ให้เกิน 1024px
       );
       
       if (image == null) return;
@@ -150,8 +153,8 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
       final String fileName = '${DateTime.now().millisecondsSinceEpoch}_${image.name}';
       final Reference ref = FirebaseStorage.instance.ref().child('chat_images').child(fileName);
       
-      final bytes = await image.readAsBytes();
-      final UploadTask uploadTask = ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      final File file = File(image.path);
+      final UploadTask uploadTask = ref.putFile(file, SettableMetadata(contentType: 'image/jpeg'));
       
       final TaskSnapshot snapshot = await uploadTask;
       final String downloadUrl = await snapshot.ref.getDownloadURL();
@@ -548,25 +551,31 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (imageUrl != null)
+                if (imageUrl != null && imageUrl.isNotEmpty)
                   Padding(
                     padding: EdgeInsets.only(bottom: text.isNotEmpty ? 8.0 : 0),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: Image.network(
-                        imageUrl,
-                        width: 200,
-                        fit: BoxFit.cover,
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return Container(
+                      child: Container(
+                        color: Colors.black12, // ใส่สีพื้นหลังกันรูปโปร่งใส หรือกันโหลดไม่ขึ้น
+                        child: Image.network(
+                          imageUrl,
+                          width: 200,
+                          fit: BoxFit.cover,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return const SizedBox(
+                              width: 200,
+                              height: 200,
+                              child: Center(child: CircularProgressIndicator(color: Color(0xFF176a21))),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) => const SizedBox(
                             width: 200,
                             height: 200,
-                            color: Colors.black12,
-                            child: const Center(child: CircularProgressIndicator(color: Color(0xFF176a21))),
-                          );
-                        },
-                        errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                            child: Center(child: Icon(Icons.broken_image, size: 50, color: Colors.grey)),
+                          ),
+                        ),
                       ),
                     ),
                   ),

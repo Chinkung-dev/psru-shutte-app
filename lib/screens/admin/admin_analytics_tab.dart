@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -96,45 +96,48 @@ class AdminAnalyticsTab extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 12,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        color: activeCount > 0 ? const Color(0xFF176a21) : Colors.redAccent,
-                        shape: BoxShape.circle,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: activeCount > 0 ? const Color(0xFF176a21) : Colors.redAccent,
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'รถกำลังวิ่ง $activeCount คัน',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                    ),
-                    const SizedBox(width: 16),
-                    Container(width: 1, height: 20, color: Colors.grey.shade300),
-                    const SizedBox(width: 16),
-                    const Icon(Icons.speed, size: 18, color: Colors.black54),
-                    const SizedBox(width: 6),
-                    Text(
-                      avgWaitTime > 0 ? 'รอเฉลี่ย $avgWaitTime นาที' : 'ยังไม่มีรถวิ่ง',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                    ),
-                    const SizedBox(width: 16),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF176a21),
-                        shape: BoxShape.circle,
+                      const SizedBox(width: 8),
+                      Text(
+                        'รถกำลังวิ่ง $activeCount คัน',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                       ),
-                      child: const Icon(
-                        Icons.refresh,
-                        color: Colors.white,
-                        size: 16,
+                      const SizedBox(width: 16),
+                      Container(width: 1, height: 20, color: Colors.grey.shade300),
+                      const SizedBox(width: 16),
+                      const Icon(Icons.speed, size: 18, color: Colors.black54),
+                      const SizedBox(width: 6),
+                      Text(
+                        avgWaitTime > 0 ? 'รอเฉลี่ย $avgWaitTime นาที' : 'ยังไม่มีรถวิ่ง',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 16),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF176a21),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.refresh,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               );
             },

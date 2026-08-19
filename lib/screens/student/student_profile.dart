@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:url_launcher/url_launcher.dart'; // เพิ่ม url_launcher
 import 'favorite_stops_screen.dart';
 import 'student_edit_profile_screen.dart';
 
@@ -203,7 +204,25 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
               icon: Icons.help_outline,
               children: [
                 _buildActionRow('แบบประเมิน', Icons.open_in_new),
-                _buildActionRow('ติดต่อเรา', Icons.mail_outline),
+                _buildActionRow(
+                  'ติดต่อเรา', 
+                  Icons.mail_outline,
+                  onTap: () async {
+                    final Uri url = Uri.parse('https://www.facebook.com/thawatchai.sanhae/following?locale=th_TH');
+                    if (await canLaunchUrl(url)) {
+                      await launchUrl(url, mode: LaunchMode.externalApplication);
+                    } else {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('❌ ไม่สามารถเปิดลิงก์ได้'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
               ],
             ),
             const SizedBox(height: 30),

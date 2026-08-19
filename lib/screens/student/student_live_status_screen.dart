@@ -313,6 +313,8 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
                         )
                       else
                         ..._shuttleList.map((shuttle) => _buildShuttleCard(shuttle)),
+                      
+                      const SizedBox(height: 100), // เว้นที่ว่างด้านล่างไม่ให้แถบเมนู (Bottom Nav) บังคันสุดท้าย
                     ],
                   ),
                 ),
@@ -327,62 +329,26 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
   // Header 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.only(top: 48, left: 16, right: 16, bottom: 16),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(24),
-          bottomRight: Radius.circular(24),
+      color: Colors.white,
+      width: double.infinity,
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Image.asset(
+                'lib/screens/driver/logo.png',
+                height: 42,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) =>
+                    const Icon(Icons.menu, color: Color(0xFF176a21), size: 28),
+              ),
+              const SizedBox(width: 42), // เว้นที่ไว้แทนปุ่มที่เอาออกไป
+            ],
+          ),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x0C000000),
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Image.asset('lib/screens/driver/logo.png', height: 40),
-          IconButton(
-            icon: const Icon(Icons.exit_to_app_rounded, color: Color(0xFF595C5D)),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20)),
-                  title: const Text('ออกจากระบบ'),
-                  content: const Text('คุณแน่ใจหรือไม่ว่าต้องการออกจากระบบ?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('ยกเลิก',
-                          style: TextStyle(color: Colors.grey)),
-                    ),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE53935),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: () async {
-                        Navigator.pop(context); // ปิด Dialog
-                        Navigator.pushReplacementNamed(
-                            context, '/login'); // กลับไปหน้า Login
-                      },
-                      child: const Text('ออกจากระบบ',
-                          style: TextStyle(color: Colors.white)),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
       ),
     );
   }

@@ -174,7 +174,7 @@ class _StudentEditProfileScreenState extends State<StudentEditProfileScreen> {
                         ),
                         Expanded(
                           child: SizedBox(
-                            height: 140,
+                            height: 160,
                             child: PageView.builder(
                               controller: _pageController,
                               itemCount: _avatarList.length,
@@ -193,26 +193,28 @@ class _StudentEditProfileScreenState extends State<StudentEditProfileScreen> {
                                       curve: Curves.easeInOut,
                                     );
                                   },
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 300),
-                                    curve: Curves.easeOut,
-                                    margin: EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: isSelected ? 5 : 25,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: Colors.white,
-                                      border: Border.all(
-                                        color: isSelected ? const Color(0xFF176a21) : Colors.transparent,
-                                        width: isSelected ? 4 : 0,
-                                      ),
-                                      boxShadow: isSelected
-                                          ? [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 15, offset: const Offset(0, 8))]
-                                          : [],
-                                      image: DecorationImage(
-                                        image: AssetImage(_avatarList[index]),
-                                        fit: BoxFit.cover,
+                                  child: Center(
+                                    child: AspectRatio(
+                                      aspectRatio: 1,
+                                      child: AnimatedContainer(
+                                        duration: const Duration(milliseconds: 300),
+                                        curve: Curves.easeOut,
+                                        margin: EdgeInsets.all(isSelected ? 5 : 20),
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: Colors.white,
+                                          border: Border.all(
+                                            color: isSelected ? const Color(0xFF176a21) : Colors.transparent,
+                                            width: isSelected ? 4 : 0,
+                                          ),
+                                          boxShadow: isSelected
+                                              ? [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 15, offset: const Offset(0, 8))]
+                                              : [],
+                                          image: DecorationImage(
+                                            image: AssetImage(_avatarList[index]),
+                                            fit: BoxFit.cover,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),

@@ -395,6 +395,13 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
         initialCenter: _psruCenter,
         initialZoom: 15.5,
         maxZoom: 18.0,
+        minZoom: 14.5,
+        cameraConstraint: CameraConstraint.contain(
+          bounds: LatLngBounds(
+            const LatLng(16.81500, 100.19000),
+            const LatLng(16.84500, 100.23000),
+          ),
+        ),
         interactionOptions: InteractionOptions(
           flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.doubleTapZoom | InteractiveFlag.scrollWheelZoom,
           cursorKeyboardRotationOptions: CursorKeyboardRotationOptions.disabled(), // ✨ ปิดการหมุนด้วยคีย์บอร์ด/เมาส์บน Web
@@ -455,260 +462,326 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        // Live Map
-        _buildMap(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool isCompact = constraints.maxWidth < 700;
+        final bool isDesktop = MediaQuery.of(context).size.width > 900;
 
-        // Top Left: Command Center Routes
-        Positioned(
-          top: 24,
-          left: 24,
-          child: Container(
-            width: 280,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.95),
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
-                )
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('ศูนย์ควบคุม', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const Text('รถที่กำลังวิ่งทั้งหมด', style: TextStyle(color: Colors.black54, fontSize: 13)),
-                const SizedBox(height: 16),
-                _buildRouteItem('รถทั้งหมดในระบบ', '${activeShuttles.length} คัน', activeShuttles.isNotEmpty),
-              ],
-            ),
-          ),
-        ),
-
-        // Top Search Bar
-        Positioned(
-          top: 24,
-          left: 320,
-          child: Container(
-            width: 300,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.95),
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))
-              ],
-            ),
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: 'ค้นหาเส้นทาง, คนขับ, ป้ายรถ...',
-                hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 13),
-                prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 20),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-            ),
-          ),
-        ),
-
-        // Right Panel: Live Tracking
-        if (_selectedShuttleId != null)
-          Positioned(
-            top: 24,
-            right: 24,
-            bottom: 120, // Leave space for bottom bar
-            child: Builder(
-              builder: (context) {
-                final selectedShuttle = activeShuttles.firstWhere(
-                  (s) => s['id'] == _selectedShuttleId,
-                  orElse: () => activeShuttles.isNotEmpty ? activeShuttles.first : {},
-                );
-                
-                if (selectedShuttle.isEmpty) return const SizedBox.shrink();
-
-                return Container(
-                  width: 340,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(32),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.08),
-                        blurRadius: 24,
-                        offset: const Offset(0, 12),
-                      )
+        return Column(
+          children: [
+            // Top Dashboard-style Header
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+              child: Row(
+                children: [
+                  if (!isDesktop)
+                    IconButton(
+                      icon: const Icon(Icons.menu, color: Colors.black87),
+                      onPressed: () => Scaffold.of(context).openDrawer(),
+                    ),
+                  if (!isDesktop) const SizedBox(width: 16),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'ศูนย์ควบคุม',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
                     ],
                   ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(32),
-                    child: SingleChildScrollView(
+                  const Spacer(),
+                  if (!isCompact)
+                    Container(
+                      width: 300,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: TextField(
+                        style: const TextStyle(color: Colors.black87),
+                        decoration: InputDecoration(
+                          hintText: 'ค้นหาเส้นทาง, คนขับ...',
+                          hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                          prefixIcon: Icon(
+                            Icons.search,
+                            color: Colors.grey.shade500,
+                            size: 20,
+                          ),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
+                    ),
+                  if (!isCompact) const SizedBox(width: 16),
+                  if (!isCompact)
+                    IconButton(
+                      icon: const Icon(Icons.notifications_outlined, color: Colors.black87),
+                      onPressed: () {},
+                    ),
+                  if (!isCompact) const SizedBox(width: 8),
+                  if (!isCompact)
+                    const CircleAvatar(
+                      backgroundColor: Color(0xFF176a21),
+                      radius: 18,
+                      child: Icon(Icons.person, color: Colors.white, size: 20),
+                    ),
+                  if (isCompact)
+                    IconButton(
+                      icon: const Icon(Icons.search, color: Colors.black87),
+                      onPressed: () {},
+                    ),
+                ],
+              ),
+            ),
+            
+            // Map and Floating Elements Area
+            Expanded(
+              child: Stack(
+                children: [
+                  // Live Map
+                  _buildMap(),
+                  
+                  // Floating Command Center Details
+                  Positioned(
+                    top: 24,
+                    left: 24,
+                    child: Container(
+                      width: 280,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.95),
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          )
+                        ],
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Header
-                          Padding(
-                            padding: const EdgeInsets.all(24.0),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: const BoxDecoration(color: Color(0xFF176a21), shape: BoxShape.circle),
-                                ),
-                                const SizedBox(width: 8),
-                                const Text('กำลังติดตามสด', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF176a21))),
-                                const Spacer(),
-                                GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedShuttleId = null;
-                                    });
-                                  },
-                                  child: const Icon(Icons.close, color: Colors.black54, size: 24),
-                                ),
-                              ],
-                            ),
-                          ),
-                          
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                            child: Text('รถบัส #${selectedShuttle['number']}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                          ),
+                          const Text('รถที่กำลังวิ่งทั้งหมด', style: TextStyle(color: Colors.black54, fontSize: 13)),
                           const SizedBox(height: 16),
-
-                          // Driver Info
-                          Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 24),
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: Colors.grey.shade200),
-                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
-                            ),
-                            child: Row(
-                              children: [
-                                const CircleAvatar(
-                                  radius: 24,
-                                  backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text('คนขับหลัก', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black54, letterSpacing: 1)),
-                                      const SizedBox(height: 2),
-                                      const Text('คนขับรถรับส่ง', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(8)),
-                                            child: const Row(
-                                              children: [
-                                                Icon(Icons.star, size: 10, color: Color(0xFF176a21)),
-                                                SizedBox(width: 4),
-                                                Text('5.0', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF176a21))),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      )
-                                    ],
-                                  ),
-                                )
-                              ],
-                            ),
-                          ),
-
-                          const SizedBox(height: 24),
-
-                          // Stats
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                            child: Row(
-                              children: [
-                                Expanded(child: _buildPanelStat('ความจุปัจจุบัน', '${selectedShuttle['capacity_percent'] ?? 0}', '%', (selectedShuttle['capacity_percent'] ?? 0) / 100)),
-                                const SizedBox(width: 16),
-                                Expanded(child: _buildPanelStat('สถานะผู้โดยสาร', '', '', 1.0, subStatus: selectedShuttle['passenger_status'] == 'full' ? 'หนาแน่น' : (selectedShuttle['passenger_status'] == 'break' ? 'พักเบรก' : 'ว่าง'))),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 24),
+                          _buildRouteItem('รถทั้งหมดในระบบ', '${activeShuttles.length} คัน', activeShuttles.isNotEmpty),
                         ],
                       ),
                     ),
                   ),
-                );
-              }
+
+            // Right Panel: Live Tracking
+            if (_selectedShuttleId != null)
+              Positioned(
+                top: isCompact ? 250 : (!isDesktop ? 88 : 24),
+                right: 24,
+                bottom: 120, // Leave space for bottom bar
+                child: Builder(
+                  builder: (context) {
+                    final selectedShuttle = activeShuttles.firstWhere(
+                      (s) => s['id'] == _selectedShuttleId,
+                      orElse: () => activeShuttles.isNotEmpty ? activeShuttles.first : {},
+                    );
+                    
+                    if (selectedShuttle.isEmpty) return const SizedBox.shrink();
+
+                    return Container(
+                      width: isCompact ? constraints.maxWidth - 48 : 340,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(32),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.08),
+                            blurRadius: 24,
+                            offset: const Offset(0, 12),
+                          )
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(32),
+                        child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Header
+                              Padding(
+                                padding: const EdgeInsets.all(24.0),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: const BoxDecoration(color: Color(0xFF176a21), shape: BoxShape.circle),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text('กำลังติดตามสด', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF176a21))),
+                                    const Spacer(),
+                                    GestureDetector(
+                                      onTap: () {
+                                        setState(() {
+                                          _selectedShuttleId = null;
+                                        });
+                                      },
+                                      child: const Icon(Icons.close, color: Colors.black54, size: 24),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                                child: Text('รถบัส #${selectedShuttle['number']}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                              ),
+                              const SizedBox(height: 16),
+
+                              // Driver Info
+                              Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 24),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: Colors.grey.shade200),
+                                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+                                ),
+                                child: Row(
+                                  children: [
+                                    const CircleAvatar(
+                                      radius: 24,
+                                      backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Text('คนขับหลัก', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black54, letterSpacing: 1)),
+                                          const SizedBox(height: 2),
+                                          const Text('คนขับรถรับส่ง', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(8)),
+                                                child: const Row(
+                                                  children: [
+                                                    Icon(Icons.star, size: 10, color: Color(0xFF176a21)),
+                                                    SizedBox(width: 4),
+                                                    Text('5.0', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF176a21))),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          )
+                                        ],
+                                      ),
+                                    )
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(height: 24),
+
+                              // Stats
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                                child: Row(
+                                  children: [
+                                    Expanded(child: _buildPanelStat('ความจุปัจจุบัน', '${selectedShuttle['capacity_percent'] ?? 0}', '%', (selectedShuttle['capacity_percent'] ?? 0) / 100)),
+                                    const SizedBox(width: 16),
+                                    Expanded(child: _buildPanelStat('สถานะผู้โดยสาร', '', '', 1.0, subStatus: selectedShuttle['passenger_status'] == 'full' ? 'หนาแน่น' : (selectedShuttle['passenger_status'] == 'break' ? 'พักเบรก' : 'ว่าง'))),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                ),
+              ),
+
+            // Bottom Dashboard Bar
+            Positioned(
+              bottom: 24,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  height: 80,
+                  width: (constraints.maxWidth - 48).clamp(0.0, 400.0),
+                  padding: EdgeInsets.symmetric(horizontal: isCompact ? 16 : 32),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.95),
+                    borderRadius: BorderRadius.circular(40),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 20,
+                        offset: const Offset(0, -5),
+                      )
+                    ],
+                  ),
+                  child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Expanded(
+                      child: _buildBottomStat(
+                        Icons.people_alt_outlined,
+                        NumberFormat('#,##0').format(totalPassengersToday),
+                        'ผู้โดยสารรวม',
+                      ),
+                    ),
+                    Container(
+                      width: 1,
+                      height: 40,
+                      color: Colors.grey.shade300,
+                      margin: EdgeInsets.symmetric(horizontal: isCompact ? 8 : 16),
+                    ),
+                    Expanded(
+                      child: _buildBottomStat(
+                        Icons.schedule,
+                        '${onTimePercentage.toStringAsFixed(1)}%',
+                        'ตรงเวลา',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
 
-        // Bottom Dashboard Bar
-        Positioned(
-          bottom: 24,
-          left: 320,
-          right: 24,
-          child: Container(
-            height: 80,
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.95),
-              borderRadius: BorderRadius.circular(40),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 20,
-                  offset: const Offset(0, -5),
-                )
-              ],
+            // Map Controls
+            Positioned(
+              bottom: 120,
+              left: 24,
+              child: Column(
+                children: [
+                  _buildMapControlButton(Icons.add),
+                  const SizedBox(height: 8),
+                  _buildMapControlButton(Icons.remove),
+                  const SizedBox(height: 16),
+                  _buildMapControlButton(Icons.my_location),
+                ],
+              ),
+            )
+                ],
+              ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildBottomStat(
-                  Icons.people_alt_outlined,
-                  NumberFormat('#,##0').format(totalPassengersToday),
-                  'ผู้โดยสารรวม',
-                ),
-                Container(
-                  width: 1,
-                  height: 40,
-                  color: Colors.grey.shade300,
-                  margin: const EdgeInsets.symmetric(horizontal: 24),
-                ),
-                _buildBottomStat(
-                  Icons.schedule,
-                  '${onTimePercentage.toStringAsFixed(1)}%',
-                  'ตรงเวลา',
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        // Map Controls
-        Positioned(
-          bottom: 100,
-          left: 24,
-          child: Column(
-            children: [
-              _buildMapControlButton(Icons.add),
-              const SizedBox(height: 8),
-              _buildMapControlButton(Icons.remove),
-              const SizedBox(height: 16),
-              _buildMapControlButton(Icons.my_location),
-            ],
-          ),
-        )
-      ],
+          ],
+        );
+      }
     );
   }
 
@@ -860,16 +933,27 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
 
   Widget _buildBottomStat(IconData icon, String value, String label) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, color: const Color(0xFF176a21), size: 28),
-        const SizedBox(width: 12),
-        Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
-          ],
+        const SizedBox(width: 8),
+        Flexible(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              ),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
+              ),
+            ],
+          ),
         ),
       ],
     );

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'add_driver_dialog.dart';
@@ -280,94 +280,106 @@ class _DriversTableCardState extends State<DriversTableCard> {
           // Filter Row
           Padding(
             padding: const EdgeInsets.all(24.0),
-            child: Row(
+            child: Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Row(
-                    children: [
-                      GestureDetector(
-                        onTap: () => setState(() => _activeFilter = 'ทั้งหมด'),
-                        child: _buildFilterTab(
-                          'ทั้งหมด',
-                          _activeFilter == 'ทั้งหมด',
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        GestureDetector(
+                          onTap: () => setState(() => _activeFilter = 'ทั้งหมด'),
+                          child: _buildFilterTab(
+                            'ทั้งหมด',
+                            _activeFilter == 'ทั้งหมด',
+                          ),
                         ),
-                      ),
-                      GestureDetector(
-                        onTap: () => setState(() => _activeFilter = 'ว่าง'),
-                        child: _buildFilterTab('ว่าง', _activeFilter == 'ว่าง'),
-                      ),
-                      GestureDetector(
-                        onTap: () => setState(() => _activeFilter = 'เต็ม'),
-                        child: _buildFilterTab('เต็ม', _activeFilter == 'เต็ม'),
-                      ),
-                      GestureDetector(
-                        onTap: () => setState(() => _activeFilter = 'พักเบรก'),
-                        child: _buildFilterTab(
-                          'พักเบรก',
-                          _activeFilter == 'พักเบรก',
+                        GestureDetector(
+                          onTap: () => setState(() => _activeFilter = 'ว่าง'),
+                          child: _buildFilterTab('ว่าง', _activeFilter == 'ว่าง'),
                         ),
-                      ),
-                      GestureDetector(
-                        onTap: () => setState(() => _activeFilter = 'ออฟไลน์'),
-                        child: _buildFilterTab(
-                          'ออฟไลน์',
-                          _activeFilter == 'ออฟไลน์',
+                        GestureDetector(
+                          onTap: () => setState(() => _activeFilter = 'เต็ม'),
+                          child: _buildFilterTab('เต็ม', _activeFilter == 'เต็ม'),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(
-                    Icons.filter_list,
-                    color: Color(0xFF176a21),
-                    size: 20,
-                  ),
-                  label: const Text(
-                    'ตัวกรองเพิ่มเติม',
-                    style: TextStyle(
-                      color: Color(0xFF176a21),
-                      fontWeight: FontWeight.bold,
+                        GestureDetector(
+                          onTap: () => setState(() => _activeFilter = 'พักเบรก'),
+                          child: _buildFilterTab(
+                            'พักเบรก',
+                            _activeFilter == 'พักเบรก',
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => setState(() => _activeFilter = 'ออฟไลน์'),
+                          child: _buildFilterTab(
+                            'ออฟไลน์',
+                            _activeFilter == 'ออฟไลน์',
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(width: 16),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) => const AddDriverDialog(),
-                    ).then((result) {
-                      if (result == true) {
-                        // Refresh drivers logic if needed
-                      }
-                    });
-                  },
-                  icon: const Icon(Icons.add, color: Colors.white, size: 20),
-                  label: const Text(
-                    'เพิ่มคนขับรถ',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () {},
+                      icon: const Icon(
+                        Icons.filter_list,
+                        color: Color(0xFF176a21),
+                        size: 20,
+                      ),
+                      label: const Text(
+                        'ตัวกรองเพิ่มเติม',
+                        style: TextStyle(
+                          color: Color(0xFF176a21),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF176a21),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
+                    const SizedBox(width: 16),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        showDialog(
+                          context: context,
+                          builder: (context) => const AddDriverDialog(),
+                        ).then((result) {
+                          if (result == true) {
+                            // Refresh drivers logic if needed
+                          }
+                        });
+                      },
+                      icon: const Icon(Icons.add, color: Colors.white, size: 20),
+                      label: const Text(
+                        'เพิ่มคนขับรถ',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF176a21),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
                     ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                  ),
+                  ],
                 ),
               ],
             ),

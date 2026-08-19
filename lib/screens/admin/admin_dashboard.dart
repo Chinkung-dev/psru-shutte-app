@@ -32,19 +32,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: const Color(0xFFF7F9FA),
-      // ✨ เพิ่ม AppBar สำหรับมือถือ/แท็บเล็ต เพื่อให้มีปุ่ม Hamburger Menu
-      appBar: isDesktop
-          ? null
-          : AppBar(
-              backgroundColor: Colors.white,
-              elevation: 0,
-              iconTheme: const IconThemeData(color: Colors.black87),
-              title: const Text(
-                'PSRU Admin',
-                style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
-              ),
-              centerTitle: true,
-            ),
+
       drawer: isDesktop
           ? null
           : Drawer(
@@ -424,10 +412,11 @@ class AdminSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 250,
+    return Material(
       color: Colors.white,
-      child: Column(
+      child: SizedBox(
+        width: 250,
+        child: Column(
         children: [
           Padding(
             padding: const EdgeInsets.only(
@@ -502,20 +491,18 @@ class AdminSidebar extends StatelessWidget {
           const SizedBox(height: 24),
         ],
       ),
+      ),
     );
   }
 
   Widget _buildNavItem(IconData icon, String title, int index) {
     final isActive = selectedIndex == index;
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      decoration: BoxDecoration(
-        color: isActive
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: ListTile(
+        tileColor: isActive
             ? const Color(0xFF176a21).withOpacity(0.1)
             : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: ListTile(
         leading: Icon(
           icon,
           color: isActive ? const Color(0xFF176a21) : Colors.grey.shade600,
@@ -896,24 +883,31 @@ class StatsRowWidget extends StatelessWidget {
           ),
           child: Icon(icon, color: color, size: 20),
         ),
-        const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                height: 1.0,
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  height: 1.0,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: Colors.black54),
-            ),
-          ],
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  label,
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );

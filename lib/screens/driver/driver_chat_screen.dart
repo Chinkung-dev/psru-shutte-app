@@ -301,25 +301,31 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (imageUrl != null)
+                if (imageUrl != null && imageUrl.isNotEmpty)
                   Padding(
                     padding: EdgeInsets.only(bottom: text.isNotEmpty ? 8.0 : 0),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: Image.network(
-                        imageUrl,
-                        width: 200,
-                        fit: BoxFit.cover,
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return Container(
+                      child: Container(
+                        color: Colors.black12, // ใส่สีพื้นหลังกันรูปโปร่งใส หรือกันโหลดไม่ขึ้น
+                        child: Image.network(
+                          imageUrl,
+                          width: 200,
+                          fit: BoxFit.cover,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return const SizedBox(
+                              width: 200,
+                              height: 200,
+                              child: Center(child: CircularProgressIndicator(color: Color(0xFF176a21))),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) => const SizedBox(
                             width: 200,
                             height: 200,
-                            color: Colors.black12,
-                            child: const Center(child: CircularProgressIndicator(color: Color(0xFF176a21))),
-                          );
-                        },
-                        errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                            child: Center(child: Icon(Icons.broken_image, size: 50, color: Colors.grey)),
+                          ),
+                        ),
                       ),
                     ),
                   ),

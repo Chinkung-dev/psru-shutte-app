@@ -206,7 +206,7 @@ class _EditDriverDialogState extends State<EditDriverDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Container(
-        width: 500,
+        width: MediaQuery.of(context).size.width < 600 ? double.maxFinite : 500,
         padding: const EdgeInsets.all(32),
         decoration: BoxDecoration(
           color: const Color(0xFFF7F9FA),

@@ -17,24 +17,86 @@ class _AdminStudentsTabState extends State<AdminStudentsTab> {
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width > 900;
+    final isCompact = MediaQuery.of(context).size.width < 700;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FA),
-      appBar: isDesktop
-          ? null
-          : AppBar(
-              backgroundColor: Colors.white,
-              elevation: 0,
-              iconTheme: const IconThemeData(color: Colors.black87),
-              title: const Text(
-                'ศูนย์ควบคุม',
-                style: TextStyle(
-                  color: Colors.black87,
-                  fontWeight: FontWeight.bold,
+      body: Column(
+        children: [
+          // Top Dashboard-style Header
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+            child: Row(
+              children: [
+                if (!isDesktop)
+                  IconButton(
+                    icon: const Icon(Icons.menu, color: Colors.black87),
+                    onPressed: () => Scaffold.of(context).openDrawer(),
+                  ),
+                if (!isDesktop) const SizedBox(width: 16),
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'ศูนย์ควบคุม',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
+                const Spacer(),
+                if (!isCompact)
+                  Container(
+                    width: 300,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: TextField(
+                      style: const TextStyle(color: Colors.black87),
+                      decoration: InputDecoration(
+                        hintText: 'ค้นหานักศึกษา...',
+                        hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                        prefixIcon: Icon(
+                          Icons.search,
+                          color: Colors.grey.shade500,
+                          size: 20,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                    ),
+                  ),
+                if (!isCompact) const SizedBox(width: 16),
+                if (!isCompact)
+                  IconButton(
+                    icon: const Icon(Icons.notifications_outlined, color: Colors.black87),
+                    onPressed: () {},
+                  ),
+                if (!isCompact) const SizedBox(width: 8),
+                if (!isCompact)
+                  const CircleAvatar(
+                    backgroundColor: Color(0xFF176a21),
+                    radius: 18,
+                    child: Icon(Icons.person, color: Colors.white, size: 20),
+                  ),
+                if (isCompact)
+                  IconButton(
+                    icon: const Icon(Icons.search, color: Colors.black87),
+                    onPressed: () {},
+                  ),
+              ],
             ),
-      body: SingleChildScrollView(
+          ),
+          
+          Expanded(
+            child: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -87,6 +149,9 @@ class _AdminStudentsTabState extends State<AdminStudentsTab> {
             StudentsTableCard(searchQuery: _searchQuery),
           ],
         ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -223,6 +288,16 @@ class StudentsTableCard extends StatefulWidget {
 
 class _StudentsTableCardState extends State<StudentsTableCard> {
   int _currentPage = 0;
+  late Stream<QuerySnapshot> _studentsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _studentsStream = FirebaseFirestore.instance
+        .collection('users')
+        .where('role', isEqualTo: 'student')
+        .snapshots();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -286,10 +361,7 @@ class _StudentsTableCardState extends State<StudentsTableCard> {
 
           // Table Content
           StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('users')
-                .where('role', isEqualTo: 'student')
-                .snapshots(),
+            stream: _studentsStream,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Padding(

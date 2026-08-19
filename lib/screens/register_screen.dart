@@ -83,9 +83,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     // 2. ตรวจสอบรหัสนักศึกษา
-    if (!RegExp(r'^\d{8,11}$').hasMatch(studentId)) {
+    if (!RegExp(r'^\d{10}$').hasMatch(studentId)) {
       _showSnackBar(
-        'รหัสนักศึกษาต้องเป็นตัวเลข 8-11 หลักเท่านั้น (ห้ามกรอกตัวอักษร)',
+        'รหัสนักศึกษาต้องเป็นตัวเลข 10 หลักเท่านั้น (ห้ามกรอกตัวอักษร)',
         Colors.red,
       );
       return;
@@ -347,7 +347,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   _buildInputField(
                     label: 'อีเมล',
-                    hint: 'example@university.ac.th',
+                    hint: 'example@psru.ac.th',
                     icon: Icons.alternate_email,
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
