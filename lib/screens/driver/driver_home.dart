@@ -564,13 +564,29 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                   }
 
                   if (isRecentlyUpdated && key.toString() != _shuttleDocId) {
+                    double sLat = 0.0;
+                    double sLng = 0.0;
+                    if (value['lat'] is double)
+                      sLat = value['lat'];
+                    else if (value['lat'] is int)
+                      sLat = (value['lat'] as int).toDouble();
+                    else if (value['lat'] is String)
+                      sLat = double.tryParse(value['lat'].toString()) ?? 0.0;
+
+                    if (value['lng'] is double)
+                      sLng = value['lng'];
+                    else if (value['lng'] is int)
+                      sLng = (value['lng'] as int).toDouble();
+                    else if (value['lng'] is String)
+                      sLng = double.tryParse(value['lng'].toString()) ?? 0.0;
+
                     newShuttles.add({
                       'id': key.toString(),
                       'number': value.containsKey('number')
                           ? value['number']
                           : null,
-                      'lat': (value['lat'] as num).toDouble(),
-                      'lng': (value['lng'] as num).toDouble(),
+                      'lat': sLat,
+                      'lng': sLng,
                       'passenger_status': value.containsKey('passenger_status')
                           ? value['passenger_status']
                           : 'available',
@@ -696,12 +712,31 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       List<Map<String, dynamic>> loadedStops = [];
       for (var doc in snapshot.docs) {
         final data = doc.data();
+        final rawLat = data['lat'];
+        final rawLng = data['lng'];
+        double lat = 0.0;
+        double lng = 0.0;
+
+        if (rawLat is double)
+          lat = rawLat;
+        else if (rawLat is int)
+          lat = rawLat.toDouble();
+        else if (rawLat is String)
+          lat = double.tryParse(rawLat) ?? 0.0;
+
+        if (rawLng is double)
+          lng = rawLng;
+        else if (rawLng is int)
+          lng = rawLng.toDouble();
+        else if (rawLng is String)
+          lng = double.tryParse(rawLng) ?? 0.0;
+
         loadedStops.add({
           'id': doc.id,
           'stop_id': data['stop_id'] ?? doc.id,
           'name': data['name'] ?? 'จุดจอด',
-          'lat': (data['lat'] as num).toDouble(),
-          'lng': (data['lng'] as num).toDouble(),
+          'lat': lat,
+          'lng': lng,
           'order': data['order'],
         });
       }
@@ -1373,10 +1408,26 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               if (data['status'] != 'on_board' &&
                   data.containsKey('student_lat') &&
                   data.containsKey('student_lng')) {
+                double sLat = 0.0;
+                double sLng = 0.0;
+                if (data['student_lat'] is double)
+                  sLat = data['student_lat'];
+                else if (data['student_lat'] is int)
+                  sLat = (data['student_lat'] as int).toDouble();
+                else if (data['student_lat'] is String)
+                  sLat = double.tryParse(data['student_lat'].toString()) ?? 0.0;
+
+                if (data['student_lng'] is double)
+                  sLng = data['student_lng'];
+                else if (data['student_lng'] is int)
+                  sLng = (data['student_lng'] as int).toDouble();
+                else if (data['student_lng'] is String)
+                  sLng = double.tryParse(data['student_lng'].toString()) ?? 0.0;
+
                 students.add({
                   'id': doc.id,
-                  'lat': (data['student_lat'] as num).toDouble(),
-                  'lng': (data['student_lng'] as num).toDouble(),
+                  'lat': sLat,
+                  'lng': sLng,
                   'status': data['status'],
                 });
               }

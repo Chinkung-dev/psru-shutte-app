@@ -10,6 +10,7 @@ import 'admin_drivers_tab.dart';
 import 'admin_students_tab.dart';
 import 'admin_analytics_tab.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // ✨ เพิ่ม Import FirebaseAuth สำหรับล็อกเอาต์
+import 'admin_profile_dialog.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -567,10 +568,19 @@ class DashboardHeader extends StatelessWidget {
           onPressed: () {},
         ),
         const SizedBox(width: 8),
-        const CircleAvatar(
-          backgroundColor: Color(0xFF176a21),
-          radius: 18,
-          child: Icon(Icons.person, color: Colors.white, size: 20),
+        InkWell(
+          onTap: () {
+            showDialog(
+              context: context,
+              builder: (context) => const AdminProfileDialog(),
+            );
+          },
+          borderRadius: BorderRadius.circular(18),
+          child: const CircleAvatar(
+            backgroundColor: Color(0xFF176a21),
+            radius: 18,
+            child: Icon(Icons.person, color: Colors.white, size: 20),
+          ),
         ),
       ],
     );

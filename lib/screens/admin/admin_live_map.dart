@@ -21,6 +21,30 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
   List<Map<String, dynamic>> activeShuttles = [];
   List<Map<String, dynamic>> busStops = [];
 
+  void _animatedMapMove(LatLng destLocation, double destZoom) {
+    final latTween = Tween<double>(begin: _mapController.camera.center.latitude, end: destLocation.latitude);
+    final lngTween = Tween<double>(begin: _mapController.camera.center.longitude, end: destLocation.longitude);
+    final zoomTween = Tween<double>(begin: _mapController.camera.zoom, end: destZoom);
+
+    final controller = AnimationController(duration: const Duration(milliseconds: 500), vsync: this);
+    final Animation<double> animation = CurvedAnimation(parent: controller, curve: Curves.fastOutSlowIn);
+
+    controller.addListener(() {
+      _mapController.move(
+        LatLng(latTween.evaluate(animation), lngTween.evaluate(animation)),
+        zoomTween.evaluate(animation),
+      );
+    });
+
+    animation.addStatusListener((status) {
+      if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
+        controller.dispose();
+      }
+    });
+
+    controller.forward();
+  }
+
   // ✨ จัดกลุ่มจุดจอดที่อยู่ใกล้กันให้แสดงเป็นหมุดเดียว (สอดคล้องกับฝั่งนักศึกษาและคนขับ)
   final Map<String, List<String>> _groupedStops = {
     '7-Eleven PSRU และตึก IT': ['7-Eleven PSRU', 'ตึก IT '],
@@ -768,11 +792,19 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
               left: 24,
               child: Column(
                 children: [
-                  _buildMapControlButton(Icons.add),
+                  _buildMapControlButton(Icons.add, () {
+                    final currentZoom = _mapController.camera.zoom;
+                    _animatedMapMove(_mapController.camera.center, currentZoom + 1.0);
+                  }),
                   const SizedBox(height: 8),
-                  _buildMapControlButton(Icons.remove),
+                  _buildMapControlButton(Icons.remove, () {
+                    final currentZoom = _mapController.camera.zoom;
+                    _animatedMapMove(_mapController.camera.center, currentZoom - 1.0);
+                  }),
                   const SizedBox(height: 16),
-                  _buildMapControlButton(Icons.my_location),
+                  _buildMapControlButton(Icons.my_location, () {
+                    _animatedMapMove(_psruCenter, 15.5);
+                  }),
                 ],
               ),
             )
@@ -959,7 +991,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
     );
   }
 
-  Widget _buildMapControlButton(IconData icon) {
+  Widget _buildMapControlButton(IconData icon, VoidCallback onTap) {
     return Container(
       width: 44,
       height: 44,
@@ -968,7 +1000,14 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
         shape: BoxShape.circle,
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4))],
       ),
-      child: Icon(icon, color: Colors.black87),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: onTap,
+          child: Icon(icon, color: Colors.black87),
+        ),
+      ),
     );
   }
 }

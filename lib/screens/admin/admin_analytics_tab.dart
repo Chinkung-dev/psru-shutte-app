@@ -65,13 +65,17 @@ class AdminAnalyticsTab extends StatelessWidget {
               int activeCount = 0;
               if (snapshot.hasData && snapshot.data!.snapshot.value != null) {
                 final now = DateTime.now();
-                final data = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
-                
+                final data =
+                    snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+
                 int count = 0;
                 data.forEach((key, value) {
                   if (value is Map && value['status'] == 'online') {
-                    if (value.containsKey('last_updated') && value['last_updated'] != null) {
-                      final lastUpdated = DateTime.fromMillisecondsSinceEpoch((value['last_updated'] as num).toInt());
+                    if (value.containsKey('last_updated') &&
+                        value['last_updated'] != null) {
+                      final lastUpdated = DateTime.fromMillisecondsSinceEpoch(
+                        (value['last_updated'] as num).toInt(),
+                      );
                       if (now.difference(lastUpdated).inMinutes <= 3) {
                         count++;
                       }
@@ -84,7 +88,10 @@ class AdminAnalyticsTab extends StatelessWidget {
               int avgWaitTime = activeCount > 0 ? (30 / activeCount).ceil() : 0;
 
               return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(30),
@@ -105,23 +112,37 @@ class AdminAnalyticsTab extends StatelessWidget {
                         width: 12,
                         height: 12,
                         decoration: BoxDecoration(
-                          color: activeCount > 0 ? const Color(0xFF176a21) : Colors.redAccent,
+                          color: activeCount > 0
+                              ? const Color(0xFF176a21)
+                              : Colors.redAccent,
                           shape: BoxShape.circle,
                         ),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         'รถกำลังวิ่ง $activeCount คัน',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
                       ),
                       const SizedBox(width: 16),
-                      Container(width: 1, height: 20, color: Colors.grey.shade300),
+                      Container(
+                        width: 1,
+                        height: 20,
+                        color: Colors.grey.shade300,
+                      ),
                       const SizedBox(width: 16),
                       const Icon(Icons.speed, size: 18, color: Colors.black54),
                       const SizedBox(width: 6),
                       Text(
-                        avgWaitTime > 0 ? 'รอเฉลี่ย $avgWaitTime นาที' : 'ยังไม่มีรถวิ่ง',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        avgWaitTime > 0
+                            ? 'รอเฉลี่ย $avgWaitTime นาที'
+                            : 'ยังไม่มีรถวิ่ง',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
                       ),
                       const SizedBox(width: 16),
                       Container(
@@ -244,44 +265,11 @@ class AnalyticsTitleRow extends StatelessWidget {
               child: Row(
                 children: [
                   _buildTimeTab('วันนี้', true),
+                  _buildTimeTab('3 วัน', false),
                   _buildTimeTab('สัปดาห์', false),
-                  _buildTimeTab('เดือน', false),
                 ],
               ),
             ),
-            if (!isMobile) ...[
-              const SizedBox(width: 16),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.directions_bus,
-                      size: 16,
-                      color: Colors.grey.shade600,
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'ทุกเส้นทาง',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Icon(Icons.keyboard_arrow_down, size: 16),
-                  ],
-                ),
-              ),
-            ],
           ],
         ),
       ],
@@ -935,7 +923,3 @@ class AnalyticsLinePainter extends CustomPainter {
     return true;
   }
 }
-
-
-
-

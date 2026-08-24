@@ -252,249 +252,272 @@ class _LoginScreenState extends State<LoginScreen> {
 
           // 📄 Layer 3: ส่วนการ์ดฟอร์มเข้าสู่ระบบ (Login Form Card)
           SafeArea(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 500),
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  physics: const ClampingScrollPhysics(),
                   padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                  child: Column(
-                    children: [
-                      const SizedBox(
-                        height: 220,
-                      ), // ระยะห่างเพื่อให้การ์ดป๊อปอัพลอยทับ Wave Header เล็กน้อย
-                      // 📄 กล่องป๊อปอัพการ์ดสีขาว (Floating White Popup Card)
-                      Container(
-                        padding: const EdgeInsets.all(28.0),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(28),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.08),
-                              blurRadius: 24,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // ข้อความ Login ด้านบนฟอร์ม
-                            const Text(
-                              'Login',
-                              style: TextStyle(
-                                fontSize: 30,
-                                fontWeight: FontWeight.w900,
-                                color: Color(0xFF176a21),
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-
-                            // ช่องกรอกอีเมล
-                            Container(
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF2F5F6),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: Colors.grey.withOpacity(0.15),
-                                ),
-                              ),
-                              child: TextField(
-                                controller: _emailController,
-                                keyboardType: TextInputType.emailAddress,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                decoration: const InputDecoration(
-                                  hintText: 'อีเมล (Email)',
-                                  hintStyle: TextStyle(
-                                    color: Colors.grey,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  prefixIcon: Icon(
-                                    Icons.email_outlined,
-                                    color: Color(0xFF176a21),
-                                  ),
-                                  border: InputBorder.none,
-                                  contentPadding: EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-
-                            // ช่องกรอกรหัสผ่าน
-                            Container(
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF2F5F6),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: Colors.grey.withOpacity(0.15),
-                                ),
-                              ),
-                              child: TextField(
-                                controller: _passwordController,
-                                obscureText: _obscurePassword,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                decoration: InputDecoration(
-                                  hintText: 'รหัสผ่าน (Password)',
-                                  hintStyle: const TextStyle(
-                                    color: Colors.grey,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  prefixIcon: const Icon(
-                                    Icons.lock_outline,
-                                    color: Color(0xFF176a21),
-                                  ),
-                                  border: InputBorder.none,
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      _obscurePassword
-                                          ? Icons.visibility_off
-                                          : Icons.visibility,
-                                      color: Colors.grey,
-                                    ),
-                                    onPressed: () {
-                                      setState(() {
-                                        _obscurePassword = !_obscurePassword;
-                                      });
-                                    },
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-
-                            // ✨ ปรับปรุงปุ่ม "ลืมรหัสผ่าน?" ให้เปลี่ยนหน้าจอแทนการเปิดป๊อปอัป
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
-                                onPressed: _isLoading
-                                    ? null
-                                    : () {
-                                        Navigator.pushNamed(
-                                          context,
-                                          '/forgotPassword',
-                                        );
-                                      },
-                                child: const Text(
-                                  'ลืมรหัสผ่าน?',
-                                  style: TextStyle(
-                                    color: Color(0xFF176a21),
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 24),
-
-                            // ปุ่มเข้าสู่ระบบ
-                            GestureDetector(
-                              onTap: _isLoading ? null : _login,
-                              child: Container(
-                                width: double.infinity,
-                                height: 56,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
+                    child: IntrinsicHeight(
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 500),
+                          child: Column(
+                            children: [
+                              const SizedBox(
+                                height: 200,
+                              ), // ระยะห่างเพื่อให้การ์ดป๊อปอัพลอยทับ Wave Header เล็กน้อย
+                              // 📄 กล่องป๊อปอัพการ์ดสีขาว (Floating White Popup Card)
+                              Container(
+                                padding: const EdgeInsets.all(28.0),
                                 decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [
-                                      Color(0xFF81C784),
-                                      Color(0xFF388E3C),
-                                    ],
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                  ),
+                                  color: Colors.white,
                                   borderRadius: BorderRadius.circular(28),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.green.withOpacity(0.3),
-                                      blurRadius: 10,
-                                      offset: const Offset(0, 4),
+                                      color: Colors.black.withOpacity(0.08),
+                                      blurRadius: 24,
+                                      offset: const Offset(0, 8),
                                     ),
                                   ],
                                 ),
-                                child: Center(
-                                  child: _isLoading
-                                      ? const SizedBox(
-                                          width: 24,
-                                          height: 24,
-                                          child: CircularProgressIndicator(
-                                            color: Colors.white,
-                                            strokeWidth: 3,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // ข้อความ Login ด้านบนฟอร์ม
+                                    const Text(
+                                      'Login',
+                                      style: TextStyle(
+                                        fontSize: 30,
+                                        fontWeight: FontWeight.w900,
+                                        color: Color(0xFF176a21),
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 20),
+
+                                    // ช่องกรอกอีเมล
+                                    TextFormField(
+                                      controller: _emailController,
+                                      keyboardType: TextInputType.emailAddress,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                      decoration: InputDecoration(
+                                        labelText: 'อีเมล (Email)',
+                                        labelStyle: const TextStyle(
+                                          fontSize: 16,
+                                        ),
+                                        hintText: 'example@psru.ac.th',
+                                        hintStyle: TextStyle(
+                                          color: Colors.grey.shade400,
+                                          fontSize: 16,
+                                        ),
+                                        prefixIcon: const Icon(
+                                          Icons.email_outlined,
+                                        ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
                                           ),
-                                        )
-                                      : const Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            Icon(
-                                              Icons.login,
-                                              color: Colors.white,
+                                        ),
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              vertical: 16,
+                                              horizontal: 20,
                                             ),
-                                            SizedBox(width: 8),
-                                            Text(
-                                              'เข้าสู่ระบบ',
-                                              style: TextStyle(
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.white,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+
+                                    // ช่องกรอกรหัสผ่าน
+                                    TextFormField(
+                                      controller: _passwordController,
+                                      obscureText: _obscurePassword,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                      decoration: InputDecoration(
+                                        labelText: 'รหัสผ่าน (Password)',
+                                        labelStyle: const TextStyle(
+                                          fontSize: 16,
+                                        ),
+                                        hintText: '••••••••',
+                                        hintStyle: TextStyle(
+                                          color: Colors.grey.shade400,
+                                          fontSize: 16,
+                                        ),
+                                        prefixIcon: const Icon(
+                                          Icons.lock_outline,
+                                        ),
+                                        suffixIcon: IconButton(
+                                          icon: Icon(
+                                            _obscurePassword
+                                                ? Icons.visibility_off
+                                                : Icons.visibility,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                          onPressed: () {
+                                            setState(() {
+                                              _obscurePassword =
+                                                  !_obscurePassword;
+                                            });
+                                          },
+                                        ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              vertical: 16,
+                                              horizontal: 20,
+                                            ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+
+                                    // ✨ ปรับปรุงปุ่ม "ลืมรหัสผ่าน?" ให้เปลี่ยนหน้าจอแทนการเปิดป๊อปอัป
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: TextButton(
+                                        onPressed: _isLoading
+                                            ? null
+                                            : () {
+                                                Navigator.pushNamed(
+                                                  context,
+                                                  '/forgotPassword',
+                                                );
+                                              },
+                                        child: const Text(
+                                          'ลืมรหัสผ่าน?',
+                                          style: TextStyle(
+                                            color: Color(0xFF176a21),
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 24),
+
+                                    // ปุ่มเข้าสู่ระบบ
+                                    GestureDetector(
+                                      onTap: _isLoading ? null : _login,
+                                      child: Container(
+                                        width: double.infinity,
+                                        height: 56,
+                                        decoration: BoxDecoration(
+                                          gradient: const LinearGradient(
+                                            colors: [
+                                              Color(0xFF81C784),
+                                              Color(0xFF388E3C),
+                                            ],
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            28,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.green.withOpacity(
+                                                0.3,
                                               ),
+                                              blurRadius: 10,
+                                              offset: const Offset(0, 4),
                                             ),
                                           ],
                                         ),
+                                        child: Center(
+                                          child: _isLoading
+                                              ? const SizedBox(
+                                                  width: 24,
+                                                  height: 24,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        color: Colors.white,
+                                                        strokeWidth: 3,
+                                                      ),
+                                                )
+                                              : const Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.center,
+                                                  children: [
+                                                    Icon(
+                                                      Icons.login,
+                                                      color: Colors.white,
+                                                    ),
+                                                    SizedBox(width: 8),
+                                                    Text(
+                                                      'เข้าสู่ระบบ',
+                                                      style: TextStyle(
+                                                        fontSize: 18,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color: Colors.white,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ),
-                          ],
+
+                              const Spacer(),
+
+                              Column(
+                                children: [
+                                  const Text(
+                                    'ยังไม่มีบัญชีผู้ใช้?',
+                                    style: TextStyle(color: Colors.grey),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  GestureDetector(
+                                    onTap: _isLoading
+                                        ? null
+                                        : () {
+                                            Navigator.pushNamed(
+                                              context,
+                                              '/register',
+                                            );
+                                          },
+                                    child: const Text(
+                                      'สร้างบัญชีใหม่',
+                                      style: TextStyle(
+                                        color: Color(0xFF176a21),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'Version 1.0.3', // ✨ เปลี่ยนเลขเวอร์ชันตรงนี้เวลามีอัปเดต
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade400,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 24),
+                            ],
+                          ),
                         ),
                       ),
-
-                      const SizedBox(height: 28),
-
-                      Column(
-                        children: [
-                          const Text(
-                            'ยังไม่มีบัญชีผู้ใช้?',
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                          const SizedBox(height: 4),
-                          GestureDetector(
-                            onTap: _isLoading
-                                ? null
-                                : () {
-                                    Navigator.pushNamed(context, '/register');
-                                  },
-                            child: const Text(
-                              'สร้างบัญชีใหม่',
-                              style: TextStyle(
-                                color: Color(0xFF176a21),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Version 1.0.3', // ✨ เปลี่ยนเลขเวอร์ชันตรงนี้เวลามีอัปเดต
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade400,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 40),
-                    ],
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ),
         ],

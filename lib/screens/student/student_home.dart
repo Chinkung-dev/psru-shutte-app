@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;
 import '../../widgets/top_toast.dart';
 import 'package:flutter/material.dart';
@@ -87,12 +87,12 @@ class _StudentHomeState extends State<StudentHome>
       if (members.isNotEmpty) {
         double avgLat =
             members
-                .map((e) => (e['lat'] as num).toDouble())
+                .map((e) => (e['lat'] is num ? (e['lat'] as num).toDouble() : (double.tryParse(e['lat'].toString()) ?? 0.0)))
                 .reduce((a, b) => a + b) /
             members.length;
         double avgLng =
             members
-                .map((e) => (e['lng'] as num).toDouble())
+                .map((e) => (e['lng'] is num ? (e['lng'] as num).toDouble() : (double.tryParse(e['lng'].toString()) ?? 0.0)))
                 .reduce((a, b) => a + b) /
             members.length;
         result.add({
@@ -564,8 +564,8 @@ class _StudentHomeState extends State<StudentHome>
               if (isRecentlyUpdated) {
                 newShuttles.add({
                   'id': key.toString(),
-                  'lat': (value['lat'] as num).toDouble(),
-                  'lng': (value['lng'] as num).toDouble(),
+                  'lat': (value['lat'] is num ? (value['lat'] as num).toDouble() : (double.tryParse(value['lat'].toString()) ?? 0.0)),
+                  'lng': (value['lng'] is num ? (value['lng'] as num).toDouble() : (double.tryParse(value['lng'].toString()) ?? 0.0)),
                   'passenger_status': value.containsKey('passenger_status')
                       ? value['passenger_status']
                       : 'available',
@@ -1020,8 +1020,8 @@ class _StudentHomeState extends State<StudentHome>
         loadedStops.add({
           'id': doc.id, // ใช้สำหรับ Key ของ Marker
           'name': data['name'],
-          'lat': (data['lat'] as num).toDouble(),
-          'lng': (data['lng'] as num).toDouble(),
+          'lat': (data['lat'] is num ? (data['lat'] as num).toDouble() : (double.tryParse(data['lat'].toString()) ?? 0.0)),
+          'lng': (data['lng'] is num ? (data['lng'] as num).toDouble() : (double.tryParse(data['lng'].toString()) ?? 0.0)),
           'order': data['order'], // ✨ สำคัญสำหรับคำนวณเส้นทาง
         });
       }
@@ -2153,8 +2153,8 @@ class _StudentHomeState extends State<StudentHome>
                       final LatLng displayLoc =
                           _currentShuttleLocations[id] ??
                           LatLng(
-                            (shuttle['lat'] as num).toDouble(),
-                            (shuttle['lng'] as num).toDouble(),
+                            (shuttle['lat'] is num ? (shuttle['lat'] as num).toDouble() : (double.tryParse(shuttle['lat'].toString()) ?? 0.0)),
+                            (shuttle['lng'] is num ? (shuttle['lng'] as num).toDouble() : (double.tryParse(shuttle['lng'].toString()) ?? 0.0)),
                           );
                       return Marker(
                         key: ValueKey('shuttle_$id'),
@@ -2415,8 +2415,8 @@ class _StudentHomeState extends State<StudentHome>
             const distanceCalc = Distance();
             double minDistance = double.infinity;
             for (var vStop in _visualStops) {
-              double lat = (vStop['lat'] as num).toDouble();
-              double lng = (vStop['lng'] as num).toDouble();
+              double lat = (vStop['lat'] is num ? (vStop['lat'] as num).toDouble() : (double.tryParse(vStop['lat'].toString()) ?? 0.0));
+              double lng = (vStop['lng'] is num ? (vStop['lng'] as num).toDouble() : (double.tryParse(vStop['lng'].toString()) ?? 0.0));
               double d = distanceCalc.distance(_myLocation!, LatLng(lat, lng));
               if (d < minDistance) {
                 minDistance = d;
@@ -3771,3 +3771,5 @@ class _CurvedNavPainter extends CustomPainter {
         oldDelegate.isDesktop != isDesktop;
   }
 }
+
+
