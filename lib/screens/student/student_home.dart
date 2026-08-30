@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math' as math;
 import '../../widgets/top_toast.dart';
 import 'package:flutter/material.dart';
@@ -537,7 +537,13 @@ class _StudentHomeState extends State<StudentHome>
   }
 
   void _listenToShuttles() {
-    shuttleSubscription = FirebaseDatabase.instance.ref('shuttles').onValue.listen((
+    final ref = FirebaseDatabase.instance.ref('shuttles');
+    
+    // บังคับดึงข้อมูล 1 ครั้งตอนเริ่มต้น เพื่อกระตุ้นการเชื่อมต่อ WebSocket
+    // (แก้ปัญหาบน Web ที่ onValue อาจไม่ทำงานจนกว่าจะมีการอัปเดตจากฝั่ง Server)
+    ref.get();
+
+    shuttleSubscription = ref.onValue.listen((
       event,
     ) {
       if (mounted && event.snapshot.exists) {
@@ -632,6 +638,15 @@ class _StudentHomeState extends State<StudentHome>
             _targetShuttleLocations[id] = newLoc;
             _oldShuttleLocations[id] = newLoc; // ✨ ป้องกันบั๊กเริ่มต้น
             hasMeaningfulChange = true;
+
+            // ✨ แจ้งเตือนเมื่อมีรถคันใหม่เพิ่งออนไลน์
+            bool isNew = !activeShuttles.any((s) => s['id'] == id);
+            if (isNew) {
+              String numStr = (shuttle['number'] ?? '').toString();
+              String sName = numStr.isNotEmpty ? 'รถเบอร์ $numStr' : 'รถรับส่ง';
+              TopToast.show(context, 'อัปเดต: $sName ออนไลน์เข้าสู่ระบบแล้ว 🚌', isError: false);
+            }
+
           } else if (targetLoc == null ||
               targetLoc.latitude != newLoc.latitude ||
               targetLoc.longitude != newLoc.longitude) {
@@ -3361,7 +3376,12 @@ class _StudentHomeState extends State<StudentHome>
                             onTap: () {
                               if (mounted) {
                                 setState(() {
-                                  isCardMinimized = true;
+                                  selectedStopName = null;
+                                  selectedStopLatLng = null;
+                                  estimatedArrivalText = null;
+                                  highlightedPath.clear();
+                                  targetedShuttleId = null;
+                                  isCardMinimized = false;
                                 });
                               }
                             },
@@ -3597,7 +3617,19 @@ class _StudentHomeState extends State<StudentHome>
                     GestureDetector(
                       onTap: isOnBoard
                           ? _toggleWaitState
-                          : (isAcknowledged ? _boardShuttle : _toggleWaitState),
+                          : (isAcknowledged
+                              ? _boardShuttle
+                              : (isWaiting
+                                  ? _toggleWaitState
+                                  : (activeShuttles.isEmpty
+                                      ? () {
+                                          TopToast.show(
+                                            context,
+                                            'ไม่สามารถเรียกรถได้: ขณะนี้ไม่มีคนขับออนไลน์อยู่ในระบบ',
+                                            isError: true,
+                                          );
+                                        }
+                                      : _toggleWaitState))),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
                         width: double.infinity,
@@ -3606,18 +3638,21 @@ class _StudentHomeState extends State<StudentHome>
                           gradient: LinearGradient(
                             colors: isWaiting
                                 ? [Colors.red.shade400, Colors.red.shade600]
-                                : [
-                                    const Color(0xFF9DF197),
-                                    const Color(0xFF176a21),
-                                  ],
+                                : (!isWaiting && !isOnBoard && !isAcknowledged && activeShuttles.isEmpty)
+                                    ? [Colors.grey.shade400, Colors.grey.shade500]
+                                    : [
+                                        const Color(0xFF9DF197),
+                                        const Color(0xFF176a21),
+                                      ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
                           borderRadius: BorderRadius.circular(23),
                           boxShadow: [
                             BoxShadow(
-                              color:
-                                  (isWaiting
+                              color: (!isWaiting && !isOnBoard && !isAcknowledged && activeShuttles.isEmpty)
+                                  ? Colors.transparent
+                                  : (isWaiting
                                           ? Colors.red
                                           : const Color(0xFF176a21))
                                       .withOpacity(0.3),

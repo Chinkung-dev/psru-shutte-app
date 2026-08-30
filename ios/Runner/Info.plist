@@ -70,5 +70,16 @@
 	<string>แอปพลิเคชันต้องการเข้าถึงพิกัดจีพีเอสเพื่อแสดงตำแหน่งรถรับส่งและจุดที่นักศึกษาอยู่บนแผนที่</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>แอปพลิเคชันต้องการเข้าถึงพิกัดจีพีเอสในพื้นหลังเพื่อให้คนขับรถสามารถส่งตำแหน่งรถให้ผู้โดยสารติดตามได้แบบ Real-time</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.249582330017-413brtv9rli4pmq4cvo95tkpfcv6mrji</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

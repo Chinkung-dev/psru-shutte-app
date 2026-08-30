@@ -1,6 +1,10 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/top_toast.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -16,8 +20,158 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _obscurePassword = true;
   bool _isLoading = false;
+  bool _isGoogleLoading = false;
+
+  // 🛡️ ระบบความปลอดภัย: ป้องกัน Brute-force Attack
+  static const int _maxFailedAttempts = 5;
+  static const int _lockoutDurationSeconds = 30;
+
+  int _failedAttempts = 0;
+  int _remainingLockoutSeconds = 0;
+  Timer? _lockoutTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLockoutState();
+  }
+
+  @override
+  void dispose() {
+    _lockoutTimer?.cancel();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  /// 🔍 ตรวจสอบว่าแอปกำลังอยู่ในช่วงระงับการล็อกอินชั่วคราวหรือไม่
+  Future<void> _checkLockoutState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lockoutEndTimeMs = prefs.getInt('login_lockout_end_time') ?? 0;
+      final savedAttempts = prefs.getInt('login_failed_attempts') ?? 0;
+
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      if (lockoutEndTimeMs > nowMs) {
+        final remainingSec = ((lockoutEndTimeMs - nowMs) / 1000).ceil();
+        if (mounted) {
+          setState(() {
+            _failedAttempts = savedAttempts;
+            _remainingLockoutSeconds = remainingSec;
+          });
+          _startLockoutCountdown(remainingSec);
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _failedAttempts = savedAttempts;
+            _remainingLockoutSeconds = 0;
+          });
+        }
+        if (lockoutEndTimeMs > 0) {
+          await prefs.remove('login_lockout_end_time');
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// ⏳ เริ่มนับเวลาถอยหลังการระงับการล็อกอิน
+  void _startLockoutCountdown(int seconds) {
+    _lockoutTimer?.cancel();
+    _remainingLockoutSeconds = seconds;
+
+    _lockoutTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      if (_remainingLockoutSeconds <= 1) {
+        timer.cancel();
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('login_lockout_end_time');
+          await prefs.remove('login_failed_attempts');
+        } catch (_) {}
+
+        if (mounted) {
+          setState(() {
+            _remainingLockoutSeconds = 0;
+            _failedAttempts = 0;
+          });
+          TopToast.show(
+            context,
+            'ปลดล็อกระบบแล้ว คุณสามารถเข้าสู่ระบบได้อีกครั้ง',
+            isError: false,
+          );
+        }
+      } else {
+        setState(() {
+          _remainingLockoutSeconds--;
+        });
+      }
+    });
+  }
+
+  /// ❌ บันทึกจำนวนครั้งที่กรอกรหัสผ่านผิด และสั่งล็อกหากครบ 5 ครั้ง
+  Future<void> _recordFailedAttempt() async {
+    _failedAttempts++;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('login_failed_attempts', _failedAttempts);
+
+      if (_failedAttempts >= _maxFailedAttempts) {
+        final lockoutEndTime = DateTime.now().add(
+          const Duration(seconds: _lockoutDurationSeconds),
+        );
+        await prefs.setInt(
+          'login_lockout_end_time',
+          lockoutEndTime.millisecondsSinceEpoch,
+        );
+
+        if (mounted) {
+          _startLockoutCountdown(_lockoutDurationSeconds);
+          TopToast.show(
+            context,
+            'คุณกรอกรหัสผ่านผิดครบ $_maxFailedAttempts ครั้งแล้ว ระบบถูกระงับชั่วคราว $_lockoutDurationSeconds วินาที',
+            isError: true,
+          );
+        }
+      } else {
+        final remainingChances = _maxFailedAttempts - _failedAttempts;
+        if (mounted) {
+          TopToast.show(
+            context,
+            'อีเมลหรือรหัสผ่านไม่ถูกต้อง (เหลือโอกาสอีก $remainingChances ครั้ง)',
+            isError: true,
+          );
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// ✅ รีเซ็ตประวัติการกรอกผิดเมื่อเข้าสู่ระบบสำเร็จ
+  Future<void> _resetFailedAttempts() async {
+    _lockoutTimer?.cancel();
+    _failedAttempts = 0;
+    _remainingLockoutSeconds = 0;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('login_failed_attempts');
+      await prefs.remove('login_lockout_end_time');
+    } catch (_) {}
+  }
 
   Future<void> _login() async {
+    if (_remainingLockoutSeconds > 0) {
+      TopToast.show(
+        context,
+        'ระบบถูกระงับการเข้าสู่ระบบชั่วคราว กรุณารออีก $_remainingLockoutSeconds วินาที',
+        isError: true,
+      );
+      return;
+    }
+
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
@@ -49,9 +203,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      if (userCredential.user != null) {
-        // ย้ายไปทำงานที่หน้า Home แทนแล้ว
-      }
+      // ล็อกอินสำเร็จ -> รีเซ็ตประวัติการกรอกผิด
+      await _resetFailedAttempts();
 
       if (!mounted) return;
 
@@ -92,15 +245,151 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
-      String message =
-          'เกิดข้อผิดพลาดในการเข้าสู่ระบบ (${e.message ?? e.code})';
       if (e.code == 'user-not-found' ||
           e.code == 'wrong-password' ||
           e.code == 'invalid-credential') {
-        message = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง';
+        await _recordFailedAttempt();
       } else if (e.code == 'too-many-requests') {
-        message =
-            'มีการพยายามเข้าสู่ระบบผิดพลาดหลายครั้ง กรุณารอสักครู่แล้วลองใหม่';
+        TopToast.show(
+          context,
+          'มีการพยายามเข้าสู่ระบบผิดพลาดหลายครั้ง กรุณารอสักครู่แล้วลองใหม่',
+          isError: true,
+        );
+      } else if (e.code == 'network-request-failed') {
+        TopToast.show(
+          context,
+          'ไม่สามารถเชื่อมต่ออินเทอร์เน็ตได้ กรุณาตรวจสอบการเชื่อมต่อของคุณ',
+          isError: true,
+        );
+      } else {
+        TopToast.show(
+          context,
+          'เกิดข้อผิดพลาดในการเข้าสู่ระบบ (${e.message ?? e.code})',
+          isError: true,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      TopToast.show(context, 'เกิดข้อผิดพลาด: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _signInWithGoogle() async {
+    setState(() => _isGoogleLoading = true);
+
+    try {
+      UserCredential userCredential;
+
+      if (kIsWeb) {
+        // 🌐 บน Web: ใช้ signInWithPopup ของ Firebase Auth โดยตรง ซึ่งเสถียรและรองรับมาตรฐานล่าสุด
+        final GoogleAuthProvider googleProvider = GoogleAuthProvider();
+        googleProvider.addScope('email');
+        googleProvider.addScope('profile');
+        userCredential = await FirebaseAuth.instance.signInWithPopup(
+          googleProvider,
+        );
+      } else {
+        // 📱 บน Android / iOS: ใช้ GoogleSignIn SDK
+        final GoogleSignIn googleSignIn = GoogleSignIn();
+        final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+
+        if (googleUser == null) {
+          // ผู้ใช้กดยกเลิกการเลือกบัญชี Google
+          if (mounted) setState(() => _isGoogleLoading = false);
+          return;
+        }
+
+        final GoogleSignInAuthentication googleAuth =
+            await googleUser.authentication;
+        final OAuthCredential credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
+
+        userCredential = await FirebaseAuth.instance.signInWithCredential(
+          credential,
+        );
+      }
+
+      final User? user = userCredential.user;
+      if (user == null || !mounted) return;
+
+      // ล็อกอินสำเร็จ -> รีเซ็ตประวัติการกรอกผิด
+      await _resetFailedAttempts();
+      if (!mounted) return;
+
+      if (user.email == 'admin-shuttle@gmail.com') {
+        Navigator.pushReplacementNamed(context, '/adminDashboard');
+        return;
+      }
+
+      final userDocRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid);
+      final DocumentSnapshot userDoc = await userDocRef.get();
+
+      if (!mounted) return;
+
+      if (!userDoc.exists) {
+        // 💡 สกัดรหัสนักศึกษา 10 หลักอัตโนมัติหากใช้อีเมลสถาบันรูปแบบ @psru.ac.th
+        String extractedStudentId = '';
+        final emailStr = user.email ?? '';
+        final match = RegExp(r'^(\d{10})@psru\.ac\.th$').firstMatch(emailStr);
+        if (match != null) {
+          extractedStudentId = match.group(1) ?? '';
+        }
+
+        // ✨ สร้าง Document ผู้ใช้ใหม่ให้ครบถ้วนทั้ง 9 fields
+        final Map<String, dynamic> newUserData = {
+          'uid': user.uid,
+          'name': (user.displayName != null && user.displayName!.isNotEmpty)
+              ? user.displayName!
+              : 'นักศึกษา',
+          'email': emailStr,
+          'student_id': extractedStudentId,
+          'phone': user.phoneNumber ?? '',
+          'role': 'student',
+          'avatar': 'assets/images/man1.png',
+          'hasSeenOnboarding': false,
+          'created_at': FieldValue.serverTimestamp(),
+        };
+
+        await userDocRef.set(newUserData);
+
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, '/studentOnboarding');
+      } else {
+        // บัญชีเดิมในระบบ
+        final data = userDoc.data() as Map<String, dynamic>?;
+        String role = (data != null && data.containsKey('role'))
+            ? data['role']
+            : 'student';
+
+        if (role == 'driver') {
+          Navigator.pushReplacementNamed(context, '/driverHome');
+        } else if (role == 'admin') {
+          Navigator.pushReplacementNamed(context, '/adminDashboard');
+        } else {
+          final bool hasSeenOnboarding =
+              data != null &&
+              data.containsKey('hasSeenOnboarding') &&
+              data['hasSeenOnboarding'] == true;
+
+          if (hasSeenOnboarding) {
+            Navigator.pushReplacementNamed(context, '/studentHome');
+          } else {
+            Navigator.pushReplacementNamed(context, '/studentOnboarding');
+          }
+        }
+      }
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      String message =
+          'เกิดข้อผิดพลาดในการเข้าสู่ระบบด้วย Google (${e.message ?? e.code})';
+      if (e.code == 'account-exists-with-different-credential') {
+        message = 'มีบัญชีที่ใช้อีเมลนี้อยู่แล้วด้วยวิธีเข้าสู่ระบบอื่น';
       } else if (e.code == 'network-request-failed') {
         message =
             'ไม่สามารถเชื่อมต่ออินเทอร์เน็ตได้ กรุณาตรวจสอบการเชื่อมต่อของคุณ';
@@ -110,7 +399,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       TopToast.show(context, 'เกิดข้อผิดพลาด: $e', isError: true);
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isGoogleLoading = false);
     }
   }
 
@@ -383,6 +672,49 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                     const SizedBox(height: 8),
 
+                                    // ⚠️ การ์ดแจ้งเตือนเมื่อระบบถูกระงับชั่วคราวจากการกรอกรหัสผิด
+                                    if (_remainingLockoutSeconds > 0) ...[
+                                      Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 12,
+                                          horizontal: 16,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFDE8E8),
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
+                                          border: Border.all(
+                                            color: const Color(0xFFF98080),
+                                            width: 1.2,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.lock_clock,
+                                              color: Color(0xFFE02424),
+                                              size: 24,
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                'ระงับการเข้าสู่ระบบชั่วคราว\nกรุณารออีก $_remainingLockoutSeconds วินาที',
+                                                style: const TextStyle(
+                                                  color: Color(0xFF9B1C1C),
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.bold,
+                                                  height: 1.3,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                    ],
+
                                     // ✨ ปรับปรุงปุ่ม "ลืมรหัสผ่าน?" ให้เปลี่ยนหน้าจอแทนการเปิดป๊อปอัป
                                     Align(
                                       alignment: Alignment.centerRight,
@@ -408,27 +740,48 @@ class _LoginScreenState extends State<LoginScreen> {
 
                                     // ปุ่มเข้าสู่ระบบ
                                     GestureDetector(
-                                      onTap: _isLoading ? null : _login,
-                                      child: Container(
+                                      onTap:
+                                          (_isLoading ||
+                                              _remainingLockoutSeconds > 0)
+                                          ? null
+                                          : _login,
+                                      child: AnimatedContainer(
+                                        duration: const Duration(
+                                          milliseconds: 300,
+                                        ),
                                         width: double.infinity,
                                         height: 56,
                                         decoration: BoxDecoration(
-                                          gradient: const LinearGradient(
-                                            colors: [
-                                              Color(0xFF81C784),
-                                              Color(0xFF388E3C),
-                                            ],
-                                            begin: Alignment.topCenter,
-                                            end: Alignment.bottomCenter,
-                                          ),
+                                          gradient: _remainingLockoutSeconds > 0
+                                              ? LinearGradient(
+                                                  colors: [
+                                                    Colors.grey.shade400,
+                                                    Colors.grey.shade500,
+                                                  ],
+                                                  begin: Alignment.topCenter,
+                                                  end: Alignment.bottomCenter,
+                                                )
+                                              : const LinearGradient(
+                                                  colors: [
+                                                    Color(0xFF81C784),
+                                                    Color(0xFF388E3C),
+                                                  ],
+                                                  begin: Alignment.topCenter,
+                                                  end: Alignment.bottomCenter,
+                                                ),
                                           borderRadius: BorderRadius.circular(
                                             28,
                                           ),
                                           boxShadow: [
                                             BoxShadow(
-                                              color: Colors.green.withOpacity(
-                                                0.3,
-                                              ),
+                                              color:
+                                                  _remainingLockoutSeconds > 0
+                                                  ? Colors.black.withOpacity(
+                                                      0.05,
+                                                    )
+                                                  : Colors.green.withOpacity(
+                                                      0.3,
+                                                    ),
                                               blurRadius: 10,
                                               offset: const Offset(0, 4),
                                             ),
@@ -461,6 +814,104 @@ class _LoginScreenState extends State<LoginScreen> {
                                                         fontWeight:
                                                             FontWeight.bold,
                                                         color: Colors.white,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                        ),
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 20),
+
+                                    // 🌐 เส้นคั่น "หรือเข้าสู่ระบบด้วย"
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Divider(
+                                            color: Colors.grey.shade300,
+                                            thickness: 1,
+                                          ),
+                                        ),
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                          ),
+                                          child: Text(
+                                            'หรือเข้าสู่ระบบด้วย',
+                                            style: TextStyle(
+                                              color: Colors.grey.shade500,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: Divider(
+                                            color: Colors.grey.shade300,
+                                            thickness: 1,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+
+                                    const SizedBox(height: 16),
+
+                                    // 🔴 ปุ่มเข้าสู่ระบบด้วย Google
+                                    GestureDetector(
+                                      onTap: (_isLoading || _isGoogleLoading)
+                                          ? null
+                                          : _signInWithGoogle,
+                                      child: Container(
+                                        width: double.infinity,
+                                        height: 54,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            28,
+                                          ),
+                                          border: Border.all(
+                                            color: Colors.grey.shade300,
+                                            width: 1.2,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withOpacity(
+                                                0.04,
+                                              ),
+                                              blurRadius: 10,
+                                              offset: const Offset(0, 3),
+                                            ),
+                                          ],
+                                        ),
+                                        child: Center(
+                                          child: _isGoogleLoading
+                                              ? const SizedBox(
+                                                  width: 24,
+                                                  height: 24,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        color: Color(
+                                                          0xFF176a21,
+                                                        ),
+                                                        strokeWidth: 2.5,
+                                                      ),
+                                                )
+                                              : const Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.center,
+                                                  children: [
+                                                    _GoogleIcon(size: 22),
+                                                    SizedBox(width: 12),
+                                                    Text(
+                                                      'เข้าสู่ระบบด้วย Google',
+                                                      style: TextStyle(
+                                                        fontSize: 16,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color: Color(
+                                                          0xFF37474F,
+                                                        ),
                                                       ),
                                                     ),
                                                   ],
@@ -592,4 +1043,60 @@ class _HeaderWaveClipperLayer2 extends CustomClipper<Path> {
 
   @override
   bool shouldReclip(CustomClipper<Path> oldClipper) => false;
+}
+
+// 🎨 วิดเจ็ตไอคอน Google สีสันสมจริง (Custom Painted 4-Color Google G Logo)
+class _GoogleIcon extends StatelessWidget {
+  final double size;
+  const _GoogleIcon({this.size = 22});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(size: Size(size, size), painter: _GoogleLogoPainter());
+  }
+}
+
+class _GoogleLogoPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double w = size.width;
+    final double h = size.height;
+    final double strokeWidth = w * 0.22;
+    final center = Offset(w / 2, h / 2);
+    final radius = (w / 2) - (strokeWidth / 2);
+    final rect = Rect.fromCircle(center: center, radius: radius);
+
+    final arcPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.butt;
+
+    // 🔴 Red: Top arc (from 225 deg to 315 deg)
+    arcPaint.color = const Color(0xFFEA4335);
+    canvas.drawArc(rect, -2.356, 1.571, false, arcPaint);
+
+    // 🟡 Yellow: Left arc (from 135 deg to 225 deg)
+    arcPaint.color = const Color(0xFFFBBC05);
+    canvas.drawArc(rect, -3.927, 1.571, false, arcPaint);
+
+    // 🟢 Green: Bottom arc (from 45 deg to 135 deg)
+    arcPaint.color = const Color(0xFF34A853);
+    canvas.drawArc(rect, 0.785, 1.571, false, arcPaint);
+
+    // 🔵 Blue: Right arc (from -45 deg to 45 deg)
+    arcPaint.color = const Color(0xFF4285F4);
+    canvas.drawArc(rect, -0.785, 1.571, false, arcPaint);
+
+    // 🔵 Blue: Horizontal center bar
+    final barPaint = Paint()
+      ..color = const Color(0xFF4285F4)
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(
+      Rect.fromLTWH(w * 0.46, h * 0.5 - strokeWidth / 2, w * 0.54, strokeWidth),
+      barPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

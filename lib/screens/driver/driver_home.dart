@@ -771,11 +771,15 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     _alertPlayer.dispose(); // ✨ คืนหน่วยความจำ
 
     if (_shuttleDocId != null) {
-      FirebaseDatabase.instance
-          .ref('shuttles')
-          .child(_shuttleDocId!)
-          .update({'status': 'offline'})
-          .catchError((e) => print(e));
+      try {
+        await FirebaseDatabase.instance
+            .ref('shuttles')
+            .child(_shuttleDocId!)
+            .update({'status': 'offline'})
+            .timeout(const Duration(seconds: 2));
+      } catch (e) {
+        debugPrint("Offline Update Error: $e");
+      }
     }
 
     // 1. พาผู้ใช้กลับไปหน้า Login ทันที (เพื่อให้ Navigator ทำลาย Widget ปัจจุบันและปิด Stream ย่อยทั้งหมดในแอปอัตโนมัติ)

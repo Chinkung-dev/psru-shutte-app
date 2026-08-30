@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 // Import หน้าจอทั้งหมดมารวมไว้ที่นี่
 import 'screens/login_screen.dart';
@@ -11,8 +12,6 @@ import 'screens/driver/driver_home.dart';
 import 'screens/student/student_home.dart';
 import 'screens/student/student_onboarding_screen.dart';
 import 'screens/admin/admin_dashboard.dart';
-
-
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,6 +48,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
+        textTheme: GoogleFonts.kanitTextTheme(Theme.of(context).textTheme),
       ),
       initialRoute: '/login', // ✨ หน้าแรกของแอป
       routes: {

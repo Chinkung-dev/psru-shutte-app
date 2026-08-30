@@ -13,7 +13,20 @@
           "package_name": "com.example.psru_shuttle_app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "249582330017-hbvneu0agv44vuk0il8a7rnvi5q6h4sc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.psru_shuttle_app",
+            "certificate_hash": "c9be4c5a92805a8f49e2db13ec2f83ec33bb4c3e"
+          }
+        },
+        {
+          "client_id": "249582330017-6eh3qu2hq050lnubc2t396lteebq9nun.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyC_hA57sHN5EOmCxTJoMlhOmwhq7Tkz6Sk"
@@ -21,7 +34,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "249582330017-6eh3qu2hq050lnubc2t396lteebq9nun.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "249582330017-413brtv9rli4pmq4cvo95tkpfcv6mrji.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.psruShuttleApp"
+              }
+            }
+          ]
         }
       }
     }
