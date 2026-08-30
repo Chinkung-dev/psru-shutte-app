@@ -184,7 +184,7 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
     final bool isDesktop = MediaQuery.of(context).size.width > 800;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F5), // สีพื้นหลังเทาอ่อนตามแบบ
+      backgroundColor: const Color(0xFFF0F4F2), // ✨ สีพื้นหลังเทาอมเขียวมิ้นต์อ่อนๆ สบายตา
       body: SafeArea(
         bottom: false,
         child: Stack(
@@ -239,123 +239,110 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
       {
         'icon': Icons.directions_bus_outlined,
         'activeIcon': Icons.directions_bus,
-        'label': 'Live Status',
+        'label': 'Live Status'
       },
-      {
-        'icon': Icons.chat_bubble_outline,
-        'activeIcon': Icons.chat_bubble,
-        'label': 'Chat',
-      },
-      {
-        'icon': Icons.person_outline,
-        'activeIcon': Icons.person,
-        'label': 'Profile',
-      },
+      {'icon': Icons.chat_bubble_outline, 'activeIcon': Icons.chat_bubble, 'label': 'Chat'},
+      {'icon': Icons.person_outline, 'activeIcon': Icons.person, 'label': 'Profile'},
     ];
-
-    const int selectedIndex = 2; // หน้า Chat คือ Index 2
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final double width = constraints.maxWidth;
-        final double itemWidth = width / navItems.length;
-        final double targetX = itemWidth * selectedIndex + itemWidth / 2;
-        final bool isDesktop = MediaQuery.of(context).size.width > 800;
-
-        return SizedBox(
-          height: 85,
+        return Container(
+          height: 70,
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFFFFFFFF),
+                Color(0xFFF9FBF9),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(35),
+            border: Border.all(
+              color: Colors.black.withValues(alpha: 0.04),
+              width: 1.0,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF176a21).withValues(alpha: 0.10),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
           child: Stack(
             clipBehavior: Clip.none,
             children: [
-              // พื้นหลังบาร์สีขาวพร้อมรอยบาก (Curved Notch)
-              TweenAnimationBuilder<double>(
-                tween: Tween<double>(begin: targetX, end: targetX),
-                duration: const Duration(milliseconds: 350),
-                curve: Curves.easeOutCubic,
-                builder: (context, animatedX, child) {
-                  return Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      CustomPaint(
-                        size: Size(width, 85),
-                        painter: _StudentChatCurvedNavPainter(
-                          notchCenter: animatedX,
-                          isDesktop: isDesktop,
-                        ),
-                      ),
-                      // ปุ่มวงกลมสีเขียวลอยในรอยบาก
-                      Positioned(
-                        top: 2,
-                        left: animatedX - 24,
-                        child: Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF176a21),
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(
-                                  0xFF176a21,
-                                ).withOpacity(0.35),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Icon(
-                            navItems[selectedIndex]['activeIcon'],
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-
-              // รายการปุ่มกดแต่ละ Tab
-              Positioned(
-                top: 18,
-                left: 0,
-                right: 0,
-                bottom: 0,
+              // เมนู 4 ปุ่ม
+              Positioned.fill(
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: List.generate(navItems.length, (index) {
-                    final bool isActive = selectedIndex == index;
+                    final bool isChatTab = index == 2;
+
                     return Expanded(
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: () {
-                          if (isActive) return;
-                          Navigator.of(context).popUntil((route) => route.isFirst);
-                          widget.onSelectTab?.call(index);
+                          if (widget.onSelectTab != null) {
+                            widget.onSelectTab!(index);
+                            Navigator.pop(context);
+                          }
                         },
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            if (!isActive) ...[
-                              Icon(
-                                navItems[index]['icon'],
-                                color: const Color(0xFF757778),
-                                size: 24,
+                            if (!isChatTab) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF1F5F2),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(
+                                  navItems[index]['icon'],
+                                  color: const Color(0xFF5A605B),
+                                  size: 20,
+                                ),
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 3),
                               Text(
                                 navItems[index]['label'],
                                 style: const TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 10.5,
                                   fontWeight: FontWeight.w600,
                                   color: Color(0xFF757778),
                                 ),
                               ),
                             ] else ...[
-                              const SizedBox(height: 28),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE8F5E9),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: const Color(0xFF81C784).withValues(alpha: 0.5),
+                                    width: 1.0,
+                                  ),
+                                ),
+                                child: Icon(
+                                  navItems[index]['activeIcon'],
+                                  color: const Color(0xFF176a21),
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
                               Text(
                                 navItems[index]['label'],
                                 style: const TextStyle(
-                                  fontSize: 12,
+                                  fontSize: 11,
                                   fontWeight: FontWeight.bold,
                                   color: Color(0xFF176a21),
                                 ),
@@ -375,36 +362,64 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
     );
   }
 
-  // ส่วนหัว (Header) สรุปข้อมูลรถและคนขับ พร้อมปุ่มย้อนกลับ
+  // ส่วนหัว (Header) สรุปข้อมูลรถและคนขับ พร้อมปุ่มย้อนกลับ (ดีไซน์ Curved Bottom Edge)
   Widget _buildHeader(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.fromLTRB(14, 8, 16, 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFFFFFFFF),
+            Color(0xFFF8FAF8),
+          ],
+        ),
+        borderRadius: const BorderRadius.vertical(
+          bottom: Radius.circular(24),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 5,
+            color: const Color(0xFF176a21).withValues(alpha: 0.08),
+            blurRadius: 16,
+            offset: const Offset(0, 5),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
+        border: Border.all(
+          color: Colors.black.withValues(alpha: 0.03),
+          width: 1.0,
+        ),
       ),
       child: Row(
         children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: Color(0xFF176a21), size: 26),
-            onPressed: () => Navigator.pop(context),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F5F2),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF176a21), size: 22),
+              onPressed: () => Navigator.pop(context),
+            ),
           ),
+          const SizedBox(width: 12),
           Stack(
             children: [
               CircleAvatar(
                 radius: 22,
                 backgroundColor: const Color(0xFF176a21).withOpacity(0.1),
                 backgroundImage: (widget.driverAvatar != null && widget.driverAvatar!.isNotEmpty)
-                    ? (widget.driverAvatar!.startsWith('http') ? NetworkImage(widget.driverAvatar!) as ImageProvider : AssetImage(widget.driverAvatar!))
+                    ? (widget.driverAvatar!.startsWith('http')
+                        ? NetworkImage(widget.driverAvatar!) as ImageProvider
+                        : AssetImage(widget.driverAvatar!))
                     : null,
                 child: (widget.driverAvatar == null || widget.driverAvatar!.isEmpty)
-                    ? const Icon(Icons.directions_bus, color: Color(0xFF176a21), size: 24)
+                    ? const Icon(Icons.directions_bus_rounded, color: Color(0xFF176a21), size: 24)
                     : null,
               ),
               Positioned(
@@ -414,7 +429,7 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
                   width: 12,
                   height: 12,
                   decoration: BoxDecoration(
-                    color: Colors.green.shade500,
+                    color: const Color(0xFF22C55E),
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2),
                   ),
@@ -430,18 +445,18 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
                 Text(
                   widget.driverName != null ? 'คนขับ : ${widget.driverName}' : 'คนขับรถประจำคัน',
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 15.5,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF176a21),
+                    color: Color(0xFF2C2F30),
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   widget.shuttleName != null ? 'รถรับส่ง : ${widget.shuttleName}' : 'ห้องสนทนาสาย A',
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 12.5,
                     fontWeight: FontWeight.w600,
-                    color: Colors.grey,
+                    color: Color(0xFF176a21),
                   ),
                 ),
               ],
@@ -658,89 +673,5 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
         ],
       ),
     );
-  }
-}
-
-// ✨ CustomPainter สำหรับวาด Curved Bottom Navigation Bar โค้งเว้า (Curved Notch) แบบเดียวกับ StudentHome
-class _StudentChatCurvedNavPainter extends CustomPainter {
-  final double notchCenter;
-  final bool isDesktop;
-
-  _StudentChatCurvedNavPainter({required this.notchCenter, this.isDesktop = false});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const double barTop = 18.0;
-    const double notchDepth = 30.0;
-    const double notchHalfWidth = 42.0;
-
-    double radius = isDesktop ? 30.0 : 0.0;
-
-    Path path = Path();
-    path.moveTo(radius, barTop);
-
-    path.lineTo(notchCenter - notchHalfWidth, barTop);
-
-    path.cubicTo(
-      notchCenter - 22,
-      barTop,
-      notchCenter - 26,
-      barTop + notchDepth,
-      notchCenter,
-      barTop + notchDepth,
-    );
-
-    path.cubicTo(
-      notchCenter + 26,
-      barTop + notchDepth,
-      notchCenter + 22,
-      barTop,
-      notchCenter + notchHalfWidth,
-      barTop,
-    );
-
-    path.lineTo(size.width - radius, barTop);
-
-    if (radius > 0) {
-      path.arcToPoint(
-        Offset(size.width, barTop + radius),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      );
-      path.lineTo(size.width, size.height - radius);
-      path.arcToPoint(
-        Offset(size.width - radius, size.height),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      );
-      path.lineTo(radius, size.height);
-      path.arcToPoint(
-        Offset(0, size.height - radius),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      );
-      path.lineTo(0, barTop + radius);
-      path.arcToPoint(
-        Offset(radius, barTop),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      );
-    } else {
-      path.lineTo(size.width, size.height);
-      path.lineTo(0, size.height);
-    }
-
-    path.close();
-
-    canvas.drawShadow(path, Colors.black.withOpacity(0.08), 15.0, true);
-
-    Paint paint = Paint()..color = Colors.white;
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _StudentChatCurvedNavPainter oldDelegate) {
-    return oldDelegate.notchCenter != notchCenter ||
-        oldDelegate.isDesktop != isDesktop;
   }
 }

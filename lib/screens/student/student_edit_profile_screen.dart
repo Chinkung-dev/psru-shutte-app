@@ -84,8 +84,8 @@ class _StudentEditProfileScreenState extends State<StudentEditProfileScreen> {
       return;
     }
 
-    if (name.length < 2 || RegExp(r'\d').hasMatch(name)) {
-      _showSnackBar('กรุณากรอกชื่อ-นามสกุลที่ถูกต้อง (อย่างน้อย 2 ตัวอักษร และไม่มีตัวเลข)', Colors.red);
+    if (name.length < 2) {
+      _showSnackBar('กรุณากรอกชื่อ-นามสกุลที่ถูกต้อง (อย่างน้อย 2 ตัวอักษร)', Colors.red);
       return;
     }
 
@@ -133,184 +133,242 @@ class _StudentEditProfileScreenState extends State<StudentEditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F9FA),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Color(0xFF176a21)),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'แก้ไขโปรไฟล์นักศึกษา',
-          style: TextStyle(color: Color(0xFF176a21), fontWeight: FontWeight.bold),
-        ),
-        centerTitle: false,
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF176a21)))
-          : Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 800),
-                child: SafeArea(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10.0),
-                    child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      backgroundColor: const Color(0xFFF0F4F2),
+      body: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFFFFFFFF),
+                  Color(0xFFF8FAF8),
+                ],
+              ),
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(24),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF176a21).withValues(alpha: 0.08),
+                  blurRadius: 16,
+                  offset: const Offset(0, 5),
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+              border: Border.all(
+                color: Colors.black.withValues(alpha: 0.03),
+                width: 1.0,
+              ),
+            ),
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 20, 16),
+                child: Row(
                   children: [
-                    Row(
-                      children: [
-                        IconButton(
-                          onPressed: () {
-                            if (_selectedAvatarIndex > 0) {
-                              _pageController.animateToPage(
-                                _selectedAvatarIndex - 1,
-                                duration: const Duration(milliseconds: 300),
-                                curve: Curves.easeInOut,
-                              );
-                            }
-                          },
-                          icon: const Icon(Icons.arrow_back_ios, color: Color(0xFF176a21)),
-                        ),
-                        Expanded(
-                          child: SizedBox(
-                            height: 160,
-                            child: PageView.builder(
-                              controller: _pageController,
-                              itemCount: _avatarList.length,
-                              onPageChanged: (int index) {
-                                setState(() {
-                                  _selectedAvatarIndex = index;
-                                });
-                              },
-                              itemBuilder: (context, index) {
-                                bool isSelected = index == _selectedAvatarIndex;
-                                return GestureDetector(
-                                  onTap: () {
-                                    _pageController.animateToPage(
-                                      index,
-                                      duration: const Duration(milliseconds: 300),
-                                      curve: Curves.easeInOut,
-                                    );
-                                  },
-                                  child: Center(
-                                    child: AspectRatio(
-                                      aspectRatio: 1,
-                                      child: AnimatedContainer(
-                                        duration: const Duration(milliseconds: 300),
-                                        curve: Curves.easeOut,
-                                        margin: EdgeInsets.all(isSelected ? 5 : 20),
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          color: Colors.white,
-                                          border: Border.all(
-                                            color: isSelected ? const Color(0xFF176a21) : Colors.transparent,
-                                            width: isSelected ? 4 : 0,
-                                          ),
-                                          boxShadow: isSelected
-                                              ? [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 15, offset: const Offset(0, 8))]
-                                              : [],
-                                          image: DecorationImage(
-                                            image: AssetImage(_avatarList[index]),
-                                            fit: BoxFit.cover,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () {
-                            if (_selectedAvatarIndex < _avatarList.length - 1) {
-                              _pageController.animateToPage(
-                                _selectedAvatarIndex + 1,
-                                duration: const Duration(milliseconds: 300),
-                                curve: Curves.easeInOut,
-                              );
-                            }
-                          },
-                          icon: const Icon(Icons.arrow_forward_ios, color: Color(0xFF176a21)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    const Center(
-                      child: Text(
-                        '👈 คลิกปุ่มลูกศร, คลิกที่รูป หรือลากเมาส์เลื่อนเพื่อเปลี่ยนรูป 👉',
-                        style: TextStyle(color: Color(0xFF757778), fontSize: 13, fontWeight: FontWeight.w500),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF176a21), size: 22),
+                        onPressed: () => Navigator.pop(context),
                       ),
                     ),
-                    const SizedBox(height: 30),
-
-                    _buildInputField(
-                      label: 'ชื่อ-นามสกุล',
-                      hint: 'ระบุชื่อ-นามสกุล',
-                      icon: Icons.person_outline,
-                      controller: _nameController,
-                    ),
-                    const SizedBox(height: 16),
-
-                    _buildInputField(
-                      label: 'รหัสนักศึกษา',
-                      hint: '6xxxxxxxxx',
-                      icon: Icons.badge_outlined,
-                      controller: _studentIdController,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(11)],
-                    ),
-                    const SizedBox(height: 16),
-
-                    _buildInputField(
-                      label: 'เบอร์โทรศัพท์',
-                      hint: '08xxxxxxxx',
-                      icon: Icons.phone_android,
-                      controller: _phoneController,
-                      keyboardType: TextInputType.phone,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)],
-                    ),
-                    const SizedBox(height: 36),
-
-                    GestureDetector(
-                      onTap: _isSaving ? null : _saveProfile,
-                      child: Container(
-                        width: double.infinity,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF81C784), Color(0xFF388E3C)],
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                          ),
-                          borderRadius: BorderRadius.circular(28),
-                          boxShadow: [
-                            BoxShadow(color: Colors.green.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))
-                          ],
-                        ),
-                        child: Center(
-                          child: _isSaving
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
-                                )
-                              : const Text(
-                                  'บันทึกข้อมูล',
-                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-                                ),
-                        ),
+                    const SizedBox(width: 14),
+                    const Text(
+                      'แก้ไขโปรไฟล์นักศึกษา',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF176a21),
                       ),
                     ),
-                    const SizedBox(height: 30),
                   ],
                 ),
               ),
             ),
           ),
-        ),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator(color: Color(0xFF176a21)))
+                : Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 800),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                IconButton(
+                                  onPressed: () {
+                                    if (_selectedAvatarIndex > 0) {
+                                      _pageController.animateToPage(
+                                        _selectedAvatarIndex - 1,
+                                        duration: const Duration(milliseconds: 300),
+                                        curve: Curves.easeInOut,
+                                      );
+                                    }
+                                  },
+                                  icon: const Icon(Icons.arrow_back_ios_rounded, color: Color(0xFF176a21)),
+                                ),
+                                Expanded(
+                                  child: SizedBox(
+                                    height: 150,
+                                    child: PageView.builder(
+                                      controller: _pageController,
+                                      itemCount: _avatarList.length,
+                                      onPageChanged: (int index) {
+                                        setState(() {
+                                          _selectedAvatarIndex = index;
+                                        });
+                                      },
+                                      itemBuilder: (context, index) {
+                                        bool isSelected = index == _selectedAvatarIndex;
+                                        return GestureDetector(
+                                          onTap: () {
+                                            _pageController.animateToPage(
+                                              index,
+                                              duration: const Duration(milliseconds: 300),
+                                              curve: Curves.easeInOut,
+                                            );
+                                          },
+                                          child: Center(
+                                            child: AspectRatio(
+                                              aspectRatio: 1,
+                                              child: AnimatedContainer(
+                                                duration: const Duration(milliseconds: 300),
+                                                curve: Curves.easeOut,
+                                                margin: EdgeInsets.all(isSelected ? 4 : 18),
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  color: Colors.white,
+                                                  border: Border.all(
+                                                    color: isSelected ? const Color(0xFF176a21) : const Color(0xFF81C784).withValues(alpha: 0.3),
+                                                    width: isSelected ? 3.5 : 1.5,
+                                                  ),
+                                                  boxShadow: isSelected
+                                                      ? [
+                                                          BoxShadow(
+                                                            color: const Color(0xFF176a21).withValues(alpha: 0.18),
+                                                            blurRadius: 14,
+                                                            offset: const Offset(0, 6),
+                                                          )
+                                                        ]
+                                                      : [],
+                                                  image: DecorationImage(
+                                                    image: AssetImage(_avatarList[index]),
+                                                    fit: BoxFit.cover,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: () {
+                                    if (_selectedAvatarIndex < _avatarList.length - 1) {
+                                      _pageController.animateToPage(
+                                        _selectedAvatarIndex + 1,
+                                        duration: const Duration(milliseconds: 300),
+                                        curve: Curves.easeInOut,
+                                      );
+                                    }
+                                  },
+                                  icon: const Icon(Icons.arrow_forward_ios_rounded, color: Color(0xFF176a21)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            const Center(
+                              child: Text(
+                                'เลื่อนเพื่อเลือกรูปภาพประจำตัว',
+                                style: TextStyle(color: Color(0xFF757778), fontSize: 13, fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            _buildInputField(
+                              label: 'ชื่อ-นามสกุล',
+                              hint: 'ระบุชื่อ-นามสกุล',
+                              icon: Icons.person_outline_rounded,
+                              controller: _nameController,
+                            ),
+                            const SizedBox(height: 16),
+                            _buildInputField(
+                              label: 'รหัสนักศึกษา',
+                              hint: '6xxxxxxxxx',
+                              icon: Icons.badge_outlined,
+                              controller: _studentIdController,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(11)],
+                            ),
+                            const SizedBox(height: 16),
+                            _buildInputField(
+                              label: 'เบอร์โทรศัพท์',
+                              hint: '08xxxxxxxx',
+                              icon: Icons.phone_android_rounded,
+                              controller: _phoneController,
+                              keyboardType: TextInputType.phone,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)],
+                            ),
+                            const SizedBox(height: 32),
+                            GestureDetector(
+                              onTap: _isSaving ? null : _saveProfile,
+                              child: Container(
+                                width: double.infinity,
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF176a21), Color(0xFF0F4D17)],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(20),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF176a21).withValues(alpha: 0.25),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
+                                    )
+                                  ],
+                                ),
+                                child: Center(
+                                  child: _isSaving
+                                      ? const SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                                        )
+                                      : const Text(
+                                          'บันทึกข้อมูล',
+                                          style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold, color: Colors.white),
+                                        ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 30),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -326,13 +384,23 @@ class _StudentEditProfileScreenState extends State<StudentEditProfileScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: Color(0xFF595C5D), fontWeight: FontWeight.w600)),
+        Text(label, style: const TextStyle(color: Color(0xFF5A605B), fontWeight: FontWeight.w600, fontSize: 13.5)),
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 2))],
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: const Color(0xFF81C784).withValues(alpha: 0.35),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           child: TextField(
             controller: controller,

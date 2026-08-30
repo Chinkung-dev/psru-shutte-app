@@ -546,6 +546,15 @@ class _StudentHomeState extends State<StudentHome>
     shuttleSubscription = ref.onValue.listen((
       event,
     ) {
+      if (!mounted) return;
+      if (!event.snapshot.exists || event.snapshot.value == null) {
+        if (activeShuttles.isNotEmpty) {
+          setState(() {
+            activeShuttles = [];
+          });
+        }
+        return;
+      }
       if (mounted && event.snapshot.exists) {
         bool shouldAnimate = false;
         final now = DateTime.now();
@@ -1061,6 +1070,8 @@ class _StudentHomeState extends State<StudentHome>
     shuttleSubscription?.cancel(); // ✨ ยกเลิกฟังตำแหน่งรถ
     _positionSubscription?.cancel(); // ✨ ยกเลิกฟังตำแหน่งนักศึกษา
     _chatSubscription?.cancel(); // ✨ ยกเลิกฟังแชท
+    _chatNotificationTimer?.cancel();
+    _alertPlayer.dispose();
     super.dispose();
   }
 
@@ -1942,14 +1953,16 @@ class _StudentHomeState extends State<StudentHome>
           // ✨ ป๊อปอัปแจ้งเตือนข้อความแชตใหม่จากคนขับรถ
           _buildIncomingChatPopup(),
 
-          // ✨ Bottom Navigation Bar สไตล์ Curved Notch โมเดิร์น
+          // ✨ Bottom Navigation Bar สไตล์ Floating Dock โมเดิร์น (ลอยขึ้นมาจากขอบล่าง และเว้นระยะซ้าย-ขวา)
           Positioned(
-            bottom: MediaQuery.of(context).size.width > 800 ? 20 : 0,
-            left: 0,
-            right: 0,
+            bottom: MediaQuery.of(context).padding.bottom > 0
+                ? MediaQuery.of(context).padding.bottom + 8
+                : 16,
+            left: 16,
+            right: 16,
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 800),
+                constraints: const BoxConstraints(maxWidth: 600),
                 child: _buildCurvedBottomNav(),
               ),
             ),
@@ -2232,57 +2245,198 @@ class _StudentHomeState extends State<StudentHome>
             ),
           ),
 
+        // ✨ Curved Bottom Header สไตล์ที่ 2 (ชิดบน ขอบล่างโค้งมนรับสายตา)
+        // ✨ Curved Bottom Header สไตล์ที่ 2 (ชิดบน ขอบล่างโค้งมน สะอาดตา)
         Positioned(
           top: 0,
           left: 0,
           right: 0,
           child: Container(
-            color: Colors.white,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFFFFFFFF),
+                  Color(0xFFF8FAF8),
+                ],
+              ),
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(26),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF176a21).withValues(alpha: 0.08),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+              border: Border.all(
+                color: Colors.black.withValues(alpha: 0.03),
+                width: 1.0,
+              ),
+            ),
             child: SafeArea(
               bottom: false,
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 15,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Image.asset(
-                      'lib/screens/driver/logo.png',
-                      height: 42,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Row(
-                          children: [
-                            Icon(
-                              Icons.directions_bus,
-                              color: Color(0xFF176a21),
-                              size: 28,
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 800),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // ฝั่งซ้าย: โลโก้
+                        Image.asset(
+                          'lib/screens/driver/logo.png',
+                          height: 38,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return const Row(
+                              children: [
+                                Icon(
+                                  Icons.directions_bus,
+                                  color: Color(0xFF176a21),
+                                  size: 26,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'PSRU Shuttle',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF176a21),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+
+                        // ฝั่งขวา: ปุ่มออกจากระบบ (Logout Capsule Chip)
+                        GestureDetector(
+                          onTap: _logout,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 7,
                             ),
-                            SizedBox(width: 10),
-                            Text(
-                              'PSRU Shuttle',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF176a21),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F2),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: Colors.black.withValues(alpha: 0.04),
                               ),
                             ),
-                          ],
-                        );
-                      },
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.logout_rounded,
+                                  color: Color(0xFF5A605B),
+                                  size: 16,
+                                ),
+                                SizedBox(width: 5),
+                                Text(
+                                  'ออก',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF5A605B),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.logout,
-                        color: Color(0xFF595C5D),
-                        size: 26,
-                      ),
-                      onPressed: _logout,
-                    ),
-                  ],
+                  ),
                 ),
+              ),
+            ),
+          ),
+        ),
+
+        // ✨ ป้ายสถานะรถรับส่งแบบลอยชิดซ้ายบนแผนที่ (Floating Status Pill on Map - Left Aligned)
+        Positioned(
+          top: 84,
+          left: 16,
+          child: SafeArea(
+            top: true,
+            bottom: false,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 7,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.95),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: (activeShuttles.isNotEmpty
+                            ? const Color(0xFF176a21)
+                            : const Color(0xFFD84315))
+                        .withValues(alpha: 0.12),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+                border: Border.all(
+                  color: activeShuttles.isNotEmpty
+                      ? const Color(0xFF81C784).withValues(alpha: 0.6)
+                      : Colors.orange.shade200,
+                  width: 1.0,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: activeShuttles.isNotEmpty
+                          ? const Color(0xFF22C55E)
+                          : const Color(0xFFF57C00),
+                      boxShadow: activeShuttles.isNotEmpty
+                          ? [
+                              BoxShadow(
+                                color: const Color(0xFF22C55E)
+                                    .withValues(alpha: 0.6),
+                                blurRadius: 4,
+                              ),
+                            ]
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    activeShuttles.isNotEmpty
+                        ? 'รถรับส่งวิ่งให้บริการ ${activeShuttles.length} คัน 🚌'
+                        : '⚠️ ขณะนี้ยังไม่มีคนขับออนไลน์ในระบบ',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: activeShuttles.isNotEmpty
+                          ? const Color(0xFF1B5E20)
+                          : const Color(0xFFD84315),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -2314,8 +2468,8 @@ class _StudentHomeState extends State<StudentHome>
         // ✨ ปุ่มเป้าเล็ง (แบบเดียวกับของคนขับ)
         Positioned(
           bottom: (selectedStopName != null && !_isTutorialCardHidden)
-              ? (isCardMinimized ? 150 : 380) // เลื่อนหลบการ์ดแบบเต็มหรือย่อ
-              : 100, // กลับสู่ปกติเวลาปิดการ์ด
+              ? (isCardMinimized ? 165 : 395) // เลื่อนหลบการ์ดแบบเต็มหรือย่อ
+              : 115, // กลับสู่ปกติเวลาปิดการ์ด
           right: 20,
           child: FloatingActionButton(
             heroTag: 'myLocationBtn',
@@ -2353,7 +2507,7 @@ class _StudentHomeState extends State<StudentHome>
 
         if (selectedStopName != null && !_isTutorialCardHidden)
           Positioned(
-            bottom: 90,
+            bottom: 105,
             left: 0,
             right: 0,
             child: AnimatedOpacity(
@@ -2834,7 +2988,7 @@ class _StudentHomeState extends State<StudentHome>
     return targets;
   }
 
-  // ✨ วิดเจ็ต Bottom Navigation Bar ดีไซน์โค้งเว้าพร้อมปุ่มวงกลมลอย
+  // ✨ วิดเจ็ต Bottom Navigation Bar ดีไซน์โค้งเว้า (Curved Notch) พรีเมียม พร้อมชิปไอคอนและ Live Status Indicator
   Widget _buildCurvedBottomNav() {
     final List<Map<String, dynamic>> navItems = [
       {'icon': Icons.map_outlined, 'activeIcon': Icons.map, 'label': 'Map'},
@@ -2861,46 +3015,48 @@ class _StudentHomeState extends State<StudentHome>
         final double itemWidth = width / navItems.length;
         final double targetX = itemWidth * _selectedIndex + itemWidth / 2;
 
-        // เช็คว่าหน้าจอโดยรวมกว้างกว่า 800 หรือไม่ (iPad/Desktop)
-        final bool isDesktop = MediaQuery.of(context).size.width > 800;
-
         return SizedBox(
           key: keyBottomNav,
-          height: 85,
+          height: 80,
           child: Stack(
             clipBehavior: Clip.none,
             children: [
-              // พื้นหลังบาร์สีขาวพร้อมรอยบาก (Curved Notch)
+              // 1. พื้นหลังบาร์สีขาวไข่มุกพร้อมรอยบากเว้า (Pearl Gradient & Curved Notch)
               TweenAnimationBuilder<double>(
                 tween: Tween<double>(begin: targetX, end: targetX),
-                duration: const Duration(milliseconds: 350),
+                duration: const Duration(milliseconds: 320),
                 curve: Curves.easeOutCubic,
                 builder: (context, animatedX, child) {
                   return Stack(
                     clipBehavior: Clip.none,
                     children: [
                       CustomPaint(
-                        size: Size(width, 85),
+                        size: Size(width, 80),
                         painter: _CurvedNavPainter(
                           notchCenter: animatedX,
-                          isDesktop: isDesktop,
                         ),
                       ),
-                      // ปุ่มวงกลมสีเขียวลอยในรอยบาก
+                      // 2. ปุ่มวงกลมสีเขียวมรกตลอยอยู่ในรอยบาก (พร้อมขอบสีขาวคมชัด)
                       Positioned(
                         top: 2,
-                        left: animatedX - 24,
+                        left: animatedX - 23,
                         child: Container(
-                          width: 48,
-                          height: 48,
+                          width: 46,
+                          height: 46,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF176a21),
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF1F8B2E), Color(0xFF176a21)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
                             shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white,
+                              width: 3.0,
+                            ),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(
-                                  0xFF176a21,
-                                ).withOpacity(0.35),
+                                color: const Color(0xFF176a21).withValues(alpha: 0.38),
                                 blurRadius: 10,
                                 offset: const Offset(0, 4),
                               ),
@@ -2909,7 +3065,7 @@ class _StudentHomeState extends State<StudentHome>
                           child: Icon(
                             navItems[_selectedIndex]['activeIcon'],
                             color: Colors.white,
-                            size: 24,
+                            size: 22,
                           ),
                         ),
                       ),
@@ -2918,9 +3074,9 @@ class _StudentHomeState extends State<StudentHome>
                 },
               ),
 
-              // รายการปุ่มกดแต่ละ Tab
+              // 3. รายการปุ่มกดและข้อความแต่ละแท็บ (พร้อม Capsule Chip รองรับไอคอน)
               Positioned(
-                top: 18,
+                top: 16,
                 left: 0,
                 right: 0,
                 bottom: 0,
@@ -2937,27 +3093,67 @@ class _StudentHomeState extends State<StudentHome>
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             if (!isActive) ...[
-                              Icon(
-                                navItems[index]['icon'],
-                                color: const Color(0xFF757778),
-                                size: 24,
+                              Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 3.5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF1F5F2),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(
+                                      navItems[index]['icon'],
+                                      color: const Color(0xFF5A605B),
+                                      size: 19,
+                                    ),
+                                  ),
+                                  // จุดเขียวกระพริบเตือนเมื่อมีรถออนไลน์ในหน้า Live Status
+                                  if (index == 1 && activeShuttles.isNotEmpty)
+                                    Positioned(
+                                      top: -1,
+                                      right: -1,
+                                      child: Container(
+                                        width: 7,
+                                        height: 7,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF22C55E),
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: Colors.white,
+                                            width: 1.2,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: const Color(0xFF22C55E)
+                                                  .withValues(alpha: 0.6),
+                                              blurRadius: 3,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 3),
                               Text(
                                 navItems[index]['label'],
                                 style: const TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 10.5,
                                   fontWeight: FontWeight.w600,
-                                  color: Color(0xFF757778),
+                                  color: Color(0xFF5A605B),
                                 ),
                               ),
                             ] else ...[
-                              const SizedBox(height: 28),
+                              const SizedBox(height: 24),
                               Text(
                                 navItems[index]['label'],
                                 style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w800,
                                   color: Color(0xFF176a21),
                                 ),
                               ),
@@ -3707,103 +3903,92 @@ class _StudentHomeState extends State<StudentHome>
   }
 }
 
-// ✨ CustomPainter สำหรับวาด Bottom Navigation Bar โค้งเว้า (Curved Notch) ตามสไตล์โมเดิร์น
+// ✨ CustomPainter สำหรับวาด Bottom Navigation Bar โค้งเว้า (Curved Notch) ขอบมนสวยงามพอดี (Radius = 16px)
 class _CurvedNavPainter extends CustomPainter {
   final double notchCenter;
-  final bool isDesktop;
 
-  _CurvedNavPainter({required this.notchCenter, this.isDesktop = false});
+  _CurvedNavPainter({required this.notchCenter});
 
   @override
   void paint(Canvas canvas, Size size) {
-    const double barTop = 18.0;
-    const double notchDepth = 30.0;
-    const double notchHalfWidth = 42.0;
+    const double barTop = 16.0;
+    const double notchDepth = 25.0;
+    const double notchHalfWidth = 34.0;
+    const double radius = 16.0; // ✨ ปรับลดความโค้งขอบมนซ้าย-ขวาลงมาที่ 16px ตามที่ต้องการ
 
-    // ถ้าเป็นหน้าจอใหญ่ ให้มีขอบมน (radius = 30) ไม่งั้นให้ขอบตรง (radius = 0)
-    double radius = isDesktop ? 30.0 : 0.0;
+    // 1. สร้าง Base Path สี่เหลี่ยมขอบมนโค้งมนสวยกระชับ
+    final RRect barRRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, barTop, size.width, size.height - barTop),
+      const Radius.circular(radius),
+    );
 
-    Path path = Path();
-    path.moveTo(radius, barTop);
-
-    if (notchCenter - notchHalfWidth > radius) {
-      path.lineTo(notchCenter - notchHalfWidth, barTop);
-    } else {
-      path.lineTo(notchCenter - notchHalfWidth, barTop);
-    }
-
-    // โค้งลงไปในรอยบาก (Left curve)
-    path.cubicTo(
-      notchCenter - 22,
+    // 2. สร้าง Path รอยบากโค้งเว้า นุ่มนวล
+    final Path notchPath = Path();
+    notchPath.moveTo(notchCenter - notchHalfWidth, barTop);
+    notchPath.cubicTo(
+      notchCenter - 20,
       barTop,
-      notchCenter - 26,
+      notchCenter - 22,
       barTop + notchDepth,
       notchCenter,
       barTop + notchDepth,
     );
-
-    // โค้งขึ้นจากรอยบาก (Right curve)
-    path.cubicTo(
-      notchCenter + 26,
-      barTop + notchDepth,
+    notchPath.cubicTo(
       notchCenter + 22,
+      barTop + notchDepth,
+      notchCenter + 20,
       barTop,
       notchCenter + notchHalfWidth,
       barTop,
     );
+    notchPath.lineTo(notchCenter + notchHalfWidth, 0);
+    notchPath.lineTo(notchCenter - notchHalfWidth, 0);
+    notchPath.close();
 
-    path.lineTo(size.width - radius, barTop);
+    // 3. ผสานตัดรอยบากออกจากตัวบาร์อย่างนุ่มนวล
+    final Path finalPath = Path.combine(
+      PathOperation.difference,
+      Path()..addRRect(barRRect),
+      notchPath,
+    );
 
-    if (radius > 0) {
-      // มุมขวาบน
-      path.arcToPoint(
-        Offset(size.width, barTop + radius),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      );
-      // เส้นลงมามุมขวาล่าง
-      path.lineTo(size.width, size.height - radius);
-      // มุมขวาล่าง
-      path.arcToPoint(
-        Offset(size.width - radius, size.height),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      );
-      // เส้นไปมุมซ้ายล่าง
-      path.lineTo(radius, size.height);
-      // มุมซ้ายล่าง
-      path.arcToPoint(
-        Offset(0, size.height - radius),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      );
-      // เส้นไปมุมซ้ายบน
-      path.lineTo(0, barTop + radius);
-      // มุมซ้ายบน
-      path.arcToPoint(
-        Offset(radius, barTop),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      );
-    } else {
-      path.lineTo(size.width, size.height);
-      path.lineTo(0, size.height);
-    }
+    // 4. วาดเงามิติ 2 ชั้น (เงาสีเขียวมรกตบางๆ + เงา Depth นุ่มนวล)
+    canvas.drawShadow(
+      finalPath,
+      const Color(0xFF176a21).withValues(alpha: 0.08),
+      16.0,
+      true,
+    );
+    canvas.drawShadow(
+      finalPath,
+      Colors.black.withValues(alpha: 0.08),
+      10.0,
+      true,
+    );
 
-    path.close();
+    // 5. วาดพื้นหลังไล่เฉดสีขาวไข่มุก (Soft Pearl Gradient) สวยพรีเมียม
+    final Paint fillPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Color(0xFFFFFFFF),
+          Color(0xFFF9FBF9),
+        ],
+      ).createShader(Rect.fromLTWH(0, barTop, size.width, size.height - barTop));
+    canvas.drawPath(finalPath, fillPaint);
 
-    // วาดเงาให้บาร์ด้านล่าง
-    canvas.drawShadow(path, Colors.black.withOpacity(0.08), 15.0, true);
-
-    // วาดพื้นหลังสีขาว
-    Paint paint = Paint()..color = Colors.white;
-    canvas.drawPath(path, paint);
+    // 6. วาดเส้นขอบบางประณีต (Subtle Hairline Accent Border)
+    final Paint borderPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.04)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+    canvas.drawPath(finalPath, borderPaint);
   }
 
   @override
   bool shouldRepaint(covariant _CurvedNavPainter oldDelegate) {
-    return oldDelegate.notchCenter != notchCenter ||
-        oldDelegate.isDesktop != isDesktop;
+    return oldDelegate.notchCenter != notchCenter;
   }
 }
 

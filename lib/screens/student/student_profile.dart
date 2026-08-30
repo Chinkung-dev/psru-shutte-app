@@ -81,7 +81,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F9FA),
+      backgroundColor: const Color(0xFFF0F4F2), // ✨ สีพื้นหลังเทาอมเขียวมิ้นต์อ่อนๆ สบายตา
       body: Column(
         children: [
           _buildHeader(context),
@@ -90,213 +90,332 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 800),
                 child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 100),
-              child: Column(
-                children: [
-                  const Center(
-                    child: Text(
-                      'Student Profile',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF176a21),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Center(
-                    child: GestureDetector(
-                onTap: _navigateToEditProfile,
-                child: Stack(
-                  children: [
-                    Container(
-                      width: 120,
-                      height: 120,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white,
-                        border: Border.all(
-                          color: Colors.grey.shade300,
-                          width: 2,
-                        ),
-                        image: DecorationImage(
-                          image: AssetImage(avatarPath),
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF176a21),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 3),
-                        ),
-                        child: const Icon(
-                          Icons.edit,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              name,
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF2C2F30),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'รหัสนักศึกษา: $studentId',
-              style: const TextStyle(fontSize: 14, color: Color(0xFF757778)),
-            ),
-            const SizedBox(height: 30),
-
-            _buildSectionCard(
-              title: 'ข้อมูลบัญชี',
-              icon: Icons.person_outline,
-              children: [
-                _buildInfoRow('ชื่อ-นามสกุล', name),
-                _buildInfoRow('อีเมล', email),
-                _buildInfoRow('เบอร์โทรศัพท์', phone),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            _buildSectionCard(
-              title: 'การจัดการ',
-              icon: Icons.tune,
-              children: [
-                // ✨ ใส่ await เพื่อรอให้หน้า Favorite ปิดลงมา แล้วดึงข้อมูลใหม่ทันที
-                _buildActionRow(
-                  'จุดจอดที่ใช้บ่อย',
-                  Icons.star,
-                  iconColor: Colors.amber,
-                  trailingText: '${favStops.length} จุด',
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const FavoriteStopsScreen(),
-                      ),
-                    );
-                    _fetchUserData(); // ดึงข้อมูลใหม่หลังจากปิดหน้าจุดจอด
-                  },
-                ),
-                _buildActionRow('การแจ้งเตือน', Icons.notifications_none),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            _buildSectionCard(
-              title: 'เกี่ยวกับเรา',
-              icon: Icons.help_outline,
-              children: [
-                _buildActionRow('แบบประเมิน', Icons.open_in_new),
-                _buildActionRow(
-                  'ติดต่อเรา', 
-                  Icons.mail_outline,
-                  onTap: () async {
-                    final Uri url = Uri.parse('https://www.facebook.com/thawatchai.sanhae/following?locale=th_TH');
-                    if (await canLaunchUrl(url)) {
-                      await launchUrl(url, mode: LaunchMode.externalApplication);
-                    } else {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('❌ ไม่สามารถเปิดลิงก์ได้'),
-                            backgroundColor: Colors.red,
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 100),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'ข้อมูลส่วนตัว',
+                            style: TextStyle(
+                              fontSize: 19,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF2C2F30),
+                            ),
                           ),
-                        );
-                      }
-                    }
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 30),
-
-            GestureDetector(
-              onTap: _logout,
-              child: Container(
-                width: double.infinity,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF28522),
-                  borderRadius: BorderRadius.circular(28),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFF28522).withOpacity(0.3),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.logout, color: Colors.white),
-                    SizedBox(width: 8),
-                    Text(
-                      'Logout',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE8F5E9),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: const Color(0xFF81C784).withValues(alpha: 0.4),
+                                width: 1.0,
+                              ),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.school_rounded, color: Color(0xFF176a21), size: 14),
+                                SizedBox(width: 4),
+                                Text(
+                                  'STUDENT',
+                                  style: TextStyle(
+                                    color: Color(0xFF176a21),
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 16),
+                      Center(
+                        child: GestureDetector(
+                          onTap: _navigateToEditProfile,
+                          child: Stack(
+                            children: [
+                              Container(
+                                width: 110,
+                                height: 110,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.white,
+                                  border: Border.all(
+                                    color: const Color(0xFF81C784).withValues(alpha: 0.6),
+                                    width: 2.5,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF176a21).withValues(alpha: 0.12),
+                                      blurRadius: 14,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                  image: DecorationImage(
+                                    image: AssetImage(avatarPath),
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                bottom: 2,
+                                right: 2,
+                                child: Container(
+                                  padding: const EdgeInsets.all(7),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF176a21),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 2.5),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(alpha: 0.15),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Icon(
+                                    Icons.edit_rounded,
+                                    color: Colors.white,
+                                    size: 14,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2C2F30),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'รหัสนักศึกษา: $studentId',
+                        style: const TextStyle(fontSize: 13.5, color: Color(0xFF757778), fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 24),
+
+                      _buildSectionCard(
+                        title: 'ข้อมูลบัญชี',
+                        icon: Icons.person_outline_rounded,
+                        children: [
+                          _buildInfoRow('ชื่อ-นามสกุล', name),
+                          _buildInfoRow('อีเมล', email),
+                          _buildInfoRow('เบอร์โทรศัพท์', phone),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      _buildSectionCard(
+                        title: 'การจัดการ',
+                        icon: Icons.tune_rounded,
+                        children: [
+                          // ✨ ใส่ await เพื่อรอให้หน้า Favorite ปิดลงมา แล้วดึงข้อมูลใหม่ทันที
+                          _buildActionRow(
+                            'จุดจอดที่ใช้บ่อย',
+                            Icons.star_rounded,
+                            iconColor: Colors.amber,
+                            trailingText: '${favStops.length} จุด',
+                            onTap: () async {
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const FavoriteStopsScreen(),
+                                ),
+                              );
+                              _fetchUserData(); // ดึงข้อมูลใหม่หลังจากปิดหน้าจุดจอด
+                            },
+                          ),
+                          _buildActionRow('การแจ้งเตือน', Icons.notifications_none_rounded),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      _buildSectionCard(
+                        title: 'เกี่ยวกับเรา',
+                        icon: Icons.help_outline_rounded,
+                        children: [
+                          _buildActionRow('แบบประเมิน', Icons.open_in_new_rounded),
+                          _buildActionRow(
+                            'ติดต่อเรา', 
+                            Icons.mail_outline_rounded,
+                            onTap: () async {
+                              final Uri url = Uri.parse('https://www.facebook.com/thawatchai.sanhae/following?locale=th_TH');
+                              final messenger = ScaffoldMessenger.of(context);
+                              if (await canLaunchUrl(url)) {
+                                await launchUrl(url, mode: LaunchMode.externalApplication);
+                              } else {
+                                if (mounted) {
+                                  messenger.showSnackBar(
+                                    const SnackBar(
+                                      content: Text('❌ ไม่สามารถเปิดลิงก์ได้'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+
+                      GestureDetector(
+                        onTap: _logout,
+                        child: Container(
+                          width: double.infinity,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [
+                                Color(0xFFEF5350),
+                                Color(0xFFD32F2F),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFFD32F2F).withValues(alpha: 0.25),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.logout_rounded, color: Colors.white, size: 20),
+                              SizedBox(width: 8),
+                              Text(
+                                'ออกจากระบบ',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ),
-          ],
-        ),
               ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
-  // ส่วนหัวข้อแบบแถบสีขาวเหมือน student_home
+  // ✨ ส่วนหัวข้อแบบ Curved Bottom Edge เหมือน student_home
   Widget _buildHeader(BuildContext context) {
     return Container(
-      color: Colors.white,
       width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFFFFFFFF),
+            Color(0xFFF8FAF8),
+          ],
+        ),
+        borderRadius: const BorderRadius.vertical(
+          bottom: Radius.circular(26),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF176a21).withValues(alpha: 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+        border: Border.all(
+          color: Colors.black.withValues(alpha: 0.03),
+          width: 1.0,
+        ),
+      ),
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Image.asset(
                 'lib/screens/driver/logo.png',
-                height: 42,
+                height: 38,
                 fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) =>
-                    const Icon(Icons.menu, color: Color(0xFF176a21), size: 28),
-              ),
-              IconButton(
-                icon: const Icon(
-                  Icons.settings_outlined,
-                  color: Color(0xFF176a21),
-                  size: 26,
+                errorBuilder: (context, error, stackTrace) => const Row(
+                  children: [
+                    Icon(
+                      Icons.directions_bus,
+                      color: Color(0xFF176a21),
+                      size: 26,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'PSRU Shuttle',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF176a21),
+                      ),
+                    ),
+                  ],
                 ),
-                onPressed: _navigateToEditProfile,
+              ),
+              GestureDetector(
+                onTap: _navigateToEditProfile,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F2),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: Colors.black.withValues(alpha: 0.04),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.edit_note_rounded,
+                        color: Color(0xFF176a21),
+                        size: 20,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'แก้ไข',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF176a21),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
@@ -314,12 +433,16 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: const Color(0xFF81C784).withValues(alpha: 0.35),
+          width: 1.2,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
-            offset: const Offset(0, 4),
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -330,11 +453,11 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF9DF197).withOpacity(0.3),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFE8F5E9),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, color: const Color(0xFF176a21), size: 20),
+                child: Icon(icon, color: const Color(0xFF176a21), size: 18),
               ),
               const SizedBox(width: 12),
               Text(

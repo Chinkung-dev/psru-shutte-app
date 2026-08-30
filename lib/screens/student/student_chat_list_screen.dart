@@ -233,9 +233,7 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(
-        0xFFF5F7F8,
-      ), // สีพื้นหลังเทาอ่อนสะอาดตาตามดีไซน์
+      backgroundColor: const Color(0xFFF0F4F2), // ✨ สีพื้นหลังเทาอมเขียวมิ้นต์อ่อนๆ สบายตา
       body: Column(
         children: [
           _buildHeader(context),
@@ -249,8 +247,8 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
                     _buildSearchBar(),
                     Expanded(child: _buildShuttleList()),
                     const SizedBox(
-                      height: 80,
-                    ), // เว้นที่ด้านล่างเผื่อ Bottom Navigation Bar
+                      height: 100,
+                    ), // เว้นที่ด้านล่างเผื่อ Bottom Navigation Bar แบบลอย
                   ],
                 ),
               ),
@@ -261,33 +259,70 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
     );
   }
 
-  // ส่วนหัวข้อแบบแถบสีขาวเหมือน student_home
+  // ✨ ส่วนหัวข้อแบบ Curved Bottom Edge เหมือน student_home
   Widget _buildHeader(BuildContext context) {
     return Container(
-      color: Colors.white,
       width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFFFFFFFF),
+            Color(0xFFF8FAF8),
+          ],
+        ),
+        borderRadius: const BorderRadius.vertical(
+          bottom: Radius.circular(26),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF176a21).withValues(alpha: 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+        border: Border.all(
+          color: Colors.black.withValues(alpha: 0.03),
+          width: 1.0,
+        ),
+      ),
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
           child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              GestureDetector(
-                onTap: () {
-                  Scaffold.maybeOf(context)?.openDrawer();
-                },
-                child: Container(
-                  width: 150,
-                  alignment: Alignment.centerLeft,
-                  child: Image.asset(
-                    'lib/screens/driver/logo.png',
-                    height: 42,
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) =>
-                        const Icon(Icons.menu, color: Color(0xFF176a21), size: 28),
-                  ),
+              Image.asset(
+                'lib/screens/driver/logo.png',
+                height: 38,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => const Row(
+                  children: [
+                    Icon(
+                      Icons.directions_bus,
+                      color: Color(0xFF176a21),
+                      size: 26,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'PSRU Shuttle',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF176a21),
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              const SizedBox(width: 42),
             ],
           ),
         ),
@@ -297,18 +332,46 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
 
   // ส่วนหัวข้อ Messages (อยู่ด้านบนช่องค้นหา Search conversations)
   Widget _buildMessagesTitle() {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(20, 16, 20, 4),
-      child: Center(
-        child: Text(
-          'Messages',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF176a21),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'กล่องข้อความคนขับ',
+            style: TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF2C2F30),
+            ),
           ),
-        ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8F5E9),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFF81C784).withValues(alpha: 0.4),
+                width: 1.0,
+              ),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.chat_bubble_outline_rounded, color: Color(0xFF176a21), size: 14),
+                SizedBox(width: 4),
+                Text(
+                  'CHAT ROOMS',
+                  style: TextStyle(
+                    color: Color(0xFF176a21),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -319,8 +382,19 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: const Color(0xFFE8ECEF), // สีเทาอ่อนโค้งมนตามแบบ
-        borderRadius: BorderRadius.circular(24),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFF81C784).withValues(alpha: 0.4),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: TextField(
         onChanged: (value) {
@@ -329,11 +403,11 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
           });
         },
         decoration: const InputDecoration(
-          icon: Icon(Icons.search, color: Colors.blueGrey),
-          hintText: 'Search conversations...',
-          hintStyle: TextStyle(color: Colors.blueGrey, fontSize: 15),
+          icon: Icon(Icons.search_rounded, color: Color(0xFF176a21)),
+          hintText: 'ค้นหาคนขับหรือเบอร์รถรับส่ง...',
+          hintStyle: TextStyle(color: Color(0xFF9E9E9E), fontSize: 14),
           border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(vertical: 14),
+          contentPadding: EdgeInsets.symmetric(vertical: 13),
         ),
       ),
     );
@@ -495,16 +569,24 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
                 }
               },
               child: Container(
-                margin: const EdgeInsets.only(bottom: 16),
+                margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(
+                    color: isOnline
+                        ? const Color(0xFF81C784).withValues(alpha: 0.5)
+                        : Colors.black.withValues(alpha: 0.04),
+                    width: 1.2,
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
+                      color: isOnline
+                          ? const Color(0xFF176a21).withValues(alpha: 0.06)
+                          : Colors.black.withValues(alpha: 0.02),
                       blurRadius: 10,
-                      offset: const Offset(0, 4),
+                      offset: const Offset(0, 3),
                     ),
                   ],
                 ),
