@@ -30,18 +30,225 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>psru_shuttle_app</title>
+  <title>PSRU Shuttle App</title>
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #F2F6F3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      overflow: hidden;
+    }
+    .loading-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background-color: #F2F6F3;
+      background-image: 
+        radial-gradient(circle at 10% 10%, rgba(129, 199, 132, 0.35) 0%, transparent 40%),
+        radial-gradient(circle at 90% 15%, rgba(102, 187, 106, 0.25) 0%, transparent 40%),
+        radial-gradient(circle at 85% 85%, rgba(165, 214, 167, 0.35) 0%, transparent 40%),
+        radial-gradient(circle at 15% 80%, rgba(200, 230, 201, 0.40) 0%, transparent 40%),
+        radial-gradient(rgba(23, 106, 33, 0.05) 1.2px, transparent 1.2px);
+      background-size: 100% 100%, 100% 100%, 100% 100%, 100% 100%, 32px 32px;
+      z-index: 999999;
+      transition: opacity 0.4s ease-out;
+    }
+    .loading-card {
+      background-color: #ffffff;
+      border-radius: 28px;
+      width: 90%;
+      max-width: 400px;
+      padding: 0;
+      box-shadow: 0 12px 30px rgba(23, 106, 33, 0.09), 0 2px 10px rgba(0, 0, 0, 0.03);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow: hidden;
+      border: 1px solid rgba(0, 0, 0, 0.04);
+      animation: floatUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .loading-card-top-accent {
+      width: 100%;
+      height: 5px;
+      background: linear-gradient(90deg, #176a21, #66BB6A, #9DF197);
+    }
+    .loading-card-body {
+      padding: 32px 28px 36px 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .loading-logo-box {
+      width: 80px;
+      height: 80px;
+      background-color: #F2F6F3;
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      box-shadow: 0 8px 20px rgba(23, 106, 33, 0.10);
+      margin-bottom: 18px;
+      animation: pulseLogo 2s ease-in-out infinite;
+    }
+    .loading-logo-box img {
+      width: 52px;
+      height: 52px;
+      object-fit: contain;
+    }
+    .loading-title {
+      font-size: 26px;
+      font-weight: 900;
+      color: #176a21;
+      margin: 0 0 6px 0;
+      letter-spacing: 0.5px;
+      text-align: center;
+    }
+    .loading-subtitle {
+      font-size: 13px;
+      color: #436B49;
+      margin: 0 0 28px 0;
+      font-weight: 600;
+      text-align: center;
+      line-height: 1.3;
+    }
+    .loading-bar {
+      width: 170px;
+      height: 5px;
+      background-color: rgba(23, 106, 33, 0.12);
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+      margin-bottom: 16px;
+    }
+    .loading-bar-inner {
+      width: 45%;
+      height: 100%;
+      background-color: #176a21;
+      border-radius: 10px;
+      position: absolute;
+      animation: indeterminate 1.5s ease-in-out infinite;
+    }
+    .loading-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 14px;
+      background-color: #F2F6F3;
+      border-radius: 20px;
+      border: 1px solid rgba(23, 106, 33, 0.15);
+      font-size: 12px;
+      font-weight: 600;
+      color: #2C2F30;
+    }
+    .loading-pill-dot {
+      width: 7px;
+      height: 7px;
+      background-color: #176a21;
+      border-radius: 50%;
+      margin-right: 8px;
+      animation: blink 1.2s infinite ease-in-out;
+    }
+    .loading-footer {
+      margin-top: 16px;
+      font-size: 12px;
+      color: #718076;
+      font-weight: 500;
+    }
+    @keyframes floatUp {
+      from { transform: translateY(16px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes pulseLogo {
+      0%, 100% { transform: scale(1); box-shadow: 0 8px 20px rgba(23, 106, 33, 0.10); }
+      50% { transform: scale(1.05); box-shadow: 0 12px 25px rgba(23, 106, 33, 0.20); }
+    }
+    @keyframes indeterminate {
+      0% { left: -45%; width: 45%; }
+      50% { left: 25%; width: 65%; }
+      100% { left: 100%; width: 45%; }
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+  <!-- Web Preloader (แสดงผลทันทีก่อนที่ Flutter Web Bundle จะโหลดเสร็จ) -->
+  <div id="flutter-preloader" class="loading-container">
+    <div class="loading-card">
+      <div class="loading-card-top-accent"></div>
+      <div class="loading-card-body">
+        <div class="loading-logo-box">
+          <img src="icons/Icon-192.png" alt="PSRU Shuttle" onerror="this.src='favicon.png'">
+        </div>
+        <h1 class="loading-title">PSRU Shuttle</h1>
+        <p class="loading-subtitle">ระบบติดตามและเรียกรถรับส่งภายในมหาวิทยาลัย</p>
+        <div class="loading-bar">
+          <div class="loading-bar-inner"></div>
+        </div>
+        <div class="loading-pill">
+          <div class="loading-pill-dot"></div>
+          กำลังเตรียมระบบ...
+        </div>
+      </div>
+    </div>
+    <div class="loading-footer">มหาวิทยาลัยราชภัฏพิบูลสงคราม</div>
+  </div>
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <script>
+    function removeFlutterPreloader() {
+      var preloader = document.getElementById('flutter-preloader');
+      if (preloader && !preloader.classList.contains('fading-out')) {
+        preloader.classList.add('fading-out');
+        preloader.style.opacity = '0';
+        preloader.style.pointerEvents = 'none';
+        setTimeout(function() {
+          if (preloader && preloader.parentNode) {
+            preloader.parentNode.removeChild(preloader);
+          }
+        }, 400);
+      }
+    }
+
+    // 1. ฟัง Event แรกเมื่อ Flutter วาดเฟรมแรกเสร็จ
+    window.addEventListener('flutter-first-frame', removeFlutterPreloader);
+
+    // 2. ตรวจจับการแทรก Element ของ Flutter View ใน DOM
+    var observer = new MutationObserver(function(mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var addedNodes = mutations[i].addedNodes;
+        for (var j = 0; j < addedNodes.length; j++) {
+          var node = addedNodes[j];
+          if (node.nodeType === 1 && (
+            node.tagName === 'FLUTTER-VIEW' ||
+            node.tagName === 'FLT-GLASS-PANE' ||
+            node.tagName === 'CANVAS' ||
+            node.id === 'flutter_container'
+          )) {
+            removeFlutterPreloader();
+            observer.disconnect();
+            return;
+          }
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // 3. Fallback Timeout ป้องกันค้าง
+    setTimeout(removeFlutterPreloader, 3500);
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
