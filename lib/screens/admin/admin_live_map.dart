@@ -45,13 +45,13 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
     controller.forward();
   }
 
-  // ✨ จัดกลุ่มจุดจอดที่อยู่ใกล้กันให้แสดงเป็นหมุดเดียว (สอดคล้องกับฝั่งนักศึกษาและคนขับ)
+  // จัดกลุ่มจุดจอดที่อยู่ใกล้กันให้แสดงเป็นหมุดเดียว (สอดคล้องกับฝั่งนักศึกษาและคนขับ)
   final Map<String, List<String>> _groupedStops = {
     '7-Eleven PSRU และตึก IT': ['7-Eleven PSRU', 'ตึก IT '],
     'คณะสังคมศาสตร์ และคณะพยาบาลศาสตร์': ['คณะสังคมศาสตร์', 'คณะพยาบาลศาสตร์'],
   };
 
-  // ✨ ข้อมูลจุดจอดสำหรับแสดงบนแผนที่ (ยุบรวมจุดที่จัดกลุ่มแล้ว)
+  // ข้อมูลจุดจอดสำหรับแสดงบนแผนที่ (ยุบรวมจุดที่จัดกลุ่มแล้ว)
   List<Map<String, dynamic>> get _visualStops {
     List<Map<String, dynamic>> result = [];
     Set<String> groupedNames = {};
@@ -428,7 +428,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
         ),
         interactionOptions: InteractionOptions(
           flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.doubleTapZoom | InteractiveFlag.scrollWheelZoom,
-          cursorKeyboardRotationOptions: CursorKeyboardRotationOptions.disabled(), // ✨ ปิดการหมุนด้วยคีย์บอร์ด/เมาส์บน Web
+          cursorKeyboardRotationOptions: CursorKeyboardRotationOptions.disabled(), // ปิดการหมุนด้วยคีย์บอร์ด/เมาส์บน Web
         ),
       ),
       children: [

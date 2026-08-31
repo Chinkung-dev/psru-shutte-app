@@ -205,7 +205,7 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
 
     List<Map<String, dynamic>> list = shuttleMap.values.toList();
 
-    // ✨ จัดเรียงลำดับ: รถที่ออนไลน์ (isOnline == true) อยู่ด้านบนสุดเสมอ!
+    // จัดเรียงลำดับ: รถที่ออนไลน์ (isOnline == true) อยู่ด้านบนสุดเสมอ!
     list.sort((a, b) {
       bool aOnline = a['isOnline'] == true;
       bool bOnline = b['isOnline'] == true;
@@ -233,7 +233,7 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F2), // ✨ สีพื้นหลังเทาอมเขียวมิ้นต์อ่อนๆ สบายตา
+      backgroundColor: const Color(0xFFF0F4F2), // สีพื้นหลังเทาอมเขียวมิ้นต์อ่อนๆ สบายตา
       body: Column(
         children: [
           _buildHeader(context),
@@ -259,7 +259,7 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
     );
   }
 
-  // ✨ ส่วนหัวข้อแบบ Curved Bottom Edge เหมือน student_home
+  // ส่วนหัวข้อแบบ Curved Bottom Edge เหมือน student_home
   Widget _buildHeader(BuildContext context) {
     return Container(
       width: double.infinity,

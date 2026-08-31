@@ -110,12 +110,17 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
       Map<String, dynamic> messageData = {
         'text': text,
         'senderId': currentUserId,
-        'senderRole': 'student', // ✨ ระบุสิทธิ์ว่าเป็นนักศึกษาส่ง
+        'sender_id': currentUserId,
+        'senderName': 'นักศึกษา',
+        'sender_name': 'นักศึกษา',
+        'senderRole': 'student',
+        'sender_role': 'student',
         'timestamp': FieldValue.serverTimestamp(),
       };
       
       if (imageUrl != null) {
         messageData['imageUrl'] = imageUrl;
+        messageData['image_url'] = imageUrl;
       }
 
       await FirebaseFirestore.instance
@@ -127,7 +132,7 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ ไม่สามารถส่งข้อความได้: $e'),
+            content: Text(' ไม่สามารถส่งข้อความได้: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -138,7 +143,7 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
   Future<void> _pickAndSendImage() async {
     try {
       final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera, // ✨ บังคับเปิดกล้องถ่ายสดเท่านั้น (ป้องกันอัปรูปจาก Gallery)
+        source: ImageSource.camera, // บังคับเปิดกล้องถ่ายสดเท่านั้น (ป้องกันอัปรูปจาก Gallery)
         imageQuality: 50, // บีบอัดคุณภาพรูป
         maxWidth: 1024, // จำกัดความกว้างไม่ให้เกิน 1024px
         maxHeight: 1024, // จำกัดความสูงไม่ให้เกิน 1024px
@@ -165,7 +170,7 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ ไม่สามารถส่งรูปภาพได้: $e'),
+            content: Text(' ไม่สามารถส่งรูปภาพได้: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -184,7 +189,7 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
     final bool isDesktop = MediaQuery.of(context).size.width > 800;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F2), // ✨ สีพื้นหลังเทาอมเขียวมิ้นต์อ่อนๆ สบายตา
+      backgroundColor: const Color(0xFFF0F4F2), // สีพื้นหลังเทาอมเขียวมิ้นต์อ่อนๆ สบายตา
       body: SafeArea(
         bottom: false,
         child: Stack(
@@ -232,7 +237,7 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
     );
   }
 
-  // ✨ แถบ Bottom Navigation Bar ดีไซน์โค้งเว้าพร้อมปุ่มวงกลมลอย (Curved Notch) แบบเดียวกับ StudentHome
+  // แถบ Bottom Navigation Bar ดีไซน์โค้งเว้าพร้อมปุ่มวงกลมลอย (Curved Notch) แบบเดียวกับ StudentHome
   Widget _buildBottomNav() {
     final List<Map<String, dynamic>> navItems = [
       {'icon': Icons.map_outlined, 'activeIcon': Icons.map, 'label': 'Map'},

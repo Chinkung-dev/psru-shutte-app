@@ -19,10 +19,20 @@ class DriverChatScreen extends StatefulWidget {
 
 class _DriverChatScreenState extends State<DriverChatScreen> {
   final TextEditingController _messageController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   final String currentUserId =
       FirebaseAuth.instance.currentUser?.uid ?? 'unknown_driver';
   Stream<QuerySnapshot>? _messagesStream;
   String? _currentRoomId;
+
+  // ข้อความด่วนสำหรับคนขับรถ (Quick Responses)
+  final List<String> _quickResponses = [
+    'กำลังไปถึงป้ายครับ ',
+    'รถเต็มแล้ว กำลังเดินทาง ',
+    'ติดสัญญาณไฟ รอสักครู่ ',
+    'ฝนตก รถอาจล่าช้าเล็กน้อย ',
+    'ถึงจุดจอดหลักแล้วครับ ',
+  ];
 
   @override
   void initState() {
@@ -60,7 +70,7 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
     final String baseRoom = _getCanonicalRoomId();
     final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
     _currentRoomId = '${baseRoom}_$todayDate';
-    
+
     _messagesStream = FirebaseFirestore.instance
         .collection('chats')
         .doc(_currentRoomId)
@@ -70,11 +80,13 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
   }
 
   // ส่งข้อความขึ้น Firestore
-  Future<void> _sendMessage() async {
-    if (_messageController.text.trim().isEmpty) return;
+  Future<void> _sendMessage([String? presetText]) async {
+    final String text = (presetText ?? _messageController.text).trim();
+    if (text.isEmpty) return;
 
-    final String text = _messageController.text.trim();
-    _messageController.clear(); // ล้างช่องพิมพ์ทันที
+    if (presetText == null) {
+      _messageController.clear();
+    }
 
     final String baseRoom = _getCanonicalRoomId();
     final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
@@ -88,14 +100,18 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
           .add({
         'text': text,
         'senderId': currentUserId,
-        'senderRole': 'driver', // ✨ ระบุสิทธิ์ว่าเป็นคนขับส่ง
+        'sender_id': currentUserId,
+        'senderName': widget.shuttleName ?? 'คนขับรถ',
+        'sender_name': widget.shuttleName ?? 'คนขับรถ',
+        'senderRole': 'driver',
+        'sender_role': 'driver',
         'timestamp': FieldValue.serverTimestamp(),
       });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ ไม่สามารถส่งข้อความได้: $e'),
+            content: Text(' ไม่สามารถส่งข้อความได้: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -106,83 +122,229 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
   @override
   void dispose() {
     _messageController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F5),
-      body: SafeArea(
-        bottom: false, // ปล่อย bottom ไว้เพื่อให้ไม่บัง BottomNavBar ของหน้า Home
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(
-              child: _buildMessageList(),
+      backgroundColor: const Color(0xFFF0F4F2), // สีพื้นหลังเทาอมมิ้นต์เดียวกับฝั่งนักศึกษา
+      body: Column(
+        children: [
+          _buildHeader(),
+          Expanded(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 800),
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: _buildMessageList(),
+                    ),
+                    // แถบข้อความด่วนสำหรับคนขับ (Quick Chips)
+                    _buildQuickChips(),
+                    _buildMessageInput(),
+                    const SizedBox(height: 95), // เว้นที่ว่างด้านล่างเผื่อ Floating Bottom Dock
+                  ],
+                ),
+              ),
             ),
-            _buildMessageInput(),
-            const SizedBox(height: 80), // เว้นที่ว่างด้านล่างเผื่อ BottomNavBar
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ส่วนหัว (Curved Bottom Header) สรุปสถานะห้องสนทนา
+  Widget _buildHeader() {
+    final String displayName = widget.shuttleName != null
+        ? widget.shuttleName!
+        : 'Shuttle #${_getCanonicalRoomId().replaceAll(RegExp(r'[^0-9]'), '')}';
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFFFFFFFF),
+            Color(0xFFF8FAF8),
           ],
+        ),
+        borderRadius: const BorderRadius.vertical(
+          bottom: Radius.circular(26),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF176a21).withValues(alpha: 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+        border: Border.all(
+          color: Colors.black.withValues(alpha: 0.03),
+          width: 1.0,
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF81C784), Color(0xFF176a21)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF176a21).withValues(alpha: 0.25),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.directions_bus_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'ห้องสนทนา : $displayName',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF176a21),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: const Color(0xFF22C55E),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF22C55E).withValues(alpha: 0.6),
+                                blurRadius: 4,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        const Text(
+                          'คุยกับผู้โดยสาร / นักศึกษาในสายรถนี้',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF5A605B),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F5E9),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFF81C784).withValues(alpha: 0.4),
+                    width: 1.0,
+                  ),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.badge_rounded, color: Color(0xFF176a21), size: 13),
+                    SizedBox(width: 4),
+                    Text(
+                      'DRIVER',
+                      style: TextStyle(
+                        color: Color(0xFF176a21),
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // ส่วนหัว (Header) สรุปสถานะห้องสนทนา
-  Widget _buildHeader() {
-    final String displayName = widget.shuttleName != null ? 'ห้องสนทนาประจำรถ : ${widget.shuttleName}' : 'ห้องสนทนารถรับส่ง';
+  // แถบข้อความด่วนสำหรับคนขับรถ (Quick Responses)
+  Widget _buildQuickChips() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 5,
-            offset: const Offset(0, 2),
-          )
-        ],
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: const Color(0xFF176a21).withOpacity(0.1),
-            child: const Icon(Icons.directions_bus, color: Color(0xFF176a21), size: 28),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'ห้องสนทนา : $displayName',
+      height: 38,
+      margin: const EdgeInsets.only(bottom: 6),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: _quickResponses.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final text = _quickResponses[index];
+          return GestureDetector(
+            onTap: () => _sendMessage(text),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: const Color(0xFF81C784).withValues(alpha: 0.5),
+                  width: 1.0,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  text,
                   style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
                     color: Color(0xFF176a21),
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 2),
-                const Row(
-                  children: [
-                    Icon(Icons.circle, color: Colors.green, size: 10),
-                    SizedBox(width: 4),
-                    Text(
-                      'คุยกับผู้โดยสาร / นักศึกษาในสายรถนี้',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -194,26 +356,54 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
-              child: CircularProgressIndicator(color: Color(0xFF176a21)));
+            child: CircularProgressIndicator(color: Color(0xFF176a21)),
+          );
         }
         if (snapshot.hasError) {
           return Center(
-            child: Text('เกิดข้อผิดพลาด: ${snapshot.error}',
-                style: const TextStyle(color: Colors.red)),
+            child: Text(
+              'เกิดข้อผิดพลาด: ${snapshot.error}',
+              style: const TextStyle(color: Colors.red),
+            ),
           );
         }
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(
+          return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.chat_bubble_outline, size: 48, color: Colors.grey),
-                SizedBox(height: 12),
-                Text('ยังไม่มีข้อความในห้องสนทนานี้',
-                    style: TextStyle(color: Colors.grey, fontSize: 16)),
-                SizedBox(height: 4),
-                Text('พิมพ์ข้อความเพื่อแจ้งข่าวสารแก่นักศึกษา',
-                    style: TextStyle(color: Colors.grey, fontSize: 13)),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.04),
+                        blurRadius: 10,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.chat_bubble_outline_rounded,
+                    size: 40,
+                    color: Color(0xFF81C784),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'ยังไม่มีข้อความในห้องสนทนานี้',
+                  style: TextStyle(
+                    color: Color(0xFF2C2F30),
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'พิมพ์ข้อความหรือกดข้อความด่วนด้านล่างเพื่อแจ้งนักศึกษา',
+                  style: TextStyle(color: Color(0xFF757778), fontSize: 12.5),
+                ),
               ],
             ),
           );
@@ -222,8 +412,9 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
         final messages = snapshot.data!.docs;
 
         return ListView.builder(
+          controller: _scrollController,
           reverse: true, // ให้ข้อความใหม่สุดอยู่ล่างสุด
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           itemCount: messages.length,
           itemBuilder: (context, index) {
             final data = messages[index].data() as Map<String, dynamic>;
@@ -237,7 +428,13 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
                 ? DateFormat('HH:mm').format(timestamp.toDate())
                 : 'กำลังส่ง...';
 
-            return _buildMessageBubble(text, timeString, isMe, senderRole, imageUrl);
+            return _buildMessageBubble(
+              text,
+              timeString,
+              isMe,
+              senderRole,
+              imageUrl,
+            );
           },
         );
       },
@@ -246,9 +443,14 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
 
   // ส่วนกล่องข้อความแชท
   Widget _buildMessageBubble(
-      String text, String time, bool isMe, String senderRole, String? imageUrl) {
+    String text,
+    String time,
+    bool isMe,
+    String senderRole,
+    String? imageUrl,
+  ) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 14),
       child: Column(
         crossAxisAlignment:
             isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -259,27 +461,53 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.school, size: 14, color: Colors.blueGrey),
-                  const SizedBox(width: 4),
-                  Text(
-                    senderRole == 'driver' ? 'คนขับรถคันอื่น' : 'นักศึกษา',
-                    style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blueGrey),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: senderRole == 'driver'
+                          ? const Color(0xFFE8F5E9)
+                          : const Color(0xFFE3F2FD),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          senderRole == 'driver'
+                              ? Icons.directions_bus_rounded
+                              : Icons.school_rounded,
+                          size: 11,
+                          color: senderRole == 'driver'
+                              ? const Color(0xFF176a21)
+                              : const Color(0xFF1976D2),
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          senderRole == 'driver' ? 'คนขับรถ' : 'นักศึกษา',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.bold,
+                            color: senderRole == 'driver'
+                                ? const Color(0xFF176a21)
+                                : const Color(0xFF1976D2),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.75),
+              maxWidth: MediaQuery.of(context).size.width * 0.76,
+            ),
             decoration: BoxDecoration(
               color: isMe ? null : Colors.white,
               gradient: isMe
                   ? const LinearGradient(
-                      colors: [Color(0xFF176a21), Color(0xFF67B26F)],
+                      colors: [Color(0xFF1F8B2E), Color(0xFF176a21)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     )
@@ -287,16 +515,24 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
               borderRadius: BorderRadius.only(
                 topLeft: const Radius.circular(20),
                 topRight: const Radius.circular(20),
-                bottomLeft: Radius.circular(isMe ? 20 : 0),
-                bottomRight: Radius.circular(isMe ? 0 : 20),
+                bottomLeft: Radius.circular(isMe ? 20 : 4),
+                bottomRight: Radius.circular(isMe ? 4 : 20),
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 5,
-                  offset: const Offset(0, 2),
-                )
+                  color: isMe
+                      ? const Color(0xFF176a21).withValues(alpha: 0.25)
+                      : Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
               ],
+              border: isMe
+                  ? null
+                  : Border.all(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      width: 1.0,
+                    ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -305,25 +541,32 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
                   Padding(
                     padding: EdgeInsets.only(bottom: text.isNotEmpty ? 8.0 : 0),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        color: Colors.black12, // ใส่สีพื้นหลังกันรูปโปร่งใส หรือกันโหลดไม่ขึ้น
-                        child: Image.network(
-                          imageUrl,
-                          width: 200,
-                          fit: BoxFit.cover,
-                          loadingBuilder: (context, child, loadingProgress) {
-                            if (loadingProgress == null) return child;
-                            return const SizedBox(
-                              width: 200,
-                              height: 200,
-                              child: Center(child: CircularProgressIndicator(color: Color(0xFF176a21))),
-                            );
-                          },
-                          errorBuilder: (context, error, stackTrace) => const SizedBox(
-                            width: 200,
-                            height: 200,
-                            child: Center(child: Icon(Icons.broken_image, size: 50, color: Colors.grey)),
+                      borderRadius: BorderRadius.circular(14),
+                      child: Image.network(
+                        imageUrl,
+                        width: 220,
+                        fit: BoxFit.cover,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return const SizedBox(
+                            width: 220,
+                            height: 160,
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                color: Color(0xFF176a21),
+                              ),
+                            ),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) => const SizedBox(
+                          width: 220,
+                          height: 120,
+                          child: Center(
+                            child: Icon(
+                              Icons.broken_image_rounded,
+                              size: 40,
+                              color: Colors.grey,
+                            ),
                           ),
                         ),
                       ),
@@ -333,25 +576,34 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
                   Text(
                     text,
                     style: TextStyle(
-                      fontSize: 15,
+                      fontSize: 14.5,
+                      height: 1.35,
                       color: isMe ? Colors.white : const Color(0xFF2C2F30),
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
               ],
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 time,
-                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  color: Color(0xFF757778),
+                ),
               ),
               if (isMe) ...[
                 const SizedBox(width: 4),
-                const Icon(Icons.done_all, size: 14, color: Colors.green),
-              ]
+                const Icon(
+                  Icons.done_all_rounded,
+                  size: 13,
+                  color: Color(0xFF176a21),
+                ),
+              ],
             ],
           ),
         ],
@@ -359,20 +611,29 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
     );
   }
 
-  // ส่วนช่องพิมพ์ข้อความด้านล่าง
+  // ส่วนช่องพิมพ์ข้อความด้านล่าง (Floating Input Bar)
   Widget _buildMessageInput() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(
+          color: Colors.black.withValues(alpha: 0.05),
+          width: 1.0,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          )
+            color: const Color(0xFF176a21).withValues(alpha: 0.08),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
       child: Row(
@@ -382,23 +643,45 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
             child: TextField(
               controller: _messageController,
               onSubmitted: (_) => _sendMessage(),
+              style: const TextStyle(
+                fontSize: 14.5,
+                color: Color(0xFF2C2F30),
+              ),
               decoration: const InputDecoration(
                 hintText: 'พิมพ์แจ้งนักศึกษา...',
-                hintStyle: TextStyle(color: Colors.grey),
+                hintStyle: TextStyle(
+                  color: Color(0xFF9E9E9E),
+                  fontSize: 14,
+                ),
                 border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(horizontal: 10),
+                contentPadding: EdgeInsets.symmetric(vertical: 8),
               ),
             ),
           ),
           GestureDetector(
-            onTap: _sendMessage,
+            onTap: () => _sendMessage(),
             child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: const BoxDecoration(
-                color: Color(0xFF176a21),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF1F8B2E), Color(0xFF176a21)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
                 shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF176a21).withValues(alpha: 0.35),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
-              child: const Icon(Icons.send, color: Colors.white, size: 20),
+              child: const Icon(
+                Icons.send_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
             ),
           ),
         ],

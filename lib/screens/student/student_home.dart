@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import '../../widgets/top_toast.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'; // ✨ สำหรับเช็ค kIsWeb
+import 'package:flutter/foundation.dart'; // สำหรับเช็ค kIsWeb
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,9 +12,9 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import '../../route_data.dart';
 import 'student_profile.dart';
-import 'student_chat_list_screen.dart'; // ✨ Import หน้ารวมห้องแชท
-import 'student_live_status_screen.dart'; // ✨ Import หน้า Live Status
-import 'package:geolocator/geolocator.dart'; // ✨ เพิ่มเพื่อดึงตำแหน่งผู้ใช้
+import 'student_chat_list_screen.dart'; // Import หน้ารวมห้องแชท
+import 'student_live_status_screen.dart'; // Import หน้า Live Status
+import 'package:geolocator/geolocator.dart'; // เพิ่มเพื่อดึงตำแหน่งผู้ใช้
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:intl/intl.dart';
@@ -38,22 +38,22 @@ class _StudentHomeState extends State<StudentHome>
   final Map<String, LatLng> _currentShuttleLocations = {};
 
   bool isWaiting = false;
-  bool isAcknowledged = false; // ✨ เพิ่มสถานะเมื่อคนขับกดรับทราบแล้ว
-  bool isOnBoard = false; // ✨ เพิ่มสถานะเมื่อนักศึกษาขึ้นรถแล้ว
-  bool isCardMinimized = false; // ✨ ย่อการ์ดเหลือแค่ปุ่มเมื่อกดที่แผนที่
-  bool _isAutoArriving = false; // ✨ เช็คว่ากำลังนับถอยหลังปิดงานออโต้หรือไม่
+  bool isAcknowledged = false; // เพิ่มสถานะเมื่อคนขับกดรับทราบแล้ว
+  bool isOnBoard = false; // เพิ่มสถานะเมื่อนักศึกษาขึ้นรถแล้ว
+  bool isCardMinimized = false; // ย่อการ์ดเหลือแค่ปุ่มเมื่อกดที่แผนที่
+  bool _isAutoArriving = false; // เช็คว่ากำลังนับถอยหลังปิดงานออโต้หรือไม่
   bool _isTutorialCardHidden =
-      false; // ✨ ซ่อนการ์ดระหว่าง Tutorial ขั้นตอนที่ 4 เพื่อให้เห็นจุดจอดบนแผนที่ชัดเจน
+      false; // ซ่อนการ์ดระหว่าง Tutorial ขั้นตอนที่ 4 เพื่อให้เห็นจุดจอดบนแผนที่ชัดเจน
   String? selectedStopName;
-  String? selectedDropOffName; // ✨ จุดลงรถ
-  LatLng? selectedStopLatLng; // ✨ เก็บพิกัดป้ายที่เลือก
-  String? estimatedArrivalText; // ✨ ข้อความแสดงเวลา ETA
-  int? remainingStops; // ✨ เก็บจำนวนป้ายที่เหลือก่อนถึงจุดหมาย
+  String? selectedDropOffName; // จุดลงรถ
+  LatLng? selectedStopLatLng; // เก็บพิกัดป้ายที่เลือก
+  String? estimatedArrivalText; // ข้อความแสดงเวลา ETA
+  int? remainingStops; // เก็บจำนวนป้ายที่เหลือก่อนถึงจุดหมาย
   String?
-  targetedShuttleId; // ✨ เก็บ ID ของรถคันที่ใกล้ที่สุดเพื่อส่งคำขอเจาะจง
-  LatLng? _myLocation; // ✨ ตำแหน่งปัจจุบันของนักศึกษา
+  targetedShuttleId; // เก็บ ID ของรถคันที่ใกล้ที่สุดเพื่อส่งคำขอเจาะจง
+  LatLng? _myLocation; // ตำแหน่งปัจจุบันของนักศึกษา
   StreamSubscription<Position>?
-  _positionSubscription; // ✨ ฟังตำแหน่งแบบเรียลไทม์
+  _positionSubscription; // ฟังตำแหน่งแบบเรียลไทม์
 
   final MapController _mapController = MapController();
 
@@ -64,18 +64,18 @@ class _StudentHomeState extends State<StudentHome>
   );
 
   List<Map<String, dynamic>> activeShuttles =
-      []; // ✨ เก็บรายการรถที่กำลังออนไลน์
+      []; // เก็บรายการรถที่กำลังออนไลน์
 
   List<Map<String, dynamic>> busStops = [];
   bool _isLoadingStops = true;
 
-  // ✨ จัดกลุ่มจุดจอดที่อยู่ใกล้กันให้แสดงเป็นหมุดเดียว
+  // จัดกลุ่มจุดจอดที่อยู่ใกล้กันให้แสดงเป็นหมุดเดียว
   final Map<String, List<String>> _groupedStops = {
     '7-Eleven PSRU และตึก IT': ['7-Eleven PSRU', 'ตึก IT '],
     'คณะสังคมศาสตร์ และคณะพยาบาลศาสตร์': ['คณะสังคมศาสตร์', 'คณะพยาบาลศาสตร์'],
   };
 
-  // ✨ ข้อมูลจุดจอดสำหรับแสดงบนแผนที่ (ยุบรวมจุดที่จัดกลุ่มแล้ว)
+  // ข้อมูลจุดจอดสำหรับแสดงบนแผนที่ (ยุบรวมจุดที่จัดกลุ่มแล้ว)
   List<Map<String, dynamic>> get _visualStops {
     List<Map<String, dynamic>> result = [];
     Set<String> groupedNames = {};
@@ -117,14 +117,13 @@ class _StudentHomeState extends State<StudentHome>
   String? activeRequestId;
   StreamSubscription<DocumentSnapshot>? requestSubscription;
   StreamSubscription<DocumentSnapshot>? userSubscription;
-  StreamSubscription? shuttleSubscription; // ✨ เพิ่ม Subscription สำหรับฟังตำแหน่งรถ
-  StreamSubscription? _chatSubscription; // ✨ เพิ่ม Subscription สำหรับฟังแชท
-  String? _currentChatListenId;
+  StreamSubscription? shuttleSubscription; // เพิ่ม Subscription สำหรับฟังตำแหน่งรถ
+  final List<StreamSubscription> _chatSubscriptions = []; // รายการ Subscription สำหรับฟังแชทรถทุกคัน
   Map<String, dynamic>? _incomingChatNotification;
   Timer? _chatNotificationTimer;
   final AudioPlayer _alertPlayer = AudioPlayer();
 
-  // ✨ Tutorial GlobalKeys
+  // Tutorial GlobalKeys
   final GlobalKey keyStopMarker = GlobalKey();
   final GlobalKey keyCardTopSection = GlobalKey();
   final GlobalKey keyCardBottomSection = GlobalKey();
@@ -139,9 +138,9 @@ class _StudentHomeState extends State<StudentHome>
   final Map<LatLng, List<LatLng>> _routeGraph = {};
 
   List<String> favoriteStops = [];
-  bool _isAutoFollow = true; // ✨ ตัวแปรเช็คว่ากล้องติดตามเป้าหมายอยู่หรือไม่
+  bool _isAutoFollow = true; // ตัวแปรเช็คว่ากล้องติดตามเป้าหมายอยู่หรือไม่
   bool _isTutorialShowing =
-      false; // ✨ ตัวแปรเช็คว่าอยู่ในขั้นตอนสอน Tutorial อยู่หรือไม่
+      false; // ตัวแปรเช็คว่าอยู่ในขั้นตอนสอน Tutorial อยู่หรือไม่
 
   @override
   void initState() {
@@ -149,10 +148,11 @@ class _StudentHomeState extends State<StudentHome>
     _fetchStopsFromFirebase();
     _listenToFavoriteStops();
     _buildRouteGraph();
-    _listenToShuttles(); // ✨ เริ่มฟังตำแหน่งรถ
-    _zoomToUserLocation(); // ✨ ดึงตำแหน่งผู้ใช้และซูมแผนที่
+    _listenToShuttles(); // เริ่มฟังตำแหน่งรถ
+    _listenToAllChatMessages(); // เริ่มดักฟังข้อความแชทใหม่จากคนขับรถทุกคันแบบ Real-time
+    _zoomToUserLocation(); // ดึงตำแหน่งผู้ใช้และซูมแผนที่
 
-    // ✨ Setup animation controller for smooth marker movement (ตั้งเป็น 3200ms เพื่อให้สอดคล้องกับฝั่งคนขับที่ส่งข้อมูลทุก 3 วินาที ทำให้รถไหลลื่นตลอดเวลา)
+    // Setup animation controller for smooth marker movement (ตั้งเป็น 3200ms เพื่อให้สอดคล้องกับฝั่งคนขับที่ส่งข้อมูลทุก 3 วินาที ทำให้รถไหลลื่นตลอดเวลา)
     _markerAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 3200),
@@ -184,7 +184,7 @@ class _StudentHomeState extends State<StudentHome>
                 }
               }
 
-              // ✨ ล็อกกล้องให้ตามรถที่เรานั่งอยู่ตลอดเวลา (Auto Follow)
+              // ล็อกกล้องให้ตามรถที่เรานั่งอยู่ตลอดเวลา (Auto Follow)
               if (_isAutoFollow && isOnBoard && targetedShuttleId != null) {
                 final loc = _currentShuttleLocations[targetedShuttleId];
                 if (loc != null) {
@@ -199,8 +199,7 @@ class _StudentHomeState extends State<StudentHome>
         });
   }
 
-
-  // ✨ ดึงตำแหน่งปัจจุบันของนักศึกษาแล้วซูมแผนที่ไป พร้อมติดตามแบบ Real-time
+  // ดึงตำแหน่งปัจจุบันของนักศึกษาแล้วซูมแผนที่ไป พร้อมติดตามแบบ Real-time
   Future<void> _zoomToUserLocation() async {
     bool serviceEnabled;
     LocationPermission permission;
@@ -266,84 +265,112 @@ class _StudentHomeState extends State<StudentHome>
     }
   }
 
-  // ✨ ฟังก์ชันฟังตำแหน่งรถแบบ Real-time พร้อมอนิเมชันหมุดให้ราบรื่นและกรองรถค้าง (Timeout Filter)
-  void _manageChatSubscription() {
-    if (targetedShuttleId == null || (!isWaiting && !isAcknowledged && !isOnBoard)) {
-      _chatSubscription?.cancel();
-      _currentChatListenId = null;
-      return;
+  // ฟังข้อความแชทใหม่จากคนขับรถทุกคันแบบ Real-time เพื่อส่งเสียงและแสดงป๊อปอัปแจ้งเตือน
+  void _listenToAllChatMessages() {
+    for (var sub in _chatSubscriptions) {
+      sub.cancel();
     }
-    
+    _chatSubscriptions.clear();
+
     final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
-    
-    String rawName = '';
-    try {
-      final targetShuttle = activeShuttles.firstWhere((s) => s['id'] == targetedShuttleId);
-      rawName = (targetShuttle['name'] ?? '').toString();
-    } catch (_) {}
-    
-    String cleanNum = rawName.replaceAll(RegExp(r'[^0-9]'), '');
-    if (cleanNum.isEmpty && targetedShuttleId != null && !targetedShuttleId!.startsWith('-')) {
-      cleanNum = targetedShuttleId!.replaceAll(RegExp(r'[^0-9]'), '');
-    }
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
-    String baseRoom = 'shuttle_01';
-    if (cleanNum.isNotEmpty) {
-      int numVal = int.tryParse(cleanNum) ?? 1;
-      baseRoom = 'shuttle_${numVal.toString().padLeft(2, '0')}';
-    } else if (targetedShuttleId != null && !targetedShuttleId!.startsWith('-')) {
-      baseRoom = targetedShuttleId!;
-    }
-    final String roomId = '${baseRoom}_$todayDate';
+    // รวบรวมห้องแชทของรถทั้งหมดในระบบ
+    final Set<String> roomIds = {
+      'shuttle_01_$todayDate',
+      'shuttle_02_$todayDate',
+      'shuttle_03_$todayDate',
+      'shuttle_04_$todayDate',
+      'shuttle_05_$todayDate',
+    };
 
-    if (_currentChatListenId == roomId) return;
-    _currentChatListenId = roomId;
-    _chatSubscription?.cancel();
-
-    bool isInitial = true;
-    _chatSubscription = FirebaseFirestore.instance
-        .collection('chats')
-        .doc(roomId)
-        .collection('messages')
-        .orderBy('timestamp', descending: true)
-        .limit(1)
-        .snapshots()
-        .listen((snapshot) {
-      if (isInitial) {
-        isInitial = false;
-        return;
+    for (var shuttle in activeShuttles) {
+      final sId = (shuttle['id'] ?? '').toString();
+      final sName = (shuttle['name'] ?? '').toString();
+      String cleanNum = sName.replaceAll(RegExp(r'[^0-9]'), '');
+      if (cleanNum.isEmpty && sId.isNotEmpty && !sId.startsWith('-')) {
+        cleanNum = sId.replaceAll(RegExp(r'[^0-9]'), '');
       }
-      
-      for (var change in snapshot.docChanges) {
-        if (change.type == DocumentChangeType.added) {
-          final data = change.doc.data();
-          if (data != null) {
-            final String senderId = (data['sender_id'] ?? data['senderId'] ?? '').toString();
-            final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-            if (senderId != currentUserId) {
-              final String senderName = (data['sender_name'] ?? data['senderName'] ?? 'คนขับรถ').toString();
+      if (cleanNum.isNotEmpty) {
+        int numVal = int.tryParse(cleanNum) ?? 1;
+        roomIds.add('shuttle_${numVal.toString().padLeft(2, '0')}_$todayDate');
+      } else if (sId.isNotEmpty && !sId.startsWith('-')) {
+        roomIds.add('${sId}_$todayDate');
+      }
+    }
+
+    for (var roomId in roomIds) {
+      bool isInitial = true;
+      final sub = FirebaseFirestore.instance
+          .collection('chats')
+          .doc(roomId)
+          .collection('messages')
+          .orderBy('timestamp', descending: true)
+          .limit(5)
+          .snapshots()
+          .listen((snapshot) {
+        if (isInitial) {
+          isInitial = false;
+          return; // ข้ามข้อความเก่าที่โหลดมาตอนแรก
+        }
+
+        // หากกำลังเปิดอยู่ในหน้าแชท (แท็บ 2) ไม่ต้องแสดงป๊อปอัปบังหน้าจอ
+        if (_selectedIndex == 2) return;
+
+        for (var change in snapshot.docChanges) {
+          if (change.type == DocumentChangeType.added) {
+            final data = change.doc.data();
+            if (data == null) continue;
+
+            final String senderRole =
+                (data['sender_role'] ?? data['senderRole'] ?? '').toString();
+            final String senderId =
+                (data['sender_id'] ?? data['senderId'] ?? '').toString();
+
+            // เช็คว่าเป็นข้อความจากคนขับ หรือไม่ใช่ตัวเอง
+            if (senderId != currentUserId &&
+                (senderRole == 'driver' || senderRole.isEmpty)) {
+              final String senderName = (data['sender_name'] ??
+                      data['senderName'] ??
+                      'คนขับรถ')
+                  .toString();
+              final String messageText = (data['text'] ??
+                      (data['imageUrl'] != null || data['image_url'] != null
+                          ? ' ได้ส่งรูปภาพ'
+                          : 'ข้อความใหม่'))
+                  .toString();
+
               _triggerVoiceAlertForChat();
+
               if (mounted) {
                 _chatNotificationTimer?.cancel();
                 setState(() {
                   _incomingChatNotification = {
                     'sender': senderName,
-                    'text': (data['text'] ?? (data['image_url'] != null ? '📷 ได้ส่งรูปภาพ' : 'ข้อความใหม่')).toString(),
+                    'text': messageText,
+                    'roomId': roomId,
                   };
                 });
-                _chatNotificationTimer = Timer(const Duration(seconds: 7), () {
-                  if (mounted) {
-                    setState(() {
-                      _incomingChatNotification = null;
-                    });
-                  }
-                });
+
+                _chatNotificationTimer = Timer(
+                  const Duration(seconds: 7),
+                  () {
+                    if (mounted) {
+                      setState(() {
+                        _incomingChatNotification = null;
+                      });
+                    }
+                  },
+                );
               }
             }
           }
         }
-      }
-    });
+      }, onError: (e) {
+        debugPrint("Error listening to chat room $roomId: $e");
+      });
+      _chatSubscriptions.add(sub);
+    }
   }
 
   Future<void> _triggerVoiceAlertForChat() async {
@@ -365,171 +392,253 @@ class _StudentHomeState extends State<StudentHome>
     final String text = _incomingChatNotification!['text'] ?? '';
     final double topPadding = MediaQuery.of(context).padding.top > 0
         ? MediaQuery.of(context).padding.top + 8
-        : 16;
+        : 14;
 
     return Positioned(
       top: topPadding,
-      left: 16,
-      right: 16,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color(0xFF176a21),
-                Color(0xFF0F4D17),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.25),
-              width: 1.2,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.25),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 6,
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.chat_bubble_rounded,
-                  color: Color(0xFF176a21),
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            sender,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14.5,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text(
-                            'คนขับรถ',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
+      left: 14,
+      right: 14,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 600),
+          child: Dismissible(
+            key: const Key('student_incoming_chat_popup'),
+            direction: DismissDirection.up,
+            onDismissed: (_) {
+              _chatNotificationTimer?.cancel();
+              setState(() {
+                _incomingChatNotification = null;
+              });
+            },
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  _chatNotificationTimer?.cancel();
+                  setState(() {
+                    _incomingChatNotification = null;
+                    _selectedIndex = 2; // สลับไปหน้าแชตทันที
+                  });
+                },
+                borderRadius: BorderRadius.circular(22),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFFFFFFFF),
+                        Color(0xFFF9FAF9),
                       ],
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      text,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        fontSize: 13,
-                        height: 1.2,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: const Color(0xFF81C784).withValues(alpha: 0.45),
+                      width: 1.2,
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  InkWell(
-                    onTap: () {
-                      _chatNotificationTimer?.cancel();
-                      setState(() {
-                        _incomingChatNotification = null;
-                        _selectedIndex = 2; // สลับไปหน้าแชตทันที
-                      });
-                    },
-                    borderRadius: BorderRadius.circular(16),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF176a21).withValues(alpha: 0.14),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 4,
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      // ไอคอนวงกลมพร้อมจุดแสดงสถานะข้อความใหม่
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF1F8B2E), Color(0xFF176a21)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF176a21).withValues(alpha: 0.25),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.chat_bubble_rounded,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                          ),
+                          Positioned(
+                            top: -1,
+                            right: -1,
+                            child: Container(
+                              width: 11,
+                              height: 11,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF22C55E),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2.0),
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                      child: const Text(
-                        'ตอบกลับ',
-                        style: TextStyle(
-                          color: Color(0xFF176a21),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12.5,
+                      const SizedBox(width: 12),
+
+                      // ข้อมูลผู้ส่งและข้อความ
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    sender,
+                                    style: const TextStyle(
+                                      color: Color(0xFF2C2F30),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14.5,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE8F5E9),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: const Color(0xFF81C784).withValues(alpha: 0.4),
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'คนขับรถ',
+                                    style: TextStyle(
+                                      color: Color(0xFF176a21),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              text,
+                              style: const TextStyle(
+                                color: Color(0xFF5A605B),
+                                fontSize: 13,
+                                height: 1.25,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ),
                       ),
-                    ),
+                      const SizedBox(width: 10),
+
+                      // ปุ่มกดตอบกลับ & ปุ่มปิด
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          GestureDetector(
+                            onTap: () {
+                              _chatNotificationTimer?.cancel();
+                              setState(() {
+                                _incomingChatNotification = null;
+                                _selectedIndex = 2; // สลับไปหน้าแชตทันที
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 7,
+                              ),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFF1F8B2E), Color(0xFF176a21)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(14),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF176a21).withValues(alpha: 0.25),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'ตอบกลับ',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11.5,
+                                    ),
+                                  ),
+                                  SizedBox(width: 3),
+                                  Icon(
+                                    Icons.arrow_forward_ios_rounded,
+                                    color: Colors.white,
+                                    size: 10,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          GestureDetector(
+                            onTap: () {
+                              _chatNotificationTimer?.cancel();
+                              setState(() {
+                                _incomingChatNotification = null;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(5),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFF1F5F2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.close_rounded,
+                                color: Color(0xFF757778),
+                                size: 16,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    constraints: const BoxConstraints(),
-                    padding: const EdgeInsets.all(4),
-                    icon: const Icon(
-                      Icons.close_rounded,
-                      color: Colors.white70,
-                      size: 20,
-                    ),
-                    onPressed: () {
-                      _chatNotificationTimer?.cancel();
-                      setState(() {
-                        _incomingChatNotification = null;
-                      });
-                    },
-                  ),
-                ],
+                ),
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -595,7 +704,7 @@ class _StudentHomeState extends State<StudentHome>
         });
 
         bool hasMeaningfulChange =
-            false; // ✨ ตรวจสอบว่ามีรถคันไหนขยับจริงหรือเปลี่ยนสถานะที่นั่งหรือไม่
+            false; // ตรวจสอบว่ามีรถคันไหนขยับจริงหรือเปลี่ยนสถานะที่นั่งหรือไม่
 
         for (var shuttle in newShuttles) {
           final String id = shuttle['id'];
@@ -618,7 +727,7 @@ class _StudentHomeState extends State<StudentHome>
           if (statusChanged) {
             hasMeaningfulChange = true;
 
-            // ✨ แจ้งเตือนถ้ารถเป้าหมายเปลี่ยนสถานะเป็นเต็มหรือพัก (นำระบบ TopToast กลับมา)
+            // แจ้งเตือนถ้ารถเป้าหมายเปลี่ยนสถานะเป็นเต็มหรือพัก (นำระบบ TopToast กลับมา)
             if (id == targetedShuttleId) {
               String sName = 'รถคันเป้าหมาย';
               try {
@@ -629,13 +738,13 @@ class _StudentHomeState extends State<StudentHome>
 
               if (newPassengerStatus == 'full') {
                 _alertPlayer.play(AssetSource('voice/glass_1.mp3'));
-                TopToast.show(context, 'แจ้งเตือน: $sName ที่กำลังมารับ "เต็มแล้ว" ⚠️', isError: true);
+                TopToast.show(context, 'แจ้งเตือน: $sName ที่กำลังมารับ "เต็มแล้ว" ', isError: true);
               } else if (newPassengerStatus == 'break') {
                 _alertPlayer.play(AssetSource('voice/glass_1.mp3'));
-                TopToast.show(context, 'แจ้งเตือน: $sName "ขอพักเบรค" ชั่วคราว ⚠️', isError: true);
+                TopToast.show(context, 'แจ้งเตือน: $sName "ขอพักเบรค" ชั่วคราว ', isError: true);
               } else if (newPassengerStatus == 'available' && (oldPassengerStatus == 'full' || oldPassengerStatus == 'break')) {
                 _alertPlayer.play(AssetSource('voice/glass_1.mp3'));
-                TopToast.show(context, 'อัปเดต: $sName "ว่างแล้ว" 🟢', isError: false);
+                TopToast.show(context, 'อัปเดต: $sName "ว่างแล้ว" ', isError: false);
               }
             }
           }
@@ -645,15 +754,15 @@ class _StudentHomeState extends State<StudentHome>
           if (currentLoc == null) {
             _currentShuttleLocations[id] = newLoc;
             _targetShuttleLocations[id] = newLoc;
-            _oldShuttleLocations[id] = newLoc; // ✨ ป้องกันบั๊กเริ่มต้น
+            _oldShuttleLocations[id] = newLoc; // ป้องกันบั๊กเริ่มต้น
             hasMeaningfulChange = true;
 
-            // ✨ แจ้งเตือนเมื่อมีรถคันใหม่เพิ่งออนไลน์
+            // แจ้งเตือนเมื่อมีรถคันใหม่เพิ่งออนไลน์
             bool isNew = !activeShuttles.any((s) => s['id'] == id);
             if (isNew) {
               String numStr = (shuttle['number'] ?? '').toString();
               String sName = numStr.isNotEmpty ? 'รถเบอร์ $numStr' : 'รถรับส่ง';
-              TopToast.show(context, 'อัปเดต: $sName ออนไลน์เข้าสู่ระบบแล้ว 🚌', isError: false);
+              TopToast.show(context, 'อัปเดต: $sName ออนไลน์เข้าสู่ระบบแล้ว ', isError: false);
             }
 
           } else if (targetLoc == null ||
@@ -670,7 +779,7 @@ class _StudentHomeState extends State<StudentHome>
           hasMeaningfulChange = true;
         }
 
-        // ✨ แจ้งเตือนถ้ารถเป้าหมายออฟไลน์/เลิกงาน
+        // แจ้งเตือนถ้ารถเป้าหมายออฟไลน์/เลิกงาน
         if (targetedShuttleId != null &&
             (isWaiting || isAcknowledged || selectedStopLatLng != null)) {
           bool wasActive = activeShuttles.any(
@@ -701,13 +810,13 @@ class _StudentHomeState extends State<StudentHome>
           (id, loc) => !activeIds.contains(id),
         );
 
-        // ✨ State Guard: อัปเดต UI และคำนวณกราฟเส้นทางใหม่เฉพาะเมื่อรถขยับจริง หรือสถานะเปลี่ยนเท่านั้น (เพื่อประหยัดแบตเตอรี่และไม่รีบิ้วฟรีเมื่อได้รับ Heartbeat)
+        // State Guard: อัปเดต UI และคำนวณกราฟเส้นทางใหม่เฉพาะเมื่อรถขยับจริง หรือสถานะเปลี่ยนเท่านั้น (เพื่อประหยัดแบตเตอรี่และไม่รีบิ้วฟรีเมื่อได้รับ Heartbeat)
         if (hasMeaningfulChange) {
           setState(() {
             activeShuttles = newShuttles;
           });
           if (shouldAnimate) {
-            // ✨ อัปเดตพิกัดเริ่มต้นใหม่ให้กับรถทุกคัน ป้องกันบั๊กหมุดเด้งถอยหลังเวลาอนิเมชันเริ่มใหม่กลางคัน
+            // อัปเดตพิกัดเริ่มต้นใหม่ให้กับรถทุกคัน ป้องกันบั๊กหมุดเด้งถอยหลังเวลาอนิเมชันเริ่มใหม่กลางคัน
             for (var keyId in _targetShuttleLocations.keys) {
               if (_currentShuttleLocations.containsKey(keyId)) {
                 _oldShuttleLocations[keyId] = _currentShuttleLocations[keyId]!;
@@ -725,7 +834,7 @@ class _StudentHomeState extends State<StudentHome>
     });
   }
 
-  // ✨ ฟังข้อความแชทใหม่จากคนขับรถแบบ Real-time เพื่อส่งเสียงและแสดงป๊อปอัปแจ้งเตือน
+  // ฟังข้อความแชทใหม่จากคนขับรถแบบ Real-time เพื่อส่งเสียงและแสดงป๊อปอัปแจ้งเตือน
 
   void _listenToFavoriteStops() {
     final user = FirebaseAuth.instance.currentUser;
@@ -780,7 +889,7 @@ class _StudentHomeState extends State<StudentHome>
       }
     }
 
-    // ✨ กำหนด Segment ที่เป็น One-way (อ้างอิงจากจุดเริ่มต้นของ Segment)
+    // กำหนด Segment ที่เป็น One-way (อ้างอิงจากจุดเริ่มต้นของ Segment)
     // เพื่อป้องกันระบบคำนวณเส้นทางย้อนศร (เช่น ย้อนกลับไปใช้ทางลัด)
     List<LatLng> oneWaySegments = [
       const LatLng(
@@ -910,14 +1019,14 @@ class _StudentHomeState extends State<StudentHome>
         }
       }
       
-      print("🚀 DEBUG: Path calculated length = ${path.length}");
+      print(" DEBUG: Path calculated length = ${path.length}");
       if (path.isEmpty) {
-        print("🚀 DEBUG: Path is EMPTY between ${startNode.latitude},${startNode.longitude} and ${endNode.latitude},${endNode.longitude}");
+        print(" DEBUG: Path is EMPTY between ${startNode.latitude},${startNode.longitude} and ${endNode.latitude},${endNode.longitude}");
       }
 
       if (path.isNotEmpty) {
         if (i == 0) {
-          // ✨ ถ้าเส้นทางมีจุดต่อไป ให้เช็คว่ารถวิ่งเลย startNode มาหรือยัง
+          // ถ้าเส้นทางมีจุดต่อไป ให้เช็คว่ารถวิ่งเลย startNode มาหรือยัง
           // ถ้าระยะจากรถไป node ถัดไป สั้นกว่าจาก startNode ไป node ถัดไป = รถวิ่งเลยมาแล้ว
           if (path.length > 1) {
             double distBusToNext = distanceCalc.distance(startLoc, path[1]);
@@ -940,7 +1049,7 @@ class _StudentHomeState extends State<StudentHome>
         }
         fullPath.addAll(path);
       } else {
-        // ✨ ถ้าหาเส้นทางตามถนนไม่เจอ (เช่น ต้องย้อนศร)
+        // ถ้าหาเส้นทางตามถนนไม่เจอ (เช่น ต้องย้อนศร)
         // ถ้านี่คือช่วงแรก (จากรถไปป้ายถัดไป) ให้ข้ามการวาดเส้นตรงทะลุตึก
         // เพื่อป้องกันเส้นไฮไลท์ลากย้อนกลับแบบพังๆ
         if (i == 0 && waypoints.length > 2) {
@@ -982,7 +1091,7 @@ class _StudentHomeState extends State<StudentHome>
     });
   }
 
-  // ✨ หาพิกัดกึ่งกลางของเส้นทางไฮไลท์สำหรับแสดงป้ายข้อความเวลา ETA บนแผนที่
+  // หาพิกัดกึ่งกลางของเส้นทางไฮไลท์สำหรับแสดงป้ายข้อความเวลา ETA บนแผนที่
   LatLng? _getPathMidpoint() {
     if (highlightedPath.isEmpty) return null;
     if (highlightedPath.length == 1) return highlightedPath.first;
@@ -996,7 +1105,7 @@ class _StudentHomeState extends State<StudentHome>
     return highlightedPath[midIndex];
   }
 
-  // ✨ วิดเจ็ตข้อความแสดงเวลาประมาณการ (ETA) ข้างเส้นทางไฮไลท์บนแผนที่ (เหลือแค่ไอคอนและตัวหนังสือ)
+  // วิดเจ็ตข้อความแสดงเวลาประมาณการ (ETA) ข้างเส้นทางไฮไลท์บนแผนที่ (เหลือแค่ไอคอนและตัวหนังสือ)
   Widget _buildRouteEtaBadge(String etaText) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -1046,7 +1155,7 @@ class _StudentHomeState extends State<StudentHome>
           'name': data['name'],
           'lat': (data['lat'] is num ? (data['lat'] as num).toDouble() : (double.tryParse(data['lat'].toString()) ?? 0.0)),
           'lng': (data['lng'] is num ? (data['lng'] as num).toDouble() : (double.tryParse(data['lng'].toString()) ?? 0.0)),
-          'order': data['order'], // ✨ สำคัญสำหรับคำนวณเส้นทาง
+          'order': data['order'], // สำคัญสำหรับคำนวณเส้นทาง
         });
       }
 
@@ -1067,9 +1176,11 @@ class _StudentHomeState extends State<StudentHome>
     _markerAnimationController.dispose();
     requestSubscription?.cancel();
     userSubscription?.cancel();
-    shuttleSubscription?.cancel(); // ✨ ยกเลิกฟังตำแหน่งรถ
-    _positionSubscription?.cancel(); // ✨ ยกเลิกฟังตำแหน่งนักศึกษา
-    _chatSubscription?.cancel(); // ✨ ยกเลิกฟังแชท
+    shuttleSubscription?.cancel(); // ยกเลิกฟังตำแหน่งรถ
+    _positionSubscription?.cancel(); // ยกเลิกฟังตำแหน่งนักศึกษา
+    for (var sub in _chatSubscriptions) {
+      sub.cancel();
+    }
     _chatNotificationTimer?.cancel();
     _alertPlayer.dispose();
     super.dispose();
@@ -1112,7 +1223,7 @@ class _StudentHomeState extends State<StudentHome>
     FocusManager.instance.primaryFocus?.unfocus();
   }
 
-  // ✨ คำนวณเส้นทางและเวลา ETA จากรถคันที่ใกล้ป้ายที่สุดด้วย Modulo Route Index
+  // คำนวณเส้นทางและเวลา ETA จากรถคันที่ใกล้ป้ายที่สุดด้วย Modulo Route Index
   void _updateRouteAndETA() {
     if (_isTutorialShowing) {
       if (highlightedPath.isNotEmpty) {
@@ -1143,7 +1254,7 @@ class _StudentHomeState extends State<StudentHome>
       setState(() {
         highlightedPath.clear();
         estimatedArrivalText =
-            "⚠️ ขณะนี้ยังไม่มีคนขับเปิดแอปออนไลน์อยู่ \n(ไม่สามารถแสดงเส้นทางและเวลา ETA ได้)";
+            " ขณะนี้ยังไม่มีคนขับเปิดแอปออนไลน์อยู่ \n(ไม่สามารถแสดงเส้นทางและเวลา ETA ได้)";
       });
       return;
     }
@@ -1249,7 +1360,7 @@ class _StudentHomeState extends State<StudentHome>
           .reduce((a, b) => a > b ? a : b);
       if (maxOrder == 0) maxOrder = 23;
 
-      // ✨ Fix: ค้นหาป้ายที่อยู่ใกล้รถมากที่สุดในปัจจุบัน เพื่อใช้เป็นจุดเริ่มต้นของการลากเส้น
+      // Fix: ค้นหาป้ายที่อยู่ใกล้รถมากที่สุดในปัจจุบัน เพื่อใช้เป็นจุดเริ่มต้นของการลากเส้น
       // ป้องกันปัญหารถวิ่งไปไกลแล้วแต่ last_passed_stop ในฐานข้อมูลยังไม่อัปเดต ซึ่งจะทำให้เส้นไฮไลท์ลากย้อนกลับไปมา (Zig-zag)
       int currentOrder = closestBusLastPassed ?? 1;
       if (busStops.isNotEmpty) {
@@ -1264,7 +1375,7 @@ class _StudentHomeState extends State<StudentHome>
           }
         }
 
-        // ✨ ป้องกันปัญหาระยะกระจัดหลอก (เช่น รถอยู่ตรงทางแยก ป้าย 13 อยู่ใกล้กว่าป้าย 12 ในแนวเส้นตรง)
+        // ป้องกันปัญหาระยะกระจัดหลอก (เช่น รถอยู่ตรงทางแยก ป้าย 13 อยู่ใกล้กว่าป้าย 12 ในแนวเส้นตรง)
         // ทำให้ระบบคิดว่ารถข้ามป้าย 12 ไปแล้ว ทั้งๆ ที่ยังไม่ถึง
         if (closestBusLastPassed != null) {
           int expectedNext = closestBusLastPassed + 1;
@@ -1273,7 +1384,7 @@ class _StudentHomeState extends State<StudentHome>
           int stepsFromExpected = tempCurrentOrder - expectedNext;
           if (stepsFromExpected < 0) stepsFromExpected += maxOrder;
 
-          // ✨ ถ้าระบบไปจับป้ายที่ "ผ่านไปแล้ว" หรืออยู่ข้างหลัง (stepsFromExpected > 11)
+          // ถ้าระบบไปจับป้ายที่ "ผ่านไปแล้ว" หรืออยู่ข้างหลัง (stepsFromExpected > 11)
           // ให้บังคับมุ่งหน้าไปที่ expectedNext เสมอ ห้ามวาดเส้นถอยหลังกลับไปหาป้ายเดิม
           if (stepsFromExpected > 11) {
             tempCurrentOrder = expectedNext;
@@ -1286,7 +1397,7 @@ class _StudentHomeState extends State<StudentHome>
               // จะยอมให้ข้ามก็ต่อเมื่อรถอยู่ใกล้ป้ายนั้นจริงๆ (< 40 เมตร)
               // ถ้าไม่ใช่ แสดงว่าเป็นระยะกระจัดหลอกตรงทางแยก ให้พิจารณากลับมาที่ป้ายถัดไปที่ควรจะไป (expectedNext)
               if (minStopDist >= 40.0) {
-                // ✨ แต่จะกลับไปหา expectedNext ก็ต่อเมื่อมันไม่ได้อยู่ไกลเกินไป (< 200m)
+                // แต่จะกลับไปหา expectedNext ก็ต่อเมื่อมันไม่ได้อยู่ไกลเกินไป (< 200m)
                 // เพื่อป้องกันเคสที่ last_passed_stop ค้างเป็นค่าเก่ามากๆ
                 try {
                   final expectedStop = busStops.firstWhere(
@@ -1305,14 +1416,14 @@ class _StudentHomeState extends State<StudentHome>
           }
         }
 
-        // ✨ ป้องกันปัญหา currentOrder กระโดดข้ามป้ายเป้าหมาย
+        // ป้องกันปัญหา currentOrder กระโดดข้ามป้ายเป้าหมาย
         int stepWithTemp = targetOrder - tempCurrentOrder;
         if (stepWithTemp < 0) stepWithTemp += maxOrder;
 
         int stepWithLastPassed = targetOrder - (closestBusLastPassed ?? 1);
         if (stepWithLastPassed < 0) stepWithLastPassed += maxOrder;
 
-        // ✨ เช็คว่า stepWithTemp > 11 ด้วย เพื่อแยกระหว่าง "รถวิ่งเลยป้ายเป้าหมาย (step จะเป็น 20+)"
+        // เช็คว่า stepWithTemp > 11 ด้วย เพื่อแยกระหว่าง "รถวิ่งเลยป้ายเป้าหมาย (step จะเป็น 20+)"
         // กับ "ข้อมูล last_passed เก่าตกค้าง (step เป็น 1-3)"
         if (stepWithTemp > stepWithLastPassed &&
             stepWithTemp > 11 &&
@@ -1331,7 +1442,7 @@ class _StudentHomeState extends State<StudentHome>
         waypoints.add(target);
         remainingStops = 0;
         
-        // ✨ Auto-Arrive System ย้ายมาไว้ตรงนี้
+        // Auto-Arrive System ย้ายมาไว้ตรงนี้
         // จะปิดงานอัตโนมัติก็ต่อเมื่อ "ไม่มีป้ายให้ต้องไปก่อนหน้าแล้ว" (stepCount == 0) 
         // และรถแจ้งว่าได้วิ่งผ่านป้ายเป้าหมายแล้ว (อ้างอิงจากระบบคนขับ)
         if (isOnBoard && closestBusLastPassed == targetOrder) {
@@ -1340,13 +1451,13 @@ class _StudentHomeState extends State<StudentHome>
         }
       } else {
         remainingStops =
-            stepCount; // ✨ อัปเดตจำนวนป้ายที่เหลือให้ตรงกับเส้นทางจริง
-        // ✨ บังคับให้เส้นทางต้องผ่านทุกป้าย (เริ่มที่ i = 0 เสมอ)
+            stepCount; // อัปเดตจำนวนป้ายที่เหลือให้ตรงกับเส้นทางจริง
+        // บังคับให้เส้นทางต้องผ่านทุกป้าย (เริ่มที่ i = 0 เสมอ)
         for (int i = 0; i < stepCount; i++) {
           int nextOrder = currentOrder + i;
           if (nextOrder > maxOrder) nextOrder -= maxOrder;
 
-          // 🚀 FIX: ป้องกันการวาดเส้นทางย้อนกลับไปหาป้ายที่เพิ่งวิ่งผ่านมาแล้ว
+          // FIX: ป้องกันการวาดเส้นทางย้อนกลับไปหาป้ายที่เพิ่งวิ่งผ่านมาแล้ว
           if (closestBusLastPassed != null && nextOrder == closestBusLastPassed) {
             continue;
           }
@@ -1367,10 +1478,10 @@ class _StudentHomeState extends State<StudentHome>
     }
 
     _calculateHighlightedPath(waypoints);
-    _manageChatSubscription();
+    _listenToAllChatMessages();
   }
 
-  // ✨ ฟังก์ชันเมื่อนักศึกษากด "ขึ้นรถเรียบร้อยแล้ว"
+  // ฟังก์ชันเมื่อนักศึกษากด "ขึ้นรถเรียบร้อยแล้ว"
   Future<void> _boardShuttle() async {
     if (activeRequestId != null) {
       try {
@@ -1386,7 +1497,7 @@ class _StudentHomeState extends State<StudentHome>
       setState(() {
         isOnBoard = true;
       });
-      _updateRouteAndETA(); // ✨ อัปเดตเส้นทางไปยังจุดลงรถและคำนวณ ETA
+      _updateRouteAndETA(); // อัปเดตเส้นทางไปยังจุดลงรถและคำนวณ ETA
     }
   }
 
@@ -1416,7 +1527,7 @@ class _StudentHomeState extends State<StudentHome>
         highlightedPath.clear();
       });
 
-      // ✨ เลื่อนกล้องกลับมาที่ตำแหน่งของนักศึกษาเมื่อลงรถเสร็จสิ้น
+      // เลื่อนกล้องกลับมาที่ตำแหน่งของนักศึกษาเมื่อลงรถเสร็จสิ้น
       if (_myLocation != null) {
         _mapController.move(_myLocation!, 17.0);
       } else {
@@ -1541,7 +1652,7 @@ class _StudentHomeState extends State<StudentHome>
         });
 
         if (mounted) {
-          TopToast.show(context, 'ขอบคุณสำหรับคะแนนครับ! 🌟', isError: false);
+          TopToast.show(context, 'ขอบคุณสำหรับคะแนนครับ! ', isError: false);
         }
       }
     } catch (e) {
@@ -1565,7 +1676,7 @@ class _StudentHomeState extends State<StudentHome>
       _isAutoArriving = false;
     }
 
-    // ✨ ถ้าเพิ่งลงจากรถ ให้จำลองว่าตัวเราไปอยู่ที่จุดหมายแล้ว (สำหรับการเทสบนเว็บ)
+    // ถ้าเพิ่งลงจากรถ ให้จำลองว่าตัวเราไปอยู่ที่จุดหมายแล้ว (สำหรับการเทสบนเว็บ)
     if (selectedDropOffName != null) {
       try {
         final stop = busStops.firstWhere(
@@ -1606,7 +1717,7 @@ class _StudentHomeState extends State<StudentHome>
 
   Future<void> _toggleWaitState() async {
     if (isOnBoard) {
-      // ✨ ถ้านักศึกษาอยู่บนรถ และกดเสร็จสิ้น ให้เรียกใช้งาน Auto-Arrive แบบเดียวกัน
+      // ถ้านักศึกษาอยู่บนรถ และกดเสร็จสิ้น ให้เรียกใช้งาน Auto-Arrive แบบเดียวกัน
       await _handleAutoArrive(isManual: true);
       return;
     }
@@ -1623,7 +1734,7 @@ class _StudentHomeState extends State<StudentHome>
         return;
       }
 
-      // ✨ ตรวจสอบระยะห่างระหว่างนักศึกษากับป้ายที่เลือก
+      // ตรวจสอบระยะห่างระหว่างนักศึกษากับป้ายที่เลือก
       if (_myLocation == null) {
         TopToast.show(
           context,
@@ -1672,7 +1783,7 @@ class _StudentHomeState extends State<StudentHome>
                 'dropoff_stop': selectedDropOffName,
             });
 
-        // ✨ บันทึกสถิติลง Analytics สำหรับสร้างกราฟในหน้า Admin
+        // บันทึกสถิติลง Analytics สำหรับสร้างกราฟในหน้า Admin
         try {
           final now = DateTime.now();
           final dateStr =
@@ -1702,13 +1813,13 @@ class _StudentHomeState extends State<StudentHome>
                   if (mounted) {
                     TopToast.show(
                       context,
-                      'คนขับรับทราบแล้ว! กำลังเดินทางไปรับที่ป้ายครับ 🚌',
+                      'คนขับรับทราบแล้ว! กำลังเดินทางไปรับที่ป้ายครับ ',
                       isError: false,
                     );
                     setState(() {
                       isWaiting = false;
                       isAcknowledged =
-                          true; // ✨ เปลี่ยนสถานะเป็นคนขับรับทราบแล้ว และคงเส้นทางกับป้ายจอดไว้
+                          true; // เปลี่ยนสถานะเป็นคนขับรับทราบแล้ว และคงเส้นทางกับป้ายจอดไว้
                       isCardMinimized = false;
                     });
                     _updateRouteAndETA();
@@ -1938,8 +2049,8 @@ class _StudentHomeState extends State<StudentHome>
                 onSelectTab: (index) {
                   setState(() => _selectedIndex = index);
                 },
-              ), // ✨ หน้า Live Status ตามดีไซน์
-              // ✨ เปลี่ยนเป็นหน้า StudentChatListScreen ที่รวมรายการแชททุกคัน
+              ), // หน้า Live Status ตามดีไซน์
+              // เปลี่ยนเป็นหน้า StudentChatListScreen ที่รวมรายการแชททุกคัน
               StudentChatListScreen(
                 onSelectTab: (index) {
                   setState(() => _selectedIndex = index);
@@ -1950,10 +2061,10 @@ class _StudentHomeState extends State<StudentHome>
             ],
           ),
 
-          // ✨ ป๊อปอัปแจ้งเตือนข้อความแชตใหม่จากคนขับรถ
+          // ป๊อปอัปแจ้งเตือนข้อความแชตใหม่จากคนขับรถ
           _buildIncomingChatPopup(),
 
-          // ✨ Bottom Navigation Bar สไตล์ Floating Dock โมเดิร์น (ลอยขึ้นมาจากขอบล่าง และเว้นระยะซ้าย-ขวา)
+          // Bottom Navigation Bar สไตล์ Floating Dock โมเดิร์น (ลอยขึ้นมาจากขอบล่าง และเว้นระยะซ้าย-ขวา)
           Positioned(
             bottom: MediaQuery.of(context).padding.bottom > 0
                 ? MediaQuery.of(context).padding.bottom + 8
@@ -1991,7 +2102,7 @@ class _StudentHomeState extends State<StudentHome>
                     InteractiveFlag.doubleTapZoom |
                     InteractiveFlag.scrollWheelZoom,
                 cursorKeyboardRotationOptions:
-                    CursorKeyboardRotationOptions.disabled(), // ✨ ปิดการหมุนด้วยคีย์บอร์ด/เมาส์บน Web
+                    CursorKeyboardRotationOptions.disabled(), // ปิดการหมุนด้วยคีย์บอร์ด/เมาส์บน Web
               ),
               onPositionChanged: (camera, hasGesture) {
                 if (hasGesture && _isAutoFollow) {
@@ -2004,7 +2115,7 @@ class _StudentHomeState extends State<StudentHome>
                 if (isAcknowledged || isOnBoard) {
                   setState(() {
                     isCardMinimized =
-                        true; // ✨ ย่อกรอบรายละเอียดออก ให้เหลือแค่ปุ่ม "ขึ้นรถเรียบร้อย"
+                        true; // ย่อกรอบรายละเอียดออก ให้เหลือแค่ปุ่ม "ขึ้นรถเรียบร้อย"
                   });
                 } else if (!isWaiting) {
                   setState(() {
@@ -2245,8 +2356,8 @@ class _StudentHomeState extends State<StudentHome>
             ),
           ),
 
-        // ✨ Curved Bottom Header สไตล์ที่ 2 (ชิดบน ขอบล่างโค้งมนรับสายตา)
-        // ✨ Curved Bottom Header สไตล์ที่ 2 (ชิดบน ขอบล่างโค้งมน สะอาดตา)
+        // Curved Bottom Header สไตล์ที่ 2 (ชิดบน ขอบล่างโค้งมนรับสายตา)
+        // Curved Bottom Header สไตล์ที่ 2 (ชิดบน ขอบล่างโค้งมน สะอาดตา)
         Positioned(
           top: 0,
           left: 0,
@@ -2363,7 +2474,7 @@ class _StudentHomeState extends State<StudentHome>
           ),
         ),
 
-        // ✨ ป้ายสถานะรถรับส่งแบบลอยชิดซ้ายบนแผนที่ (Floating Status Pill on Map - Left Aligned)
+        // ป้ายสถานะรถรับส่งแบบลอยชิดซ้ายบนแผนที่ (Floating Status Pill on Map - Left Aligned)
         Positioned(
           top: 84,
           left: 16,
@@ -2426,8 +2537,8 @@ class _StudentHomeState extends State<StudentHome>
                   const SizedBox(width: 7),
                   Text(
                     activeShuttles.isNotEmpty
-                        ? 'รถรับส่งวิ่งให้บริการ ${activeShuttles.length} คัน 🚌'
-                        : '⚠️ ขณะนี้ยังไม่มีคนขับออนไลน์ในระบบ',
+                        ? 'รถรับส่งวิ่งให้บริการ ${activeShuttles.length} คัน '
+                        : ' ขณะนี้ยังไม่มีคนขับออนไลน์ในระบบ',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
@@ -2442,7 +2553,7 @@ class _StudentHomeState extends State<StudentHome>
           ),
         ),
 
-        // ✨ ปุ่มขยายการ์ดข้อมูล (แสดงเฉพาะตอนการ์ดย่อ)
+        // ปุ่มขยายการ์ดข้อมูล (แสดงเฉพาะตอนการ์ดย่อ)
         if (selectedStopName != null && isCardMinimized && !_isTutorialCardHidden)
           Positioned(
             bottom: 210, // อยู่เหนือปุ่มเป้าเล็ง (150 + 60)
@@ -2465,7 +2576,7 @@ class _StudentHomeState extends State<StudentHome>
             ),
           ),
 
-        // ✨ ปุ่มเป้าเล็ง (แบบเดียวกับของคนขับ)
+        // ปุ่มเป้าเล็ง (แบบเดียวกับของคนขับ)
         Positioned(
           bottom: (selectedStopName != null && !_isTutorialCardHidden)
               ? (isCardMinimized ? 165 : 395) // เลื่อนหลบการ์ดแบบเต็มหรือย่อ
@@ -2522,11 +2633,11 @@ class _StudentHomeState extends State<StudentHome>
     );
   }
 
-  // ✨ ตรวจสอบและแสดง Tutorial
+  // ตรวจสอบและแสดง Tutorial
   Future<void> _checkAndShowTutorial() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 💡 ลบคอมเมนต์บรรทัดล่างนี้ออกเพื่อ "บังคับรีเซ็ต" ให้ Tutorial กลับมาแสดงอีกครั้ง (สำหรับการทดสอบ)
+    // ลบคอมเมนต์บรรทัดล่างนี้ออกเพื่อ "บังคับรีเซ็ต" ให้ Tutorial กลับมาแสดงอีกครั้ง (สำหรับการทดสอบ)
     //await prefs.setBool('hasSeenTutorial', false);
 
     final bool hasSeenTutorial = prefs.getBool('hasSeenTutorial') ?? false;
@@ -2578,7 +2689,7 @@ class _StudentHomeState extends State<StudentHome>
       opacityShadow: 0.85,
       onFinish: () {
         if (phase == 1) {
-          // 💡 จบ Phase 1 -> ให้จำลองการกดเลือกจุดจอดที่อยู่ใกล้นักศึกษามากที่สุด
+          // จบ Phase 1 -> ให้จำลองการกดเลือกจุดจอดที่อยู่ใกล้นักศึกษามากที่สุด
           Map<String, dynamic>? targetStop;
           if (_myLocation != null && _visualStops.isNotEmpty) {
             const distanceCalc = Distance();
@@ -2604,7 +2715,7 @@ class _StudentHomeState extends State<StudentHome>
           }
           if (mounted) {
             setState(() {
-              _isTutorialCardHidden = true; // ✨ ซ่อนการ์ดก่อนเข้า Phase 2
+              _isTutorialCardHidden = true; // ซ่อนการ์ดก่อนเข้า Phase 2
               highlightedPath.clear();
             });
           }
@@ -2612,10 +2723,10 @@ class _StudentHomeState extends State<StudentHome>
             if (mounted) _showTutorial(closeCardOnFinish, phase: 2);
           });
         } else if (phase == 2) {
-          // 💡 จบ Phase 2 (ขั้นตอนที่ 4) -> แสดงการ์ดขึ้นมาแล้วเข้าสู่ Phase 3 (ขั้นตอนที่ 5 และ 6)
+          // จบ Phase 2 (ขั้นตอนที่ 4) -> แสดงการ์ดขึ้นมาแล้วเข้าสู่ Phase 3 (ขั้นตอนที่ 5 และ 6)
           if (mounted) {
             setState(() {
-              _isTutorialCardHidden = false; // ✨ เปิดแสดงการ์ดสำหรับ Phase 3
+              _isTutorialCardHidden = false; // เปิดแสดงการ์ดสำหรับ Phase 3
               highlightedPath.clear();
             });
           }
@@ -2623,7 +2734,7 @@ class _StudentHomeState extends State<StudentHome>
             if (mounted) _showTutorial(closeCardOnFinish, phase: 3);
           });
         } else {
-          // 💡 จบ Tutorial ทั้งหมดจริงๆ -> สรุปบทเรียนและล็อกกล้องกลับไปที่ตำแหน่งของนักศึกษา
+          // จบ Tutorial ทั้งหมดจริงๆ -> สรุปบทเรียนและล็อกกล้องกลับไปที่ตำแหน่งของนักศึกษา
           SharedPreferences.getInstance().then((prefs) {
             prefs.setBool('hasSeenTutorial', true);
           });
@@ -2988,7 +3099,7 @@ class _StudentHomeState extends State<StudentHome>
     return targets;
   }
 
-  // ✨ วิดเจ็ต Bottom Navigation Bar ดีไซน์โค้งเว้า (Curved Notch) พรีเมียม พร้อมชิปไอคอนและ Live Status Indicator
+  // วิดเจ็ต Bottom Navigation Bar ดีไซน์โค้งเว้า (Curved Notch) พรีเมียม พร้อมชิปไอคอนและ Live Status Indicator
   Widget _buildCurvedBottomNav() {
     final List<Map<String, dynamic>> navItems = [
       {'icon': Icons.map_outlined, 'activeIcon': Icons.map, 'label': 'Map'},
@@ -3407,7 +3518,7 @@ class _StudentHomeState extends State<StudentHome>
   }
 
   Widget _buildStopDetailsCard() {
-    // ✨ ดึงชื่อ/หมายเลขรถที่กำลังเดินทางมารับ หรือรถที่เราขึ้นไปแล้ว
+    // ดึงชื่อ/หมายเลขรถที่กำลังเดินทางมารับ หรือรถที่เราขึ้นไปแล้ว
     String? assignedShuttleName;
     if ((isAcknowledged || isOnBoard) && targetedShuttleId != null) {
       try {
@@ -3423,7 +3534,7 @@ class _StudentHomeState extends State<StudentHome>
       }
     }
 
-    // ✨ ถ้าอยู่ในสถานะคนขับรับทราบแล้ว และถูกย่อจากการกดที่แผนที่ ให้แสดงเหลือแค่ปุ่ม "ขึ้นรถเรียบร้อยแล้ว"
+    // ถ้าอยู่ในสถานะคนขับรับทราบแล้ว และถูกย่อจากการกดที่แผนที่ ให้แสดงเหลือแค่ปุ่ม "ขึ้นรถเรียบร้อยแล้ว"
     if ((isAcknowledged || isOnBoard) && isCardMinimized) {
       return Center(
         child: ConstrainedBox(
@@ -3631,8 +3742,8 @@ class _StudentHomeState extends State<StudentHome>
                                 child: Text(
                                   isOnBoard
                                       ? (remainingStops != null
-                                            ? 'กำลังเดินทางไปยังจุดหมายของคุณ อีก $remainingStops จุดจอดจะถึงจุดหมายคุณ 🚌'
-                                            : 'กำลังเดินทางไปยังจุดหมายของคุณ 🚌')
+                                            ? 'กำลังเดินทางไปยังจุดหมายของคุณ อีก $remainingStops จุดจอดจะถึงจุดหมายคุณ '
+                                            : 'กำลังเดินทางไปยังจุดหมายของคุณ ')
                                       : 'คนขับรับทราบแล้ว! รถกำลังเดินทางมารับคุณที่ป้าย',
                                   style: const TextStyle(
                                     fontSize: 13,
@@ -3725,7 +3836,7 @@ class _StudentHomeState extends State<StudentHome>
                           Expanded(
                             child: Text(
                               activeShuttles.isEmpty
-                                  ? '⚠️ ขณะนี้ยังไม่มีคนขับเปิดแอปออนไลน์ในระบบ'
+                                  ? ' ขณะนี้ยังไม่มีคนขับเปิดแอปออนไลน์ในระบบ'
                                   : 'รถรับส่ง กำลังวิ่งให้บริการ',
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
@@ -3746,8 +3857,8 @@ class _StudentHomeState extends State<StudentHome>
 
               const SizedBox(height: 14),
 
-              // ✨ Dropdown เลือกจุดลงรถ (แสดงเฉพาะตอนยังไม่กดเรียกรถ)
-              // ✨ ส่วนล่างของการ์ด (เลือกปลายทาง + ปุ่มเรียกรถ)
+              // Dropdown เลือกจุดลงรถ (แสดงเฉพาะตอนยังไม่กดเรียกรถ)
+              // ส่วนล่างของการ์ด (เลือกปลายทาง + ปุ่มเรียกรถ)
               Container(
                 key: keyCardBottomSection,
                 child: Column(
@@ -3903,7 +4014,7 @@ class _StudentHomeState extends State<StudentHome>
   }
 }
 
-// ✨ CustomPainter สำหรับวาด Bottom Navigation Bar โค้งเว้า (Curved Notch) ขอบมนสวยงามพอดี (Radius = 16px)
+// CustomPainter สำหรับวาด Bottom Navigation Bar โค้งเว้า (Curved Notch) ขอบมนสวยงามพอดี (Radius = 16px)
 class _CurvedNavPainter extends CustomPainter {
   final double notchCenter;
 
@@ -3914,7 +4025,7 @@ class _CurvedNavPainter extends CustomPainter {
     const double barTop = 16.0;
     const double notchDepth = 25.0;
     const double notchHalfWidth = 34.0;
-    const double radius = 16.0; // ✨ ปรับลดความโค้งขอบมนซ้าย-ขวาลงมาที่ 16px ตามที่ต้องการ
+    const double radius = 16.0; // ปรับลดความโค้งขอบมนซ้าย-ขวาลงมาที่ 16px ตามที่ต้องการ
 
     // 1. สร้าง Base Path สี่เหลี่ยมขอบมนโค้งมนสวยกระชับ
     final RRect barRRect = RRect.fromRectAndRadius(

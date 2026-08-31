@@ -9,7 +9,7 @@ import 'admin_live_map.dart';
 import 'admin_drivers_tab.dart';
 import 'admin_students_tab.dart';
 import 'admin_analytics_tab.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // ✨ เพิ่ม Import FirebaseAuth สำหรับล็อกเอาต์
+import 'package:firebase_auth/firebase_auth.dart'; // เพิ่ม Import FirebaseAuth สำหรับล็อกเอาต์
 import 'admin_profile_dialog.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -444,7 +444,7 @@ class AdminSidebar extends StatelessWidget {
           _buildNavItem(Icons.settings_outlined, 'Settings', 5),
           _buildNavItem(Icons.help_outline, 'Support', 6),
           const SizedBox(height: 16),
-          // ✨ เพิ่มปุ่มออกจากระบบ (Logout)
+          // เพิ่มปุ่มออกจากระบบ (Logout)
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: ListTile(
@@ -986,8 +986,8 @@ class LeftColumnContent extends StatelessWidget {
                         final batch = FirebaseFirestore.instance.batch();
                         for (var doc in snapshot.docs) {
                           // batch.update(doc.reference, {
-                          //   'status': 'offline',
-                          //   'passenger_status': 'offline'
+                          // 'status': 'offline',
+                          // 'passenger_status': 'offline'
                           // });
                         }
                         await batch.commit();

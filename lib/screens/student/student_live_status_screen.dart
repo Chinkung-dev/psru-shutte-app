@@ -277,7 +277,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F2), // ✨ สีพื้นหลังเทาอมเขียวมิ้นต์อ่อนๆ ช่วยขับให้การ์ดดูมีมิติ
+      backgroundColor: const Color(0xFFF0F4F2), // สีพื้นหลังเทาอมเขียวมิ้นต์อ่อนๆ ช่วยขับให้การ์ดดูมีมิติ
       body: Column(
         children: [
           _buildHeader(),
@@ -290,17 +290,17 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // 🌟 Hero Card (รถรับส่งทั้งหมด)
+                      // Hero Card (รถรับส่งทั้งหมด)
                       _buildHeroCard(totalActive),
                       const SizedBox(height: 16),
 
-                      // 📊 4 Grid Cards (สถานะรถว่าง/เต็ม/พัก/ออฟไลน์)
+                      // 4 Grid Cards (สถานะรถว่าง/เต็ม/พัก/ออฟไลน์)
                       _buildStatsGrid(availableCount, fullCount, breakCount, offlineCount),
                       
-                      // 🏷️ Section Title (สถานะรถ + REAL-TIME)
+                      // Section Title (สถานะรถ + REAL-TIME)
                       _buildSectionTitle(),
                       
-                      // 🚌 รายการรถรับส่งแต่ละคัน
+                      // รายการรถรับส่งแต่ละคัน
                       if (_shuttleList.isEmpty)
                         const Center(
                           child: Padding(
@@ -326,7 +326,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
     );
   }
 
-  // ✨ Header ดีไซน์ Curved Bottom Edge แบบเดียวกับหน้าหลัก
+  // Header ดีไซน์ Curved Bottom Edge แบบเดียวกับหน้าหลัก
   Widget _buildHeader() {
     return Container(
       width: double.infinity,
@@ -397,7 +397,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
     );
   }
 
-  // 🌟 Hero Card (ดีไซน์สีขาวอมมิ้นต์นุ่มนวล สบายตา ไม่ทึบ)
+  // Hero Card (ดีไซน์สีขาวอมมิ้นต์นุ่มนวล สบายตา ไม่ทึบ)
   Widget _buildHeroCard(int activeCount) {
     return Container(
       width: double.infinity,
@@ -478,7 +478,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
                         ),
                       ),
                       child: Text(
-                        activeCount > 0 ? 'คัน พร้อมรับส่ง 🚌' : 'ยังไม่มีรถออนไลน์',
+                        activeCount > 0 ? 'คัน พร้อมรับส่ง ' : 'ยังไม่มีรถออนไลน์',
                         style: TextStyle(
                           fontSize: 12,
                           color: activeCount > 0
@@ -515,7 +515,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
     );
   }
 
-  // 📊 4 Grid Cards (สถานะรถพร้อมกรอบสีพาสเทลนุ่มนวล)
+  // 4 Grid Cards (สถานะรถพร้อมกรอบสีพาสเทลนุ่มนวล)
   Widget _buildStatsGrid(
       int available, int full, int breakTime, int offline) {
     return LayoutBuilder(
@@ -638,7 +638,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
     );
   }
 
-  // 🏷️ Section Title
+  // Section Title
   Widget _buildSectionTitle() {
     return Padding(
       padding: const EdgeInsets.only(top: 24, bottom: 16),
@@ -684,7 +684,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
     );
   }
 
-  // 🚌 การ์ดแสดงสถานะรถแต่ละคัน (พร้อมกรอบเขียวมรกตและเงาลอย)
+  // การ์ดแสดงสถานะรถแต่ละคัน (พร้อมกรอบเขียวมรกตและเงาลอย)
   Widget _buildShuttleCard(Map<String, dynamic> shuttle) {
     final String badgeText = shuttle['badgeText'];
     final String passengerStatus = shuttle['passengerStatus'];

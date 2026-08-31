@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -17,7 +17,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  final _phoneController = TextEditingController(); // ✨ เบอร์โทรศัพท์
+  final _phoneController = TextEditingController(); // เบอร์โทรศัพท์
 
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -301,7 +301,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   const SizedBox(height: 8),
                   const Center(
                     child: Text(
-                      '👈 คลิกปุ่มลูกศร, คลิกที่รูป หรือลากเมาส์เลื่อนเพื่อเลือกรูป 👉',
+                      ' คลิกปุ่มลูกศร, คลิกที่รูป หรือลากเมาส์เลื่อนเพื่อเลือกรูป ',
                       style: TextStyle(
                         color: Color(0xFF757778),
                         fontSize: 13,

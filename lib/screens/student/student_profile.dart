@@ -81,7 +81,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F2), // ✨ สีพื้นหลังเทาอมเขียวมิ้นต์อ่อนๆ สบายตา
+      backgroundColor: const Color(0xFFF0F4F2), // สีพื้นหลังเทาอมเขียวมิ้นต์อ่อนๆ สบายตา
       body: Column(
         children: [
           _buildHeader(context),
@@ -220,7 +220,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                         title: 'การจัดการ',
                         icon: Icons.tune_rounded,
                         children: [
-                          // ✨ ใส่ await เพื่อรอให้หน้า Favorite ปิดลงมา แล้วดึงข้อมูลใหม่ทันที
+                          // ใส่ await เพื่อรอให้หน้า Favorite ปิดลงมา แล้วดึงข้อมูลใหม่ทันที
                           _buildActionRow(
                             'จุดจอดที่ใช้บ่อย',
                             Icons.star_rounded,
@@ -258,7 +258,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                                 if (mounted) {
                                   messenger.showSnackBar(
                                     const SnackBar(
-                                      content: Text('❌ ไม่สามารถเปิดลิงก์ได้'),
+                                      content: Text(' ไม่สามารถเปิดลิงก์ได้'),
                                       backgroundColor: Colors.red,
                                     ),
                                   );
@@ -319,7 +319,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
     );
   }
 
-  // ✨ ส่วนหัวข้อแบบ Curved Bottom Edge เหมือน student_home
+  // ส่วนหัวข้อแบบ Curved Bottom Edge เหมือน student_home
   Widget _buildHeader(BuildContext context) {
     return Container(
       width: double.infinity,

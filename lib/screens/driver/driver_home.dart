@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter/foundation.dart'; // ✨ สำหรับเช็ค kIsWeb
-import 'package:flutter/services.dart'; // ✨ สำหรับ HapticFeedback
+import 'package:flutter/foundation.dart'; // สำหรับเช็ค kIsWeb
+import 'package:flutter/services.dart'; // สำหรับ HapticFeedback
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -10,13 +10,13 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import '../../widgets/top_toast.dart';
-import 'package:flutter_tts/flutter_tts.dart'; // ✨ สำหรับเสียง AI พูดภาษาไทย
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'; // ✨ สำหรับเล่นเสียงแจ้งเตือนมือถือ
-import 'package:audioplayers/audioplayers.dart'; // ✨ สำหรับเล่นไฟล์เสียง MP3 จุดจอด
+import 'package:flutter_tts/flutter_tts.dart'; // สำหรับเสียง AI พูดภาษาไทย
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'; // สำหรับเล่นเสียงแจ้งเตือนมือถือ
+import 'package:audioplayers/audioplayers.dart'; // สำหรับเล่นไฟล์เสียง MP3 จุดจอด
 import '../../route_data.dart';
-import 'driver_profile.dart'; // ✨ Import หน้าโปรไฟล์คนขับรถ
-import 'driver_status_screen.dart'; // ✨ Import หน้าสถานะรถ
-import 'driver_chat_screen.dart'; // ✨ Import หน้าแชทคนขับรถ
+import 'driver_profile.dart'; // Import หน้าโปรไฟล์คนขับรถ
+import 'driver_status_screen.dart'; // Import หน้าสถานะรถ
+import 'driver_chat_screen.dart'; // Import หน้าแชทคนขับรถ
 
 class DriverHome extends StatefulWidget {
   const DriverHome({super.key});
@@ -26,9 +26,9 @@ class DriverHome extends StatefulWidget {
 }
 
 class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
-  int _selectedIndex = 0; // ✨ เพิ่มตัวแปรสำหรับ BottomNavigationBar
+  int _selectedIndex = 0; // เพิ่มตัวแปรสำหรับ BottomNavigationBar
   bool isOnline = false;
-  bool _isAutoFollow = true; // ✨ หน้าจอขยับตามตำแหน่งรถอัตโนมัติ
+  bool _isAutoFollow = true; // หน้าจอขยับตามตำแหน่งรถอัตโนมัติ
 
   LatLng? _currentLocation;
   LatLng? _oldLocation;
@@ -37,15 +37,15 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   late Animation<double> _markerAnimation;
   late AnimationController _otherMarkersAnimationController;
   late Animation<double> _otherMarkersAnimation;
-  late FlutterTts flutterTts; // ✨ ตัวอ่านเสียง AI ภาษาไทย
-  String _ttsLang = "th-TH"; // ✨ เก็บค่ารหัสภาษาที่ใช้งานได้จริงบนอุปกรณ์นั้นๆ
+  late FlutterTts flutterTts; // ตัวอ่านเสียง AI ภาษาไทย
+  String _ttsLang = "th-TH"; // เก็บค่ารหัสภาษาที่ใช้งานได้จริงบนอุปกรณ์นั้นๆ
   StreamSubscription<Position>? positionStream;
   StreamSubscription<QuerySnapshot>? requestStream;
-  StreamSubscription? myShuttleSubscription; // ✨ ฟังสถานะตัวเอง
+  StreamSubscription? myShuttleSubscription; // ฟังสถานะตัวเอง
   Timer?
-  _heartbeatTimer; // ✨ Heartbeat สำหรับอัปเดตเวลาให้สดใหม่อยู่เสมอตอนจอดรอรับส่ง
+  _heartbeatTimer; // Heartbeat สำหรับอัปเดตเวลาให้สดใหม่อยู่เสมอตอนจอดรอรับส่ง
   String _currentPassengerStatus = 'available';
-  final AudioPlayer _alertPlayer = AudioPlayer(); // ✨ ตัวเล่นเสียงแจ้งเตือน
+  final AudioPlayer _alertPlayer = AudioPlayer(); // ตัวเล่นเสียงแจ้งเตือน
 
   StreamSubscription<QuerySnapshot>? _chatNotificationSub;
   StreamSubscription? _chatSubscription;
@@ -64,13 +64,13 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
   List<Map<String, dynamic>> busStops = [];
 
-  // ✨ จัดกลุ่มจุดจอดที่อยู่ใกล้กันให้แสดงเป็นหมุดเดียว (สอดคล้องกับฝั่งนักศึกษา)
+  // จัดกลุ่มจุดจอดที่อยู่ใกล้กันให้แสดงเป็นหมุดเดียว (สอดคล้องกับฝั่งนักศึกษา)
   final Map<String, List<String>> _groupedStops = {
     '7-Eleven PSRU และตึก IT': ['7-Eleven PSRU', 'ตึก IT '],
     'คณะสังคมศาสตร์ และคณะพยาบาลศาสตร์': ['คณะสังคมศาสตร์', 'คณะพยาบาลศาสตร์'],
   };
 
-  // ✨ ข้อมูลจุดจอดสำหรับแสดงบนแผนที่ (ยุบรวมจุดที่จัดกลุ่มแล้ว)
+  // ข้อมูลจุดจอดสำหรับแสดงบนแผนที่ (ยุบรวมจุดที่จัดกลุ่มแล้ว)
   List<Map<String, dynamic>> get _visualStops {
     List<Map<String, dynamic>> result = [];
     Set<String> groupedNames = {};
@@ -110,31 +110,31 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   }
 
   String? waitingStudentStop;
-  List<String> activeRequestIds = []; // ✨ เก็บไอดีคำขอทั้งหมดในป้ายที่กำลังรอ
-  int activeStudentCount = 0; // ✨ จำนวนนักศึกษาที่รออยู่ป้ายนั้น
+  List<String> activeRequestIds = []; // เก็บไอดีคำขอทั้งหมดในป้ายที่กำลังรอ
+  int activeStudentCount = 0; // จำนวนนักศึกษาที่รออยู่ป้ายนั้น
   String?
-  currentRequestStatus; // ✨ เก็บสถานะการเรียก ('waiting' หรือ 'acknowledged')
+  currentRequestStatus; // เก็บสถานะการเรียก ('waiting' หรือ 'acknowledged')
 
-  // ✨ เก็บตำแหน่งของนักศึกษาที่เรียกรถทั้งหมด
+  // เก็บตำแหน่งของนักศึกษาที่เรียกรถทั้งหมด
   List<Map<String, dynamic>> waitingStudentsList = [];
 
-  // ✨ ตัวแปรสำหรับเก็บข้อมูลรถคันอื่นๆ ที่กำลังออนไลน์
+  // ตัวแปรสำหรับเก็บข้อมูลรถคันอื่นๆ ที่กำลังออนไลน์
   List<Map<String, dynamic>> activeShuttles = [];
   StreamSubscription? allShuttlesSubscription;
   Map<String, LatLng> _otherCurrentLocations = {};
   Map<String, LatLng> _otherOldLocations = {};
   Map<String, LatLng> _otherTargetLocations = {};
 
-  // ✨ ตัวแปรสำหรับเก็บข้อมูลรถรับส่งของคนขับคนนี้
+  // ตัวแปรสำหรับเก็บข้อมูลรถรับส่งของคนขับคนนี้
   String? _shuttleDocId;
   String? _shuttleName;
   String? _shuttleNumber;
 
-  // ✨ ตัวแปรจำกัดเวลาส่งข้อมูล (Throttling 3 วินาที) และพิกัดล่าสุด (Distance Check 5 เมตร) เพื่อประหยัดโควตาและแบตเตอรี่
+  // ตัวแปรจำกัดเวลาส่งข้อมูล (Throttling 3 วินาที) และพิกัดล่าสุด (Distance Check 5 เมตร) เพื่อประหยัดโควตาและแบตเตอรี่
   DateTime? _lastFirebaseUpdate;
   LatLng? _lastUploadedLocation;
 
-  // ✨ ตัวแปรสำหรับ Smart Routing และ Drop-off TTS
+  // ตัวแปรสำหรับ Smart Routing และ Drop-off TTS
   int? _lastPassedStopOrder;
   int _currentTargetStopOrder = 1; // เริ่มที่ป้าย order 1
   final Set<String> _announcedDropOffStops = {}; // กัน TTS พูดซ้ำ
@@ -144,9 +144,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _initTts(); // ✨ เตรียมระบบอ่านข้อความ AI ภาษาไทย
+    _initTts(); // เตรียมระบบอ่านข้อความ AI ภาษาไทย
 
-    // ✨ Setup animation controller for smooth marker movement (900ms ให้หมุดเคลื่อนที่ต่อเนื่องเมื่อรถวิ่ง 20-30 กม./ชม.)
+    // Setup animation controller for smooth marker movement (900ms ให้หมุดเคลื่อนที่ต่อเนื่องเมื่อรถวิ่ง 20-30 กม./ชม.)
     _markerAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -170,7 +170,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               _currentLocation = LatLng(lat, lng);
               needsUpdate = true;
 
-              // ✨ ขยับกล้องแผนที่ให้ตามตัวรถอัตโนมัติเมื่อเปิดโหมด Auto-Follow อยู่
+              // ขยับกล้องแผนที่ให้ตามตัวรถอัตโนมัติเมื่อเปิดโหมด Auto-Follow อยู่
               if (_isAutoFollow && _currentLocation != null) {
                 _mapController.move(
                   _currentLocation!,
@@ -221,10 +221,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         });
 
     _fetchStopsFromFirebase();
-    _fetchDriverShuttle(); // ✨ ดึงข้อมูลรถของคนขับ
+    _fetchDriverShuttle(); // ดึงข้อมูลรถของคนขับ
   }
 
-  // ✨ ฟังก์ชันสำหรับหาว่าคนขับคนนี้ รับผิดชอบรถคันไหน
+  // ฟังก์ชันสำหรับหาว่าคนขับคนนี้ รับผิดชอบรถคันไหน
   Future<void> _fetchDriverShuttle() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -385,12 +385,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         setState(() {
           _shuttleDocId = targetRtdbKey;
         });
-        _listenToChatMessages(); // ✨ เริ่มฟังเสียงแจ้งเตือนข้อความแชทใหม่
+        _listenToChatMessages(); // เริ่มฟังเสียงแจ้งเตือนข้อความแชทใหม่
 
         // ตั้งค่า onDisconnect เพื่อให้เปลี่ยนเป็น offline เมื่อหลุดการเชื่อมต่อ
         rtdbRef.child('status').onDisconnect().set('offline');
 
-        // ✨ เริ่มฟังเอกสารรถคันนี้ เพื่อคอยอัปเดตสถานะแบบ Real-time ให้สีหมุดเปลี่ยนตาม
+        // เริ่มฟังเอกสารรถคันนี้ เพื่อคอยอัปเดตสถานะแบบ Real-time ให้สีหมุดเปลี่ยนตาม
         myShuttleSubscription = rtdbRef.onValue.listen((event) {
           if (event.snapshot.exists && mounted) {
             final data = event.snapshot.value as Map<dynamic, dynamic>;
@@ -403,14 +403,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         }, onError: (e) => print("RTDB Error (shuttles doc): $e"));
       }
 
-      // ✨ เริ่มฟังสัญญาณรถทุกคัน เพื่อนำมาแสดงจุดบนแผนที่ให้คนขับเห็นกันเอง
+      // เริ่มฟังสัญญาณรถทุกคัน เพื่อนำมาแสดงจุดบนแผนที่ให้คนขับเห็นกันเอง
       _listenToAllShuttles();
     } catch (e) {
       print("Error fetching driver shuttle: $e");
     }
   }
 
-  // ✨ ฟังก์ชันฟังสัญญาณข้อความแชทใหม่ เพื่อเล่นเสียงและแสดงป๊อปอัปแจ้งเตือน
+  // ฟังก์ชันฟังสัญญาณข้อความแชทใหม่ เพื่อเล่นเสียงและแสดงป๊อปอัปแจ้งเตือน
   void _listenToChatMessages() {
     _chatNotificationSub?.cancel();
     _chatSubscription?.cancel();
@@ -450,6 +450,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             return; // ข้ามข้อความเก่าทั้งหมดที่ได้จากการเปิดฟังครั้งแรก
           }
 
+          // ถ้ากำลังเปิดอยู่ในหน้าแชท (แท็บ 2) ไม่ต้องแสดงป๊อปอัปบังหน้าจอ
+          if (_selectedIndex == 2) return;
+
           final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
           for (var change in snapshot.docChanges) {
@@ -469,8 +472,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                         .toString();
                 final String messageText =
                     (data['text'] ??
-                            (data['image_url'] != null
-                                ? '📷 ได้ส่งรูปภาพ'
+                            (data['imageUrl'] != null || data['image_url'] != null
+                                ? ' ได้ส่งรูปภาพ'
                                 : 'ข้อความใหม่'))
                         .toString();
 
@@ -503,7 +506,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         });
   }
 
-  // ✨ ฟังก์ชันสำหรับเพิ่มจำนวนรอบการวิ่งในวันนี้
+  // ฟังก์ชันสำหรับเพิ่มจำนวนรอบการวิ่งในวันนี้
   Future<void> _incrementDailyRound() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -529,14 +532,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           'daily_round_count': currentRounds + 1,
         }, SetOptions(merge: true));
 
-        print("🎯 Round Completed! Total today: ${currentRounds + 1}");
+        print(" Round Completed! Total today: ${currentRounds + 1}");
       }
     } catch (e) {
       print("Error incrementing daily round: $e");
     }
   }
 
-  // ✨ ฟังก์ชันฟังสัญญาณรถทุกคันที่กำลังออนไลน์ (เพื่อนำมาแสดงจุดบนแผนที่ให้คนขับเห็นกันเอง)
+  // ฟังก์ชันฟังสัญญาณรถทุกคันที่กำลังออนไลน์ (เพื่อนำมาแสดงจุดบนแผนที่ให้คนขับเห็นกันเอง)
   void _listenToAllShuttles() {
     allShuttlesSubscription = FirebaseDatabase.instance
         .ref('shuttles')
@@ -632,7 +635,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         });
   }
 
-  // ✨ ฟังก์ชันเริ่มแอนิเมชันใหม่สำหรับหมุดรถตัวเอง (900ms)
+  // ฟังก์ชันเริ่มแอนิเมชันใหม่สำหรับหมุดรถตัวเอง (900ms)
   void _restartMarkerAnimation() {
     if (_currentLocation != null) {
       _oldLocation = _currentLocation;
@@ -640,7 +643,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     _markerAnimationController.forward(from: 0.0);
   }
 
-  // ✨ ฟังก์ชันเริ่มแอนิเมชันใหม่สำหรับหมุดรถคันอื่น (3200ms)
+  // ฟังก์ชันเริ่มแอนิเมชันใหม่สำหรับหมุดรถคันอื่น (3200ms)
   void _restartOtherMarkersAnimation() {
     for (var id in _otherCurrentLocations.keys) {
       if (_otherCurrentLocations[id] != null) {
@@ -747,7 +750,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         });
       }
     } catch (e) {
-      print("❌ Error loading stops: $e");
+      print(" Error loading stops: $e");
     }
   }
 
@@ -768,7 +771,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   }
 
   Future<void> _logout() async {
-    _alertPlayer.dispose(); // ✨ คืนหน่วยความจำ
+    _alertPlayer.dispose(); // คืนหน่วยความจำ
 
     if (_shuttleDocId != null) {
       try {
@@ -798,12 +801,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     }
   }
 
-  // ✨ เตรียมการทำงานของเสียง AI ภาษาไทย
+  // เตรียมการทำงานของเสียง AI ภาษาไทย
   Future<void> _initTts() async {
     try {
       flutterTts = FlutterTts();
 
-      // ✨ ตรวจสอบว่าระบบรองรับรหัสภาษาไทยแบบใด (บางระบบใช้ th-TH บางระบบใช้ th)
+      // ตรวจสอบว่าระบบรองรับรหัสภาษาไทยแบบใด (บางระบบใช้ th-TH บางระบบใช้ th)
       dynamic isThThAvailable = await flutterTts.isLanguageAvailable("th-TH");
       dynamic isThAvailable = await flutterTts.isLanguageAvailable("th");
 
@@ -819,22 +822,22 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
       if (!kIsWeb) {
         await flutterTts.setSpeechRate(0.5); // ความเร็วปกติ
-        // ✨ คงเสียงเดิมไว้ (เสียงผู้หญิง) และปรับระดับเสียงให้ดังสุด (1.0 คือสูงสุดของระบบ TTS)
+        // คงเสียงเดิมไว้ (เสียงผู้หญิง) และปรับระดับเสียงให้ดังสุด (1.0 คือสูงสุดของระบบ TTS)
         // หากต้องการดังกว่านี้ ต้องเพิ่มเสียง Media ของตัวเครื่องมือถือครับ
         await flutterTts.setVolume(1.0);
         await flutterTts.setPitch(1.0);
       }
     } catch (e) {
-      print("❌ Error initializing TTS: $e");
+      print(" Error initializing TTS: $e");
     }
   }
 
-  // ✨ ตัวแปรสำหรับจัดการเสียงแจ้งเตือนแบบหน่วงเวลา
+  // ตัวแปรสำหรับจัดการเสียงแจ้งเตือนแบบหน่วงเวลา
   DateTime? _lastVoiceAlertTime;
   String? _lastVoiceAlertStopName;
   Timer? _ttsDebounceTimer;
 
-  // ✨ ฟังก์ชันเล่นเสียงแจ้งเตือนและอ่านชื่อป้าย
+  // ฟังก์ชันเล่นเสียงแจ้งเตือนและอ่านชื่อป้าย
   Future<void> _triggerVoiceAlert(String stopName, int count) async {
     // 1. ถ้ายอดมาจากป้ายเดิม และมีการกดเรียกซ้ำ ให้ยกเลิกคิวพูด TTS เดิมก่อน
     _ttsDebounceTimer?.cancel();
@@ -854,12 +857,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       _lastVoiceAlertStopName = stopName;
       try {
         if (!kIsWeb) {
-          HapticFeedback.heavyImpact(); // ✨ ระบบสั่นเมื่อมีการเรียกรถ
+          HapticFeedback.heavyImpact(); // ระบบสั่นเมื่อมีการเรียกรถ
         }
         await _alertPlayer.setVolume(1.0);
         await _alertPlayer.play(
           AssetSource('voice/glass_1.mp3'),
-        ); // ✨ เสียงแจ้งเตือนเมื่อนักศึกษากดเรียกรถ (glass_1.mp3)
+        ); // เสียงแจ้งเตือนเมื่อนักศึกษากดเรียกรถ (glass_1.mp3)
       } catch (e) {
         print("Error playing alert sound: $e");
       }
@@ -882,27 +885,27 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         } else {
           textToSpeak = "มีนักศึกษารออยู่ที่ $phoneticStopName";
         }
-        // ✨ ย้ำการตั้งค่าภาษาไทยอีกครั้งบน Web ก่อนพูด โดยใช้ค่าที่เซฟไว้ตอน init
+        // ย้ำการตั้งค่าภาษาไทยอีกครั้งบน Web ก่อนพูด โดยใช้ค่าที่เซฟไว้ตอน init
         await flutterTts.setLanguage(_ttsLang);
         await flutterTts.speak(textToSpeak);
       } catch (e) {
-        print("❌ Error triggering TTS: $e");
+        print(" Error triggering TTS: $e");
       }
     });
   }
 
-  // ✨ ฟังก์ชันเล่นเสียงแจ้งเตือนกระดิ่งเมื่อถึงจุดหมาย
+  // ฟังก์ชันเล่นเสียงแจ้งเตือนกระดิ่งเมื่อถึงจุดหมาย
   Future<void> _triggerDropOffVoiceAlert(String stopName) async {
     if (!mounted || !isOnline) return;
 
     try {
       if (!kIsWeb) {
-        HapticFeedback.heavyImpact(); // ✨ ระบบสั่นเมื่อถึงจุดหมาย
+        HapticFeedback.heavyImpact(); // ระบบสั่นเมื่อถึงจุดหมาย
       }
       await _alertPlayer.setVolume(1.0);
       await _alertPlayer.play(
         AssetSource('voice/glass_1.mp3'),
-      ); // ✨ เสียงแจ้งเตือนจุดลงรถ (glass_2.mp3)
+      ); // เสียงแจ้งเตือนจุดลงรถ (glass_2.mp3)
 
       await Future.delayed(
         const Duration(milliseconds: 1200),
@@ -916,16 +919,16 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           .replaceAll('(ขาออก)', '')
           .trim();
 
-      // ✨ ย้ำการตั้งค่าภาษาไทยอีกครั้งบน Web ก่อนพูด
+      // ย้ำการตั้งค่าภาษาไทยอีกครั้งบน Web ก่อนพูด
       await flutterTts.setLanguage(_ttsLang);
       await flutterTts.speak("มีนักศึกษาลงที่ $phoneticStopName");
     } catch (e) {
-      print("❌ Error triggering drop-off TTS: $e");
+      print(" Error triggering drop-off TTS: $e");
     }
   }
 
   Future<void> _startShift() async {
-    // ✨ กระตุ้นการเล่นเสียง 1 ครั้ง ทันทีที่ผู้ใช้กดปุ่ม เพื่อปลดล็อก Audio Context (สำคัญมากบน Web) และเพื่อยืนยันให้คนขับทราบ
+    // กระตุ้นการเล่นเสียง 1 ครั้ง ทันทีที่ผู้ใช้กดปุ่ม เพื่อปลดล็อก Audio Context (สำคัญมากบน Web) และเพื่อยืนยันให้คนขับทราบ
     try {
       // 1. พูดข้อความต้อนรับ (ทำงานทุกแพลตฟอร์ม)
       await flutterTts.setLanguage(_ttsLang);
@@ -947,7 +950,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     if (!mounted) return;
 
     if (!serviceEnabled) {
-      TopToast.show(context, '⚠️ กรุณาเปิด GPS ในอุปกรณ์ของคุณ', isError: true);
+      TopToast.show(context, ' กรุณาเปิด GPS ในอุปกรณ์ของคุณ', isError: true);
       return;
     }
 
@@ -958,7 +961,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     if (_shuttleDocId == null) {
       TopToast.show(
         context,
-        '⚠️ ไม่พบข้อมูลรถของคุณ (การเชื่อมต่อฐานข้อมูลล้มเหลว) กรุณารีสตาร์ทแอป',
+        ' ไม่พบข้อมูลรถของคุณ (การเชื่อมต่อฐานข้อมูลล้มเหลว) กรุณารีสตาร์ทแอป',
         isError: true,
       );
       return;
@@ -970,7 +973,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       if (permission == LocationPermission.denied) {
         TopToast.show(
           context,
-          '⚠️ สิทธิ์การเข้าถึงตำแหน่งถูกปฏิเสธ',
+          ' สิทธิ์การเข้าถึงตำแหน่งถูกปฏิเสธ',
           isError: true,
         );
         return;
@@ -979,7 +982,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     if (permission == LocationPermission.deniedForever) {
       TopToast.show(
         context,
-        '⚠️ สิทธิ์การเข้าถึงตำแหน่งถูกบล็อก กรุณาเปิดสิทธิ์ในตั้งค่า',
+        ' สิทธิ์การเข้าถึงตำแหน่งถูกบล็อก กรุณาเปิดสิทธิ์ในตั้งค่า',
         isError: true,
       );
       return;
@@ -992,12 +995,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       100.20716,
     ); // หอประชุมศรีวชิรโชติ
 
-    // 🌟 แสดงตำแหน่งไอคอนเริ่มต้นบนแผนที่ทันที เพื่อป้องกันอาการค้างหรือรอโหลด GPS (Instant UX)
+    // แสดงตำแหน่งไอคอนเริ่มต้นบนแผนที่ทันที เพื่อป้องกันอาการค้างหรือรอโหลด GPS (Instant UX)
     _lastFirebaseUpdate = null;
     _lastUploadedLocation = null;
     setState(() {
       isOnline = true;
-      _isAutoFollow = true; // ✨ เปิดติดตามตำแหน่งรถอัตโนมัติเมื่อเริ่มงาน
+      _isAutoFollow = true; // เปิดติดตามตำแหน่งรถอัตโนมัติเมื่อเริ่มงาน
       _currentLocation = fallbackLoc;
       _targetLocation = fallbackLoc;
     });
@@ -1020,7 +1023,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           LatLng(lastPos.latitude, lastPos.longitude),
         );
         print(
-          "📍 GPS Last Known: ${lastPos.latitude}, ${lastPos.longitude} -> Snapped: ${lastLoc.latitude}, ${lastLoc.longitude}",
+          " GPS Last Known: ${lastPos.latitude}, ${lastPos.longitude} -> Snapped: ${lastLoc.latitude}, ${lastLoc.longitude}",
         );
         if (mounted) {
           setState(() {
@@ -1045,7 +1048,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       );
 
       print(
-        "📍 GPS Initialized: ${initialPos.latitude}, ${initialPos.longitude} -> Snapped: ${newLoc.latitude}, ${newLoc.longitude}",
+        " GPS Initialized: ${initialPos.latitude}, ${initialPos.longitude} -> Snapped: ${newLoc.latitude}, ${newLoc.longitude}",
       );
 
       if (mounted) {
@@ -1054,7 +1057,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           _targetLocation = newLoc;
         });
 
-        // ✨ ค้นหาป้ายที่ใกล้ที่สุดเมื่อเปิดแอป เพื่อเซ็ตเริ่มต้นให้ระบบ Routing (ป้องกันบั๊ก ETA เริ่มที่ป้าย 1 เสมอ)
+        // ค้นหาป้ายที่ใกล้ที่สุดเมื่อเปิดแอป เพื่อเซ็ตเริ่มต้นให้ระบบ Routing (ป้องกันบั๊ก ETA เริ่มที่ป้าย 1 เสมอ)
         if (busStops.isNotEmpty) {
           double minDist = double.infinity;
           int closestOrder = 1;
@@ -1082,7 +1085,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         } else {
           TopToast.show(
             context,
-            '⚠️ ตำแหน่ง GPS ของคุณอยู่นอกพื้นที่มหาวิทยาลัย',
+            ' ตำแหน่ง GPS ของคุณอยู่นอกพื้นที่มหาวิทยาลัย',
             isError: true,
           );
         }
@@ -1102,12 +1105,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         }
       }
     } catch (e) {
-      print("❌ Error getting initial location (Using Fallback): $e");
+      print(" Error getting initial location (Using Fallback): $e");
       // หาก _currentLocation ยังเป็นค่าเริ่มต้นอยู่ (หอประชุมฯ) หรือดึงพิกัดล่าสุดสำเร็จแล้วก็ให้ค้างค่านั้นไว้
       if (mounted) {
         TopToast.show(
           context,
-          '⚠️ ดึงพิกัดจริงล่าช้า ระบบใช้พิกัดที่มีล่าสุด',
+          ' ดึงพิกัดจริงล่าช้า ระบบใช้พิกัดที่มีล่าสุด',
           isError: true,
         );
 
@@ -1127,7 +1130,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       }
     }
 
-    // ✨ ตั้งค่า distanceFilter เป็น 2 เมตร และอัปเดตทุก 800ms เพื่อรองรับรถวิ่งความเร็ว 20-30 กม./ชม.
+    // ตั้งค่า distanceFilter เป็น 2 เมตร และอัปเดตทุก 800ms เพื่อรองรับรถวิ่งความเร็ว 20-30 กม./ชม.
     late final LocationSettings locationSettings;
     if (Theme.of(context).platform == TargetPlatform.android) {
       locationSettings = AndroidSettings(
@@ -1159,7 +1162,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         LatLng rawLoc = LatLng(position.latitude, position.longitude);
         LatLng newLoc = _snapToRoute(rawLoc);
         print(
-          "📍 GPS Updated: ${position.latitude}, ${position.longitude} -> Snapped: ${newLoc.latitude}, ${newLoc.longitude}",
+          " GPS Updated: ${position.latitude}, ${position.longitude} -> Snapped: ${newLoc.latitude}, ${newLoc.longitude}",
         );
 
         if (_currentLocation == null) {
@@ -1175,13 +1178,13 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           _restartMarkerAnimation();
         }
 
-        // ✨ Smart Throttling & Distance Check: ส่งข้อมูลขึ้น Firestore ต่อเมื่อรถขยับไปอย่างน้อย 3 เมตร และเว้นระยะเวลาอย่างน้อย 1.2 วินาที (พอดีกับความเร็ว 20-30 กม./ชม.)
+        // Smart Throttling & Distance Check: ส่งข้อมูลขึ้น Firestore ต่อเมื่อรถขยับไปอย่างน้อย 3 เมตร และเว้นระยะเวลาอย่างน้อย 1.2 วินาที (พอดีกับความเร็ว 20-30 กม./ชม.)
         final now = DateTime.now();
         final double distanceMoved = _lastUploadedLocation == null
             ? 999.0
             : const Distance().distance(_lastUploadedLocation!, newLoc);
 
-        // ✨ Smart Routing: ตรวจสอบการผ่านป้าย (รัศมี 30 เมตร) เพื่ออัปเดต last_passed_stop
+        // Smart Routing: ตรวจสอบการผ่านป้าย (รัศมี 30 เมตร) เพื่ออัปเดต last_passed_stop
         if (busStops.isNotEmpty) {
           try {
             int maxOrder = busStops
@@ -1189,14 +1192,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 .reduce((a, b) => a > b ? a : b);
             if (maxOrder == 0) maxOrder = 23;
 
-            // ✨ Strict Window Routing: คาดการณ์ป้ายล่วงหน้า 2 ป้ายเป็นหลัก
+            // Strict Window Routing: คาดการณ์ป้ายล่วงหน้า 2 ป้ายเป็นหลัก
             List<int> upcomingStops = [];
             for (int i = 0; i < 2; i++) {
               int nextOrder =
                   ((_currentTargetStopOrder - 1 + i) % maxOrder) + 1;
               upcomingStops.add(nextOrder);
 
-              // ✨ กฎพิเศษ: ถ้ารอบใหม่เริ่มต้นขึ้น (เป้าหมายคือป้าย 1) ไม่อนุญาตให้ข้าม
+              // กฎพิเศษ: ถ้ารอบใหม่เริ่มต้นขึ้น (เป้าหมายคือป้าย 1) ไม่อนุญาตให้ข้าม
               // ต้องบังคับให้ผ่านป้าย 1 เสมอ ป้องกันการกระโดดไป 2 หรือ 3
               if (_currentTargetStopOrder == 1) {
                 break;
@@ -1226,13 +1229,13 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               }
             }
 
-            // ✨ ระบบกู้คืน (Smart Recovery Mode): ค้นหาจากทุกป้าย แต่จำกัดการกระโดดข้ามอย่างเข้มงวด
+            // ระบบกู้คืน (Smart Recovery Mode): ค้นหาจากทุกป้าย แต่จำกัดการกระโดดข้ามอย่างเข้มงวด
             if (detectedStopOrder == -1) {
               minDistance = 30.0;
               for (var stop in busStops) {
                 int order = ((stop['order'] ?? 0) as num).toInt();
 
-                // ✨ ป้องกันการ Spam ตรวจจับป้ายเดิมซ้ำๆ (jump = 0)
+                // ป้องกันการ Spam ตรวจจับป้ายเดิมซ้ำๆ (jump = 0)
                 if (_lastPassedStopOrder != null &&
                     order == _lastPassedStopOrder) {
                   continue;
@@ -1250,12 +1253,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                     if (_lastPassedStopOrder != null) {
                       int jump = order - _lastPassedStopOrder!;
                       if (jump < 0) jump += maxOrder;
-                      // ✨ กฎใหม่: อนุญาตให้ข้ามได้สูงสุด 2 ป้าย และย้อนกลับได้แค่ 1 ป้าย
+                      // กฎใหม่: อนุญาตให้ข้ามได้สูงสุด 2 ป้าย และย้อนกลับได้แค่ 1 ป้าย
                       if (jump > 2 && jump < maxOrder - 2) {
                         isAllowed = false;
                       }
 
-                      // ✨ กฎพิเศษ: ถ้าเพิ่งผ่านป้าย 23 ไม่อนุญาตให้ข้ามป้าย 1
+                      // กฎพิเศษ: ถ้าเพิ่งผ่านป้าย 23 ไม่อนุญาตให้ข้ามป้าย 1
                       if (_lastPassedStopOrder == maxOrder &&
                           jump > 1 &&
                           jump < maxOrder - 1) {
@@ -1273,14 +1276,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               }
               if (detectedStopOrder != -1) {
                 print(
-                  "🔄 [Smart Recovery] กู้คืนพิกัด GPS โดยกระโดดไปป้ายที่ $detectedStopOrder",
+                  " [Smart Recovery] กู้คืนพิกัด GPS โดยกระโดดไปป้ายที่ $detectedStopOrder",
                 );
               }
             }
 
             if (detectedStopOrder != -1 && detectedStopData != null) {
               print(
-                "🚌 Passed Stop: ${detectedStopData['name']} (Order: $detectedStopOrder)",
+                " Passed Stop: ${detectedStopData['name']} (Order: $detectedStopOrder)",
               );
 
               // ตรวจสอบว่าขับครบรอบหรือไม่ (ถ้าป้ายล่าสุดที่ผ่านอยู่ท้ายซอย แล้วป้ายใหม่โผล่มาต้นซอย)
@@ -1289,9 +1292,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 int thresholdLow = maxOrder > 10 ? 5 : 2;
                 if (_lastPassedStopOrder! >= thresholdHigh &&
                     detectedStopOrder <= thresholdLow) {
-                  print("🎯 วนกลับมาเริ่มต้นรอบใหม่!");
+                  print(" วนกลับมาเริ่มต้นรอบใหม่!");
                   _announcedDropOffStops.clear();
-                  _incrementDailyRound(); // ✨ นับว่าจบรอบ 1 รอบและบันทึกลง Firestore
+                  _incrementDailyRound(); // นับว่าจบรอบ 1 รอบและบันทึกลง Firestore
                 }
               }
 
@@ -1299,7 +1302,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               _currentTargetStopOrder = (detectedStopOrder % maxOrder) + 1;
             }
 
-            // ✨ Drop-off TTS Alert (แจ้งเตือนล่วงหน้า 150 เมตร) - โฟกัสป้ายเป้าหมายปัจจุบันเสมอ
+            // Drop-off TTS Alert (แจ้งเตือนล่วงหน้า 150 เมตร) - โฟกัสป้ายเป้าหมายปัจจุบันเสมอ
             final currentTargetStop = busStops.firstWhere(
               (s) => s['order'] == _currentTargetStopOrder,
               orElse: () => busStops.first,
@@ -1330,7 +1333,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         }
 
         print(
-          "🔍 [GPS Check] id=$_shuttleDocId, dist=$distanceMoved, lastUpd=$_lastFirebaseUpdate",
+          " [GPS Check] id=$_shuttleDocId, dist=$distanceMoved, lastUpd=$_lastFirebaseUpdate",
         );
         if (_shuttleDocId != null &&
             distanceMoved >= 2.0 &&
@@ -1345,7 +1348,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             'status': 'online',
             'last_updated': ServerValue.timestamp,
           };
-          // ✨ แนบ last_passed_stop ไปด้วย
+          // แนบ last_passed_stop ไปด้วย
           if (_lastPassedStopOrder != null) {
             updateData['last_passed_stop'] = _lastPassedStopOrder as Object;
           }
@@ -1354,11 +1357,11 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               .ref('shuttles')
               .child(_shuttleDocId!)
               .update(updateData);
-          print("🚀 [DriverHome] Updated location in RTDB: $updateData");
+          print(" [DriverHome] Updated location in RTDB: $updateData");
         }
       },
       onError: (error) {
-        print("❌ GPS Stream Error: $error");
+        print(" GPS Stream Error: $error");
       },
     );
 
@@ -1367,14 +1370,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         .where(
           'status',
           whereIn: ['waiting', 'acknowledged', 'on_board'],
-        ) // ✨ เพิ่ม on_board
+        ) // เพิ่ม on_board
         .snapshots()
         .handleError((e) => print("Firestore Error (ride_requests): $e"))
         .listen((snapshot) {
           if (!mounted) return;
 
           if (snapshot.docs.isNotEmpty) {
-            // ✨ กรองเอาเฉพาะคำขอที่เจาะจงเรียกรถคันนี้เท่านั้น และต้องไม่เก่าเกิน 2 ชั่วโมง (ป้องกันข้อมูลค้างในระบบ)
+            // กรองเอาเฉพาะคำขอที่เจาะจงเรียกรถคันนี้เท่านั้น และต้องไม่เก่าเกิน 2 ชั่วโมง (ป้องกันข้อมูลค้างในระบบ)
             final validDocs = snapshot.docs.where((doc) {
               final data = doc.data();
 
@@ -1392,7 +1395,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               return true; // ถ้าระบบเก่าไม่มี target_shuttle_id ให้มองว่าเรียกได้ทุกคน
             }).toList();
 
-            // ✨ เรียงลำดับคำขอตามเวลา (เก่าสุดขึ้นก่อน - เข้าคิวก่อนได้ก่อน FIFO)
+            // เรียงลำดับคำขอตามเวลา (เก่าสุดขึ้นก่อน - เข้าคิวก่อนได้ก่อน FIFO)
             final docs = validDocs;
             docs.sort((a, b) {
               final aData = a.data();
@@ -1405,7 +1408,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               return aTime.compareTo(bTime); // ascending (เก่าสุดมาก่อน)
             });
 
-            // ✨ ดึงตำแหน่งนักศึกษาทั้งหมดที่รอหรือกำลังรอรถ (ซ่อนเมื่อขึ้นรถแล้ว)
+            // ดึงตำแหน่งนักศึกษาทั้งหมดที่รอหรือกำลังรอรถ (ซ่อนเมื่อขึ้นรถแล้ว)
             final List<Map<String, dynamic>> students = [];
             for (var doc in docs) {
               final data = doc.data();
@@ -1437,7 +1440,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               }
             }
 
-            // ✨ อัปเดตรายชื่อจุดลงรถและนับจำนวนคนที่ลงแต่ละป้าย (ทั้งคนที่อยู่บนรถ และคนที่เรียกรถอยู่)
+            // อัปเดตรายชื่อจุดลงรถและนับจำนวนคนที่ลงแต่ละป้าย (ทั้งคนที่อยู่บนรถ และคนที่เรียกรถอยู่)
             final Set<String> dropOffStops = {};
             final Map<String, int> dropOffCounts = {};
             for (var doc in docs) {
@@ -1451,7 +1454,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               }
             }
 
-            // ✨ ค้นหาคำขอที่มีสถานะ 'waiting' เพื่อเป็นป้ายหลัก (active)
+            // ค้นหาคำขอที่มีสถานะ 'waiting' เพื่อเป็นป้ายหลัก (active)
             QueryDocumentSnapshot? activeDoc;
             for (var doc in docs) {
               if (doc['status'] == 'waiting') {
@@ -1472,7 +1475,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 }
               }
 
-              // ✨ ตรวจสอบว่ามี id ไหนที่เพิ่งเข้ามาใหม่หรือไม่
+              // ตรวจสอบว่ามี id ไหนที่เพิ่งเข้ามาใหม่หรือไม่
               bool hasNewRequest = false;
               for (var id in targetIds) {
                 if (!activeRequestIds.contains(id)) {
@@ -1520,7 +1523,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           }
         });
 
-    // ✨ เริ่ม Heartbeat ทุกๆ 30 วินาที เพื่ออัปเดตเวลาล่าสุดและ "เลี้ยงการเชื่อมต่อเน็ตไม่ให้หลับ"
+    // เริ่ม Heartbeat ทุกๆ 30 วินาที เพื่ออัปเดตเวลาล่าสุดและ "เลี้ยงการเชื่อมต่อเน็ตไม่ให้หลับ"
     // พอเน็ตไม่หลับ เวลามีคนเรียกรถ มันจะเด้งขึ้นหน้าจอทันที ไม่ต้องรอหน่วง! (30 วิ ช่วยประหยัดโควต้ากว่า 15 วิ)
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
@@ -1535,7 +1538,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         'last_updated': ServerValue.timestamp,
       });
 
-      // 2. ✨ เลี้ยงการเชื่อมต่อ Firestore (สำคัญมาก!)
+      // 2.  เลี้ยงการเชื่อมต่อ Firestore (สำคัญมาก!)
       // ป้องกันบั๊กมือถือตัดการเชื่อมต่อ Firestore เมื่อเปิดทิ้งไว้นานๆ ทำให้ไม่เห็นคนเรียกรถ
       FirebaseFirestore.instance
           .collection('shuttles_ping')
@@ -1619,168 +1622,253 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     final String text = _incomingChatNotification!['text'] ?? '';
     final double topPadding = MediaQuery.of(context).padding.top > 0
         ? MediaQuery.of(context).padding.top + 8
-        : 16;
+        : 14;
 
     return Positioned(
       top: topPadding,
-      left: 16,
-      right: 16,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF176a21), Color(0xFF0F4D17)],
-            ),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.25),
-              width: 1.2,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.25),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 6,
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.chat_bubble_rounded,
-                  color: Color(0xFF176a21),
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            sender,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14.5,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text(
-                            'นักศึกษา',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
+      left: 14,
+      right: 14,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 600),
+          child: Dismissible(
+            key: const Key('driver_incoming_chat_popup'),
+            direction: DismissDirection.up,
+            onDismissed: (_) {
+              _chatNotificationTimer?.cancel();
+              setState(() {
+                _incomingChatNotification = null;
+              });
+            },
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  _chatNotificationTimer?.cancel();
+                  setState(() {
+                    _incomingChatNotification = null;
+                    _selectedIndex = 2; // สลับไปหน้าแชตทันที
+                  });
+                },
+                borderRadius: BorderRadius.circular(22),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFFFFFFFF),
+                        Color(0xFFF9FAF9),
                       ],
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      text,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        fontSize: 13,
-                        height: 1.2,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: const Color(0xFF81C784).withValues(alpha: 0.45),
+                      width: 1.2,
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  InkWell(
-                    onTap: () {
-                      _chatNotificationTimer?.cancel();
-                      setState(() {
-                        _incomingChatNotification = null;
-                        _selectedIndex = 2; // สลับไปหน้าแชตทันที
-                      });
-                    },
-                    borderRadius: BorderRadius.circular(16),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF176a21).withValues(alpha: 0.14),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 4,
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      // ไอคอนวงกลมพร้อมจุดแสดงสถานะข้อความใหม่
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF1F8B2E), Color(0xFF176a21)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF176a21).withValues(alpha: 0.25),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.chat_bubble_rounded,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                          ),
+                          Positioned(
+                            top: -1,
+                            right: -1,
+                            child: Container(
+                              width: 11,
+                              height: 11,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF22C55E),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2.0),
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                      child: const Text(
-                        'ตอบกลับ',
-                        style: TextStyle(
-                          color: Color(0xFF176a21),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12.5,
+                      const SizedBox(width: 12),
+
+                      // ข้อมูลผู้ส่งและข้อความ
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    sender,
+                                    style: const TextStyle(
+                                      color: Color(0xFF2C2F30),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14.5,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE3F2FD),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: const Color(0xFF64B5F6).withValues(alpha: 0.4),
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'นักศึกษา',
+                                    style: TextStyle(
+                                      color: Color(0xFF1976D2),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              text,
+                              style: const TextStyle(
+                                color: Color(0xFF5A605B),
+                                fontSize: 13,
+                                height: 1.25,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ),
                       ),
-                    ),
+                      const SizedBox(width: 10),
+
+                      // ปุ่มกดตอบกลับ & ปุ่มปิด
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          GestureDetector(
+                            onTap: () {
+                              _chatNotificationTimer?.cancel();
+                              setState(() {
+                                _incomingChatNotification = null;
+                                _selectedIndex = 2; // สลับไปหน้าแชตทันที
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 7,
+                              ),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFF1F8B2E), Color(0xFF176a21)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(14),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF176a21).withValues(alpha: 0.25),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'ตอบกลับ',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11.5,
+                                    ),
+                                  ),
+                                  SizedBox(width: 3),
+                                  Icon(
+                                    Icons.arrow_forward_ios_rounded,
+                                    color: Colors.white,
+                                    size: 10,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          GestureDetector(
+                            onTap: () {
+                              _chatNotificationTimer?.cancel();
+                              setState(() {
+                                _incomingChatNotification = null;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(5),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFF1F5F2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.close_rounded,
+                                color: Color(0xFF757778),
+                                size: 16,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    constraints: const BoxConstraints(),
-                    padding: const EdgeInsets.all(4),
-                    icon: const Icon(
-                      Icons.close_rounded,
-                      color: Colors.white70,
-                      size: 20,
-                    ),
-                    onPressed: () {
-                      _chatNotificationTimer?.cancel();
-                      setState(() {
-                        _incomingChatNotification = null;
-                      });
-                    },
-                  ),
-                ],
+                ),
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1793,33 +1881,35 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       backgroundColor: const Color(0xFFEFF1F2),
       body: Stack(
         children: [
-          // 📌 IndexedStack สลับหน้าจอตาม Bottom Navigation
+          // IndexedStack สลับหน้าจอตาม Bottom Navigation
           IndexedStack(
             index: _selectedIndex,
             children: [
               _buildMapScreen(), // หน้าแผนที่ (หน้า 0)
               DriverStatusScreen(
                 shuttleDocId: _shuttleDocId,
-              ), // ✨ หน้าสถานะรถ (หน้า 1)
+              ), // หน้าสถานะรถ (หน้า 1)
               DriverChatScreen(
                 shuttleDocId: _shuttleDocId ?? _shuttleNumber ?? '1',
                 shuttleName: _shuttleName ?? 'Shuttle #01',
-              ), // ✨ หน้าแชทคนขับรถ (หน้า 2)
-              const DriverProfileScreen(), // ✨ หน้าโปรไฟล์คนขับรถ (หน้า 3)
+              ), // หน้าแชทคนขับรถ (หน้า 2)
+              const DriverProfileScreen(), // หน้าโปรไฟล์คนขับรถ (หน้า 3)
             ],
           ),
 
-          // ✨ ป๊อปอัปแจ้งเตือนข้อความแชตใหม่จากนักศึกษา
+          // ป๊อปอัปแจ้งเตือนข้อความแชตใหม่จากนักศึกษา
           _buildIncomingChatPopup(),
 
-          // ✨ Bottom Navigation Bar สไตล์ Curved Notch โมเดิร์นเหมือนฝั่งนักศึกษา
+          // Bottom Navigation Bar สไตล์ Floating Dock โมเดิร์น (ลอยขึ้นมาจากขอบล่าง และเว้นระยะซ้าย-ขวา)
           Positioned(
-            bottom: MediaQuery.of(context).size.width > 800 ? 20 : 0,
-            left: 0,
-            right: 0,
+            bottom: MediaQuery.of(context).padding.bottom > 0
+                ? MediaQuery.of(context).padding.bottom + 8
+                : 16,
+            left: 16,
+            right: 16,
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 800),
+                constraints: const BoxConstraints(maxWidth: 600),
                 child: _buildCurvedBottomNav(),
               ),
             ),
@@ -1829,11 +1919,11 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     );
   }
 
-  // ✨ แยกส่วนแผนที่ออกมาเป็นฟังก์ชัน
+  // แยกส่วนแผนที่ออกมาเป็นฟังก์ชัน
   Widget _buildMapScreen() {
     return Stack(
       children: [
-        // 🗺️ แผนที่หลัก
+        // แผนที่หลัก
         Positioned.fill(
           child: FlutterMap(
             mapController: _mapController,
@@ -1850,9 +1940,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                     InteractiveFlag.doubleTapZoom |
                     InteractiveFlag.scrollWheelZoom,
                 cursorKeyboardRotationOptions:
-                    CursorKeyboardRotationOptions.disabled(), // ✨ ปิดการหมุนด้วยคีย์บอร์ด/เมาส์บน Web
+                    CursorKeyboardRotationOptions.disabled(), // ปิดการหมุนด้วยคีย์บอร์ด/เมาส์บน Web
               ),
-              // ✨ ตรวจจับเมื่อคนขับใช้นิ้วเลื่อนหรือแตะแผนที่ด้วยตัวเอง ให้ปิด Auto-Follow อัตโนมัติ
+              // ตรวจจับเมื่อคนขับใช้นิ้วเลื่อนหรือแตะแผนที่ด้วยตัวเอง ให้ปิด Auto-Follow อัตโนมัติ
               onPositionChanged: (camera, hasGesture) {
                 if (hasGesture && _isAutoFollow) {
                   setState(() {
@@ -1867,7 +1957,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 userAgentPackageName: 'com.example.psru_shuttle_app',
               ),
 
-              // ✨ แสดงเส้นทางเสมอ แต่ให้สีจางลงตอนออฟไลน์
+              // แสดงเส้นทางเสมอ แต่ให้สีจางลงตอนออฟไลน์
               PolylineLayer(
                 polylines: shuttleRoutes.map((segment) {
                   return Polyline(
@@ -1882,7 +1972,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
               MarkerLayer(
                 markers: [
-                  // ✨ แสดงป้ายจอดแบบยุบกลุ่มจุดจอดที่อยู่ใกล้กัน (พร้อมแสดงจุดหมายนักศึกษาเป็นสีเขียว)
+                  // แสดงป้ายจอดแบบยุบกลุ่มจุดจอดที่อยู่ใกล้กัน (พร้อมแสดงจุดหมายนักศึกษาเป็นสีเขียว)
                   ..._visualStops.map((vStop) {
                     final String name = (vStop['name'] ?? '').toString();
                     bool isPickupSelected = false;
@@ -1928,7 +2018,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                     );
                   }),
 
-                  // ✨ แสดงตำแหน่งรถคันอื่นๆ ที่กำลังออนไลน์ (เพื่อให้คนขับเห็นกันเอง)
+                  // แสดงตำแหน่งรถคันอื่นๆ ที่กำลังออนไลน์ (เพื่อให้คนขับเห็นกันเอง)
                   ...activeShuttles.map((shuttle) {
                     final currentLoc =
                         _otherCurrentLocations[shuttle['id']] ??
@@ -1948,7 +2038,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                       ),
                     );
                   }),
-                  // ✨ แสดงตำแหน่งของนักศึกษาที่เรียกรถ
+                  // แสดงตำแหน่งของนักศึกษาที่เรียกรถ
                   ...waitingStudentsList.map((student) {
                     return Marker(
                       key: ValueKey('student_${student['id']}'),
@@ -2009,7 +2099,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                       ),
                     );
                   }),
-                  // ✨ แสดงตำแหน่งรถตัวเอง
+                  // แสดงตำแหน่งรถตัวเอง
                   if (isOnline && _currentLocation != null)
                     Marker(
                       key: const ValueKey('my_bus_marker'),
@@ -2024,14 +2114,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           ),
         ),
 
-        // 📍 ปุ่ม My Location (เป้าเล็งรถตัวเอง และเปิด/ปิด Auto-Follow)
+        // ปุ่ม My Location (เป้าเล็งรถตัวเอง และเปิด/ปิด Auto-Follow)
         if (isOnline && _currentLocation != null)
           Positioned(
             bottom:
                 (waitingStudentStop != null &&
                     currentRequestStatus == 'waiting')
-                ? 190
-                : 100, // ปรับตำแหน่งให้พ้นการ์ดแจ้งเตือน
+                ? 210
+                : 110, // ปรับตำแหน่งให้พ้นการ์ดแจ้งเตือนและ Bottom Nav
             right: 20,
             child: FloatingActionButton(
               mini: true,
@@ -2041,7 +2131,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               elevation: 4,
               onPressed: () {
                 setState(() {
-                  _isAutoFollow = true; // ✨ เปิดติดตามตำแหน่งรถอัตโนมัติ
+                  _isAutoFollow = true; // เปิดติดตามตำแหน่งรถอัตโนมัติ
                 });
                 _mapController.move(_currentLocation!, 16.5);
               },
@@ -2052,165 +2142,262 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             ),
           ),
 
-        // 🚍 แถบด้านบน
+        // Curved Bottom Header (ขอบล่างโค้งมน สะอาดตา)
         Positioned(
           top: 0,
           left: 0,
           right: 0,
           child: Container(
-            color: Colors.white,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFFFFFFFF),
+                  Color(0xFFF8FAF8),
+                ],
+              ),
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(26),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF176a21).withValues(alpha: 0.08),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+              border: Border.all(
+                color: Colors.black.withValues(alpha: 0.03),
+                width: 1.0,
+              ),
+            ),
             child: SafeArea(
               bottom: false,
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 15,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Image.asset(
-                      'lib/screens/driver/logo.png',
-                      height: 42,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Row(
-                          children: [
-                            Icon(
-                              Icons.directions_bus,
-                              color: Color(0xFF176a21),
-                              size: 28,
-                            ),
-                            SizedBox(width: 10),
-                            Text(
-                              'PSRU Shuttle',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF176a21),
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 800),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // ฝั่งซ้าย: โลโก้
+                        Image.asset(
+                          'lib/screens/driver/logo.png',
+                          height: 38,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return const Row(
+                              children: [
+                                Icon(
+                                  Icons.directions_bus,
+                                  color: Color(0xFF176a21),
+                                  size: 26,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'PSRU Shuttle',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF176a21),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+
+                        // ฝั่งขวา: ปุ่มสถานะออนไลน์ / เลิกงาน / ออกจากระบบ
+                        if (isOnline)
+                          GestureDetector(
+                            onTap: _stopTracking,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 7,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFEBEE),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: const Color(0xFFEF5350).withValues(alpha: 0.3),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.power_settings_new_rounded,
+                                    color: Color(0xFFC62828),
+                                    size: 16,
+                                  ),
+                                  SizedBox(width: 5),
+                                  Text(
+                                    'เลิกงาน',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFFC62828),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                          ],
-                        );
-                      },
-                    ),
-                    if (isOnline)
-                      GestureDetector(
-                        onTap: _stopTracking,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.red.shade50,
-                            borderRadius: BorderRadius.circular(15),
-                          ),
-                          child: const Text(
-                            'เลิกงาน',
-                            style: TextStyle(
-                              color: Colors.red,
-                              fontWeight: FontWeight.bold,
+                          )
+                        else
+                          GestureDetector(
+                            onTap: _logout,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 7,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F2),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: Colors.black.withValues(alpha: 0.04),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.logout_rounded,
+                                    color: Color(0xFF5A605B),
+                                    size: 16,
+                                  ),
+                                  SizedBox(width: 5),
+                                  Text(
+                                    'ออก',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF5A605B),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      )
-                    else
-                      IconButton(
-                        icon: const Icon(
-                          Icons.logout,
-                          color: Color(0xFF595C5D),
-                          size: 26,
-                        ),
-                        onPressed: _logout,
-                      ),
-                  ],
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
         ),
 
-        // 🟢 สถานะออนไลน์/ออฟไลน์
+        // ป้ายสถานะรถแบบลอยชิดซ้ายบนแผนที่ (Floating Status Pill on Map)
         Positioned(
-          top: 140,
-          left: 20,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: isOnline ? const Color(0xFF176a21) : Colors.grey,
-                    shape: BoxShape.circle,
-                    boxShadow: isOnline
-                        ? [
-                            BoxShadow(
-                              color: Colors.green.withOpacity(0.5),
-                              blurRadius: 4,
-                            ),
-                          ]
-                        : [],
+          top: 84,
+          left: 16,
+          child: SafeArea(
+            top: true,
+            bottom: false,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.95),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: (isOnline
+                            ? const Color(0xFF176a21)
+                            : const Color(0xFFD84315))
+                        .withValues(alpha: 0.12),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  isOnline
-                      ? 'ออนไลน์ (กำลังวิ่งรถ)'
-                      : 'ออฟไลน์ (ยังไม่เริ่มงาน)',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF595C5D),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
                   ),
+                ],
+                border: Border.all(
+                  color: isOnline
+                      ? const Color(0xFF81C784).withValues(alpha: 0.6)
+                      : Colors.orange.shade200,
+                  width: 1.0,
                 ),
-              ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: isOnline ? const Color(0xFF22C55E) : const Color(0xFFF57C00),
+                      shape: BoxShape.circle,
+                      boxShadow: isOnline
+                          ? [
+                              BoxShadow(
+                                color: const Color(0xFF22C55E).withValues(alpha: 0.6),
+                                blurRadius: 4,
+                              ),
+                            ]
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    isOnline
+                        ? 'ออนไลน์ (กำลังวิ่งรถ) '
+                        : 'ออฟไลน์ (ยังไม่เริ่มงาน)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: isOnline ? const Color(0xFF1B5E20) : const Color(0xFFD84315),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
 
-        // 🛑 หน้าต่างออฟไลน์ (แสดงเป็นการ์ดลอยด้านล่างเมื่อยังไม่เริ่มงาน)
+        // หน้าต่างออฟไลน์ (แสดงเป็นการ์ดลอยด้านล่างเมื่อยังไม่เริ่มงาน)
         if (!isOnline)
           Positioned(
-            bottom: 95,
+            bottom: 105,
             left: 0,
             right: 0,
             child: _buildOfflineSheet(),
           ),
 
-        // 🧑‍🎓 การแจ้งเตือนเวลามีนักศึกษาเรียก (Popup ด้านล่าง)
+        // การแจ้งเตือนเวลามีนักศึกษาเรียก (Popup ด้านล่าง)
         if (isOnline &&
             waitingStudentStop != null &&
             currentRequestStatus == 'waiting')
           Positioned(
-            bottom: 95,
+            bottom: 105,
             left: 0,
             right: 0,
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
               decoration: BoxDecoration(
-                color: const Color(0xFF176a21),
-                borderRadius: BorderRadius.circular(32),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF1F8B2E), Color(0xFF176a21)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(28),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF176a21).withOpacity(0.3),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
+                    color: const Color(0xFF176a21).withValues(alpha: 0.35),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
                   ),
                 ],
               ),
@@ -2241,7 +2428,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                           waitingStudentStop!,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 18,
+                            fontSize: 17,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -2250,7 +2437,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                             '(จำนวน $activeStudentCount คน)',
                             style: const TextStyle(
                               color: Color(0xFF9DF197),
-                              fontSize: 14,
+                              fontSize: 13.5,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -2269,7 +2456,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                         borderRadius: BorderRadius.circular(24),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.15),
+                            color: Colors.black.withValues(alpha: 0.15),
                             blurRadius: 8,
                             offset: const Offset(0, 2),
                           ),
@@ -2293,24 +2480,24 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     );
   }
 
-  // ✨ วิดเจ็ต Bottom Navigation Bar ดีไซน์โค้งเว้าพร้อมปุ่มวงกลมลอยเหมือนฝั่งนักศึกษา
+  // วิดเจ็ต Bottom Navigation Bar ดีไซน์โค้งเว้า (Curved Notch) พรีเมียม พร้อมชิปไอคอนและ Live Status Indicator
   Widget _buildCurvedBottomNav() {
     final List<Map<String, dynamic>> navItems = [
-      {'icon': Icons.map_outlined, 'activeIcon': Icons.map, 'label': 'แผนที่'},
+      {'icon': Icons.map_outlined, 'activeIcon': Icons.map, 'label': 'Map'},
       {
         'icon': Icons.directions_bus_outlined,
         'activeIcon': Icons.directions_bus,
-        'label': 'สถานะรถ',
+        'label': 'Status',
       },
       {
         'icon': Icons.chat_bubble_outline,
         'activeIcon': Icons.chat_bubble,
-        'label': 'แชท',
+        'label': 'Chat',
       },
       {
         'icon': Icons.person_outline,
         'activeIcon': Icons.person,
-        'label': 'โปรไฟล์',
+        'label': 'Profile',
       },
     ];
 
@@ -2320,45 +2507,47 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         final double itemWidth = width / navItems.length;
         final double targetX = itemWidth * _selectedIndex + itemWidth / 2;
 
-        // เช็คว่าหน้าจอโดยรวมกว้างกว่า 800 หรือไม่ (iPad/Desktop)
-        final bool isDesktop = MediaQuery.of(context).size.width > 800;
-
         return SizedBox(
-          height: 85,
+          height: 80,
           child: Stack(
             clipBehavior: Clip.none,
             children: [
-              // พื้นหลังบาร์สีขาวพร้อมรอยบาก (Curved Notch)
+              // 1. พื้นหลังบาร์สีขาวไข่มุกพร้อมรอยบากเว้า (Pearl Gradient & Curved Notch)
               TweenAnimationBuilder<double>(
                 tween: Tween<double>(begin: targetX, end: targetX),
-                duration: const Duration(milliseconds: 350),
+                duration: const Duration(milliseconds: 320),
                 curve: Curves.easeOutCubic,
                 builder: (context, animatedX, child) {
                   return Stack(
                     clipBehavior: Clip.none,
                     children: [
                       CustomPaint(
-                        size: Size(width, 85),
+                        size: Size(width, 80),
                         painter: _CurvedNavPainter(
                           notchCenter: animatedX,
-                          isDesktop: isDesktop,
                         ),
                       ),
-                      // ปุ่มวงกลมสีเขียวลอยในรอยบาก
+                      // 2. ปุ่มวงกลมสีเขียวมรกตลอยอยู่ในรอยบาก (พร้อมขอบสีขาวคมชัด)
                       Positioned(
                         top: 2,
-                        left: animatedX - 24,
+                        left: animatedX - 23,
                         child: Container(
-                          width: 48,
-                          height: 48,
+                          width: 46,
+                          height: 46,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF176a21),
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF1F8B2E), Color(0xFF176a21)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
                             shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white,
+                              width: 3.0,
+                            ),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(
-                                  0xFF176a21,
-                                ).withOpacity(0.35),
+                                color: const Color(0xFF176a21).withValues(alpha: 0.38),
                                 blurRadius: 10,
                                 offset: const Offset(0, 4),
                               ),
@@ -2367,7 +2556,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                           child: Icon(
                             navItems[_selectedIndex]['activeIcon'],
                             color: Colors.white,
-                            size: 24,
+                            size: 22,
                           ),
                         ),
                       ),
@@ -2376,9 +2565,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 },
               ),
 
-              // รายการปุ่มกดแต่ละ Tab
+              // 3. รายการปุ่มกดและข้อความแต่ละแท็บ (พร้อม Capsule Chip รองรับไอคอน)
               Positioned(
-                top: 18,
+                top: 16,
                 left: 0,
                 right: 0,
                 bottom: 0,
@@ -2395,27 +2584,67 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             if (!isActive) ...[
-                              Icon(
-                                navItems[index]['icon'],
-                                color: const Color(0xFF757778),
-                                size: 24,
+                              Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 3.5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF1F5F2),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(
+                                      navItems[index]['icon'],
+                                      color: const Color(0xFF5A605B),
+                                      size: 19,
+                                    ),
+                                  ),
+                                  // จุดเขียวกระพริบเตือนเมื่อออนไลน์ในหน้าสถานะ
+                                  if (index == 1 && isOnline)
+                                    Positioned(
+                                      top: -1,
+                                      right: -1,
+                                      child: Container(
+                                        width: 7,
+                                        height: 7,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF22C55E),
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: Colors.white,
+                                            width: 1.2,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: const Color(0xFF22C55E)
+                                                  .withValues(alpha: 0.6),
+                                              blurRadius: 3,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 3),
                               Text(
                                 navItems[index]['label'],
                                 style: const TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 10.5,
                                   fontWeight: FontWeight.w600,
-                                  color: Color(0xFF757778),
+                                  color: Color(0xFF5A605B),
                                 ),
                               ),
                             ] else ...[
-                              const SizedBox(height: 28),
+                              const SizedBox(height: 24),
                               Text(
                                 navItems[index]['label'],
                                 style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w800,
                                   color: Color(0xFF176a21),
                                 ),
                               ),
@@ -2737,7 +2966,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     );
   }
 
-  // ✨ ดีไซน์หมุดตำแหน่งรถคนขับให้ดูเด่นชัดและ Real-time พร้อมแสดงสีตามสถานะ
+  // ดีไซน์หมุดตำแหน่งรถคนขับให้ดูเด่นชัดและ Real-time พร้อมแสดงสีตามสถานะ
   Widget _buildMyBusMarker() {
     Color statusColor = const Color(0xFF176a21); // Default (ว่าง)
     if (_currentPassengerStatus == 'full') {
@@ -2808,102 +3037,92 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   }
 }
 
-// ✨ CustomPainter สำหรับวาด Bottom Navigation Bar โค้งเว้า (Curved Notch) ตามสไตล์โมเดิร์น
+// CustomPainter สำหรับวาด Bottom Navigation Bar โค้งเว้า (Curved Notch) ขอบมนสวยงามพอดี (Radius = 16px)
 class _CurvedNavPainter extends CustomPainter {
   final double notchCenter;
-  final bool isDesktop;
 
-  _CurvedNavPainter({required this.notchCenter, this.isDesktop = false});
+  _CurvedNavPainter({required this.notchCenter});
 
   @override
   void paint(Canvas canvas, Size size) {
-    const double barTop = 18.0;
-    const double notchDepth = 30.0;
-    const double notchHalfWidth = 42.0;
+    const double barTop = 16.0;
+    const double notchDepth = 25.0;
+    const double notchHalfWidth = 34.0;
+    const double radius = 16.0; // ปรับลดความโค้งขอบมนซ้าย-ขวาลงมาที่ 16px ตามที่ต้องการ
 
-    // ถ้าเป็นหน้าจอใหญ่ ให้มีขอบมน (radius = 30) ไม่งั้นให้ขอบตรง (radius = 0)
-    double radius = isDesktop ? 30.0 : 0.0;
+    // 1. สร้าง Base Path สี่เหลี่ยมขอบมนโค้งมนสวยกระชับ
+    final RRect barRRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, barTop, size.width, size.height - barTop),
+      const Radius.circular(radius),
+    );
 
-    Path path = Path();
-    path.moveTo(radius, barTop);
-
-    if (notchCenter - notchHalfWidth > radius) {
-      path.lineTo(notchCenter - notchHalfWidth, barTop);
-    } else {
-      path.lineTo(notchCenter - notchHalfWidth, barTop);
-    }
-
-    // โค้งลงไปในรอยบาก (Left curve)
-    path.cubicTo(
-      notchCenter - 22,
+    // 2. สร้าง Path รอยบากโค้งเว้า นุ่มนวล
+    final Path notchPath = Path();
+    notchPath.moveTo(notchCenter - notchHalfWidth, barTop);
+    notchPath.cubicTo(
+      notchCenter - 20,
       barTop,
-      notchCenter - 26,
+      notchCenter - 22,
       barTop + notchDepth,
       notchCenter,
       barTop + notchDepth,
     );
-
-    // โค้งขึ้นจากรอยบาก (Right curve)
-    path.cubicTo(
-      notchCenter + 26,
-      barTop + notchDepth,
+    notchPath.cubicTo(
       notchCenter + 22,
+      barTop + notchDepth,
+      notchCenter + 20,
       barTop,
       notchCenter + notchHalfWidth,
       barTop,
     );
+    notchPath.lineTo(notchCenter + notchHalfWidth, 0);
+    notchPath.lineTo(notchCenter - notchHalfWidth, 0);
+    notchPath.close();
 
-    path.lineTo(size.width - radius, barTop);
+    // 3. ผสานตัดรอยบากออกจากตัวบาร์อย่างนุ่มนวล
+    final Path finalPath = Path.combine(
+      PathOperation.difference,
+      Path()..addRRect(barRRect),
+      notchPath,
+    );
 
-    if (radius > 0) {
-      // มุมขวาบน
-      path.arcToPoint(
-        Offset(size.width, barTop + radius),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      );
-      // เส้นลงมามุมขวาล่าง
-      path.lineTo(size.width, size.height - radius);
-      // มุมขวาล่าง
-      path.arcToPoint(
-        Offset(size.width - radius, size.height),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      );
-      // เส้นไปมุมซ้ายล่าง
-      path.lineTo(radius, size.height);
-      // มุมซ้ายล่าง
-      path.arcToPoint(
-        Offset(0, size.height - radius),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      );
-      // เส้นไปมุมซ้ายบน
-      path.lineTo(0, barTop + radius);
-      // มุมซ้ายบน
-      path.arcToPoint(
-        Offset(radius, barTop),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      );
-    } else {
-      path.lineTo(size.width, size.height);
-      path.lineTo(0, size.height);
-    }
+    // 4. วาดเงามิติ 2 ชั้น (เงาสีเขียวมรกตบางๆ + เงา Depth นุ่มนวล)
+    canvas.drawShadow(
+      finalPath,
+      const Color(0xFF176a21).withValues(alpha: 0.08),
+      16.0,
+      true,
+    );
+    canvas.drawShadow(
+      finalPath,
+      Colors.black.withValues(alpha: 0.08),
+      10.0,
+      true,
+    );
 
-    path.close();
+    // 5. วาดพื้นหลังไล่เฉดสีขาวไข่มุก (Soft Pearl Gradient) สวยพรีเมียม
+    final Paint fillPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Color(0xFFFFFFFF),
+          Color(0xFFF9FBF9),
+        ],
+      ).createShader(Rect.fromLTWH(0, barTop, size.width, size.height - barTop));
+    canvas.drawPath(finalPath, fillPaint);
 
-    // วาดเงาให้บาร์ด้านล่าง
-    canvas.drawShadow(path, Colors.black.withOpacity(0.08), 15.0, true);
-
-    // วาดพื้นหลังสีขาว
-    Paint paint = Paint()..color = Colors.white;
-    canvas.drawPath(path, paint);
+    // 6. วาดเส้นขอบบางประณีต (Subtle Hairline Accent Border)
+    final Paint borderPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.04)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+    canvas.drawPath(finalPath, borderPaint);
   }
 
   @override
   bool shouldRepaint(covariant _CurvedNavPainter oldDelegate) {
-    return oldDelegate.notchCenter != notchCenter ||
-        oldDelegate.isDesktop != isDesktop;
+    return oldDelegate.notchCenter != notchCenter;
   }
 }
+

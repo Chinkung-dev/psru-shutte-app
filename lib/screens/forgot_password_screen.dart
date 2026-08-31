@@ -14,7 +14,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _emailController = TextEditingController();
   bool _isLoading = false;
 
-  // 🛠️ Helper Function สำหรับแสดงแจ้งเตือน (ลดโค้ดซ้ำ)
+  // Helper Function สำหรับแสดงแจ้งเตือน (ลดโค้ดซ้ำ)
   void _showSnackBar(String message, Color color) {
     TopToast.show(context, message, isError: color != Colors.green);
   }
@@ -38,7 +38,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 3. ✨ ไปเช็คในฐานข้อมูล Firestore ว่ามีอีเมลนี้อยู่จริงไหม
+      // 3.  ไปเช็คในฐานข้อมูล Firestore ว่ามีอีเมลนี้อยู่จริงไหม
       final querySnapshot = await FirebaseFirestore.instance
           .collection('users')
           .where('email', isEqualTo: email)
