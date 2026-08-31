@@ -165,6 +165,22 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (_) {}
   }
 
+  /// สร้างและบันทึกรหัสเซสชันใหม่สำหรับอุปกรณ์ปัจจุบันเพื่อป้องกันการเข้าสู่ระบบซ้ำ
+  Future<void> _registerNewSession(String uid) async {
+    try {
+      final sessionId = '${DateTime.now().millisecondsSinceEpoch}_$uid';
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('current_session_id', sessionId);
+
+      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+        'current_session_id': sessionId,
+        'last_login_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint("Error registering new session: $e");
+    }
+  }
+
   Future<void> _login() async {
     if (_remainingLockoutSeconds > 0) {
       TopToast.show(
@@ -206,7 +222,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      // ล็อกอินสำเร็จ -> รีเซ็ตประวัติการกรอกผิด
+      // ล็อกอินสำเร็จ -> บันทึก Session ID สำหรับอุปกรณ์นี้
+      await _registerNewSession(userCredential.user!.uid);
+
+      if (!mounted) return;
+
+      // รีเซ็ตประวัติการกรอกผิด
       await _resetFailedAttempts();
 
       if (!mounted) return;
@@ -319,7 +340,12 @@ class _LoginScreenState extends State<LoginScreen> {
       final User? user = userCredential.user;
       if (user == null || !mounted) return;
 
-      // ล็อกอินสำเร็จ -> รีเซ็ตประวัติการกรอกผิด
+      // ล็อกอินสำเร็จ -> บันทึก Session ID สำหรับอุปกรณ์นี้
+      await _registerNewSession(user.uid);
+
+      if (!mounted) return;
+
+      // รีเซ็ตประวัติการกรอกผิด
       await _resetFailedAttempts();
       if (!mounted) return;
 
@@ -411,165 +437,153 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F9FA),
+      backgroundColor: const Color(0xFFF2F6F3), // สีพื้นหลังเทาอมมิ้นต์อ่อนๆ สะอาดตา สบายตา
       body: Stack(
         children: [
-          // Layer 1: พื้นหลัง Wave / Organic Blob ด้านหลังสุด สีเขียวอ่อนโปร่งแสงเพื่อมิติความลึก (Fluid Depth)
+          // พื้นหลังตกแต่งด้วย Ambient Gradient Orbs ทรงกลมมุมจอ (ขนาดคงที่ ไม่ยืดหรือผิดสัดส่วนบนจอคอม/แท็บเล็ต)
           Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: ClipPath(
-              clipper: _HeaderWaveClipperLayer1(),
-              child: Container(
-                height: 270,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      const Color(0xFF81C784).withOpacity(0.45),
-                      const Color(0xFFC8E6C9).withOpacity(0.45),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+            top: -60,
+            left: -60,
+            child: Container(
+              width: 280,
+              height: 280,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFF81C784).withOpacity(0.35),
+                    const Color(0xFF81C784).withOpacity(0.0),
+                  ],
                 ),
               ),
             ),
           ),
-
-          // Layer 2: ส่วนหัวหลัก (Header Blob Wave) สีเขียวอ่อนสดใสเพื่อให้ Logo โดดเด่นขึ้น
           Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: ClipPath(
-              clipper: _HeaderWaveClipperLayer2(),
-              child: Container(
-                height: 270,
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Color(0xFF66BB6A), // Fresh Light Green
-                      Color(0xFF81C784), // Soft Mint Green
-                      Color(0xFFA5D6A7), // Pastel Light Green
-                    ],
-                    begin: Alignment.topRight,
-                    end: Alignment.bottomLeft,
-                  ),
+            top: 40,
+            right: -80,
+            child: Container(
+              width: 320,
+              height: 320,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFF66BB6A).withOpacity(0.20),
+                    const Color(0xFF66BB6A).withOpacity(0.0),
+                  ],
                 ),
-                child: Stack(
-                  children: [
-                    // วงกลมประดับทรง Organic เพื่อเพิ่มมิติความพริ้วไหว
-                    Positioned(
-                      top: -25,
-                      right: -30,
-                      child: Container(
-                        width: 150,
-                        height: 150,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white.withOpacity(0.08),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      top: 100,
-                      left: -20,
-                      child: Container(
-                        width: 110,
-                        height: 110,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white.withOpacity(0.06),
-                        ),
-                      ),
-                    ),
-
-                    // ไอคอนและข้อความส่วนหัว Header (PSRU Shuttle)
-                    SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.only(
-                          top: 16.0,
-                          left: 24.0,
-                          right: 24.0,
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.start,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            const SizedBox(height: 16),
-                            Image.asset(
-                              'lib/screens/driver/logo.png',
-                              height: 80,
-                              fit: BoxFit.contain,
-                              errorBuilder: (context, error, stackTrace) {
-                                return const Column(
-                                  children: [
-                                    Icon(
-                                      Icons.directions_bus_rounded,
-                                      size: 60,
-                                      color: Colors.white,
-                                    ),
-                                    SizedBox(height: 8),
-                                    Text(
-                                      'PSRU Shuttle',
-                                      style: TextStyle(
-                                        fontSize: 28,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                            const SizedBox(height: 14),
-                            const Text(
-                              'ระบบติดตามและเรียกรถรับส่งภายในมหาวิทยาลัย แบบเรียลไทม์',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFF176a21),
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: -80,
+            right: -60,
+            child: Container(
+              width: 300,
+              height: 300,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFFA5D6A7).withOpacity(0.30),
+                    const Color(0xFFA5D6A7).withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 60,
+            left: -90,
+            child: Container(
+              width: 260,
+              height: 260,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFFC8E6C9).withOpacity(0.35),
+                    const Color(0xFFC8E6C9).withOpacity(0.0),
                   ],
                 ),
               ),
             ),
           ),
 
-          // Layer 3: ส่วนการ์ดฟอร์มเข้าสู่ระบบ (Login Form Card)
+          // ส่วนเนื้อหาหลัก จัดกึ่งกลางหน้าจออย่างสมดุล (Responsive Layout)
           SafeArea(
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 24.0,
-                vertical: 16.0,
-              ),
-              child: Center(
+            child: Center(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24.0,
+                  vertical: 24.0,
+                ),
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 500),
+                  constraints: const BoxConstraints(maxWidth: 440),
                   child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      const SizedBox(
-                        height: 180,
-                      ), // ระยะห่างเพื่อให้การ์ดป๊อปอัพลอยทับ Wave Header เล็กน้อย
-                      // กล่องป๊อปอัพการ์ดสีขาว (Floating White Popup Card)
+                      // ส่วนหัวแบรนด์ (Logo + ชื่อแอป + คำโปรย)
+                      Image.asset(
+                        'lib/screens/driver/logo.png',
+                        height: 76,
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Column(
+                            children: [
+                              Icon(
+                                Icons.directions_bus_rounded,
+                                size: 54,
+                                color: Color(0xFF176a21),
+                              ),
+                              SizedBox(height: 6),
+                              Text(
+                                'PSRU Shuttle',
+                                style: TextStyle(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF176a21),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'ระบบติดตามและเรียกรถรับส่งภายในมหาวิทยาลัย แบบเรียลไทม์',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF436B49),
+                          fontWeight: FontWeight.w600,
+                          height: 1.3,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // การ์ดสีขาวสำหรับกรอกข้อมูลเข้าสู่ระบบ (Floating White Card)
                       Container(
                         padding: const EdgeInsets.all(28.0),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(28),
+                          border: Border.all(
+                            color: Colors.black.withOpacity(0.04),
+                            width: 1,
+                          ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.08),
-                              blurRadius: 24,
-                              offset: const Offset(0, 8),
+                              color: const Color(0xFF176A21).withOpacity(0.08),
+                              blurRadius: 28,
+                              offset: const Offset(0, 10),
+                            ),
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.03),
+                              blurRadius: 10,
+                              offset: const Offset(0, 2),
                             ),
                           ],
                         ),
@@ -580,13 +594,22 @@ class _LoginScreenState extends State<LoginScreen> {
                             const Text(
                               'Login',
                               style: TextStyle(
-                                fontSize: 30,
+                                fontSize: 28,
                                 fontWeight: FontWeight.w900,
                                 color: Color(0xFF176a21),
-                                letterSpacing: 0.5,
+                                letterSpacing: 0.2,
                               ),
                             ),
-                            const SizedBox(height: 20),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'กรอกข้อมูลเพื่อเข้าใช้งานระบบรถรับส่ง',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF6B7280),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 22),
 
                             // ช่องกรอกอีเมล
                             TextFormField(
@@ -594,31 +617,24 @@ class _LoginScreenState extends State<LoginScreen> {
                               keyboardType: TextInputType.emailAddress,
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 16,
+                                fontSize: 15,
                               ),
                               decoration: InputDecoration(
                                 labelText: 'อีเมล (Email)',
-                                labelStyle: const TextStyle(
-                                  fontSize: 16,
-                                ),
+                                labelStyle: const TextStyle(fontSize: 15),
                                 hintText: 'example@psru.ac.th',
                                 hintStyle: TextStyle(
                                   color: Colors.grey.shade400,
-                                  fontSize: 16,
+                                  fontSize: 14,
                                 ),
-                                prefixIcon: const Icon(
-                                  Icons.email_outlined,
-                                ),
+                                prefixIcon: const Icon(Icons.email_outlined, size: 20),
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    12,
-                                  ),
+                                  borderRadius: BorderRadius.circular(14),
                                 ),
-                                contentPadding:
-                                    const EdgeInsets.symmetric(
-                                      vertical: 16,
-                                      horizontal: 20,
-                                    ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                  horizontal: 18,
+                                ),
                               ),
                             ),
                             const SizedBox(height: 16),
@@ -629,45 +645,38 @@ class _LoginScreenState extends State<LoginScreen> {
                               obscureText: _obscurePassword,
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 16,
+                                fontSize: 15,
                               ),
                               decoration: InputDecoration(
                                 labelText: 'รหัสผ่าน (Password)',
-                                labelStyle: const TextStyle(
-                                  fontSize: 16,
-                                ),
+                                labelStyle: const TextStyle(fontSize: 15),
                                 hintText: '••••••••',
                                 hintStyle: TextStyle(
                                   color: Colors.grey.shade400,
-                                  fontSize: 16,
+                                  fontSize: 14,
                                 ),
-                                prefixIcon: const Icon(
-                                  Icons.lock_outline,
-                                ),
+                                prefixIcon: const Icon(Icons.lock_outline, size: 20),
                                 suffixIcon: IconButton(
                                   icon: Icon(
                                     _obscurePassword
                                         ? Icons.visibility_off
                                         : Icons.visibility,
                                     color: Colors.grey.shade600,
+                                    size: 20,
                                   ),
                                   onPressed: () {
                                     setState(() {
-                                      _obscurePassword =
-                                          !_obscurePassword;
+                                      _obscurePassword = !_obscurePassword;
                                     });
                                   },
                                 ),
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    12,
-                                  ),
+                                  borderRadius: BorderRadius.circular(14),
                                 ),
-                                contentPadding:
-                                    const EdgeInsets.symmetric(
-                                      vertical: 16,
-                                      horizontal: 20,
-                                    ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                  horizontal: 18,
+                                ),
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -682,9 +691,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFFDE8E8),
-                                  borderRadius: BorderRadius.circular(
-                                    16,
-                                  ),
+                                  borderRadius: BorderRadius.circular(16),
                                   border: Border.all(
                                     color: const Color(0xFFF98080),
                                     width: 1.2,
@@ -715,7 +722,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               const SizedBox(height: 16),
                             ],
 
-                            // ปรับปรุงปุ่ม "ลืมรหัสผ่าน?" ให้เปลี่ยนหน้าจอแทนการเปิดป๊อปอัป
+                            // ปุ่มลืมรหัสผ่าน
                             Align(
                               alignment: Alignment.centerRight,
                               child: TextButton(
@@ -736,53 +743,46 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 18),
 
                             // ปุ่มเข้าสู่ระบบ
                             MouseRegion(
-                              cursor: (_isLoading ||
-                                      _remainingLockoutSeconds > 0)
+                              cursor:
+                                  (_isLoading || _remainingLockoutSeconds > 0)
                                   ? SystemMouseCursors.basic
                                   : SystemMouseCursors.click,
-                              onEnter: (_) => setState(
-                                () => _isLoginHovered = true,
-                              ),
-                              onExit: (_) => setState(
-                                () => _isLoginHovered = false,
-                              ),
+                              onEnter: (_) =>
+                                  setState(() => _isLoginHovered = true),
+                              onExit: (_) =>
+                                  setState(() => _isLoginHovered = false),
                               child: GestureDetector(
-                                onTap: (_isLoading ||
-                                        _remainingLockoutSeconds > 0)
+                                onTap:
+                                    (_isLoading || _remainingLockoutSeconds > 0)
                                     ? null
                                     : _login,
                                 child: AnimatedContainer(
-                                  duration: const Duration(
-                                    milliseconds: 200,
-                                  ),
+                                  duration: const Duration(milliseconds: 200),
                                   curve: Curves.easeOutCubic,
                                   width: double.infinity,
-                                  height: 56,
+                                  height: 54,
                                   transform: Matrix4.identity()
                                     ..translate(
                                       0.0,
                                       (_isLoginHovered &&
                                               !_isLoading &&
-                                              _remainingLockoutSeconds <=
-                                                  0)
+                                              _remainingLockoutSeconds <= 0)
                                           ? -2.0
                                           : 0.0,
                                     ),
                                   decoration: BoxDecoration(
-                                    gradient: _remainingLockoutSeconds >
-                                            0
+                                    gradient: _remainingLockoutSeconds > 0
                                         ? LinearGradient(
                                             colors: [
                                               Colors.grey.shade400,
                                               Colors.grey.shade500,
                                             ],
                                             begin: Alignment.topCenter,
-                                            end:
-                                                Alignment.bottomCenter,
+                                            end: Alignment.bottomCenter,
                                           )
                                         : LinearGradient(
                                             colors: _isLoginHovered
@@ -795,28 +795,21 @@ class _LoginScreenState extends State<LoginScreen> {
                                                     Color(0xFF388E3C),
                                                   ],
                                             begin: Alignment.topCenter,
-                                            end:
-                                                Alignment.bottomCenter,
+                                            end: Alignment.bottomCenter,
                                           ),
-                                    borderRadius: BorderRadius.circular(
-                                      28,
-                                    ),
+                                    borderRadius: BorderRadius.circular(28),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: _remainingLockoutSeconds >
-                                                0
-                                            ? Colors.black.withOpacity(
-                                                0.05,
-                                              )
+                                        color: _remainingLockoutSeconds > 0
+                                            ? Colors.black.withOpacity(0.05)
                                             : (_isLoginHovered
-                                                ? const Color(
-                                                    0xFF2E7D32,
-                                                  ).withOpacity(0.45)
-                                                : Colors.green
-                                                    .withOpacity(0.3)),
-                                        blurRadius: _isLoginHovered
-                                            ? 16
-                                            : 10,
+                                                  ? const Color(
+                                                      0xFF2E7D32,
+                                                    ).withOpacity(0.45)
+                                                  : Colors.green.withOpacity(
+                                                      0.3,
+                                                    )),
+                                        blurRadius: _isLoginHovered ? 16 : 10,
                                         offset: Offset(
                                           0,
                                           _isLoginHovered ? 6 : 4,
@@ -829,16 +822,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                         ? const SizedBox(
                                             width: 24,
                                             height: 24,
-                                            child:
-                                                CircularProgressIndicator(
+                                            child: CircularProgressIndicator(
                                               color: Colors.white,
                                               strokeWidth: 3,
                                             ),
                                           )
                                         : const Row(
                                             mainAxisAlignment:
-                                                MainAxisAlignment
-                                                    .center,
+                                                MainAxisAlignment.center,
                                             children: [
                                               Icon(
                                                 Icons.login,
@@ -848,9 +839,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                               Text(
                                                 'เข้าสู่ระบบ',
                                                 style: TextStyle(
-                                                  fontSize: 18,
-                                                  fontWeight:
-                                                      FontWeight.bold,
+                                                  fontSize: 17,
+                                                  fontWeight: FontWeight.bold,
                                                   color: Colors.white,
                                                 ),
                                               ),
@@ -901,28 +891,23 @@ class _LoginScreenState extends State<LoginScreen> {
                               cursor: (_isLoading || _isGoogleLoading)
                                   ? SystemMouseCursors.basic
                                   : SystemMouseCursors.click,
-                              onEnter: (_) => setState(
-                                () => _isGoogleHovered = true,
-                              ),
-                              onExit: (_) => setState(
-                                () => _isGoogleHovered = false,
-                              ),
+                              onEnter: (_) =>
+                                  setState(() => _isGoogleHovered = true),
+                              onExit: (_) =>
+                                  setState(() => _isGoogleHovered = false),
                               child: GestureDetector(
                                 onTap: (_isLoading || _isGoogleLoading)
                                     ? null
                                     : _signInWithGoogle,
                                 child: AnimatedContainer(
-                                  duration: const Duration(
-                                    milliseconds: 200,
-                                  ),
+                                  duration: const Duration(milliseconds: 200),
                                   curve: Curves.easeOutCubic,
                                   width: double.infinity,
                                   height: 54,
                                   transform: Matrix4.identity()
                                     ..translate(
                                       0.0,
-                                      (_isGoogleHovered &&
-                                              !_isGoogleLoading)
+                                      (_isGoogleHovered && !_isGoogleLoading)
                                           ? -2.0
                                           : 0.0,
                                     ),
@@ -930,16 +915,12 @@ class _LoginScreenState extends State<LoginScreen> {
                                     color: _isGoogleHovered
                                         ? const Color(0xFFF9FCF9)
                                         : Colors.white,
-                                    borderRadius: BorderRadius.circular(
-                                      28,
-                                    ),
+                                    borderRadius: BorderRadius.circular(28),
                                     border: Border.all(
                                       color: _isGoogleHovered
                                           ? const Color(0xFF66BB6A)
                                           : Colors.grey.shade300,
-                                      width: _isGoogleHovered
-                                          ? 1.5
-                                          : 1.2,
+                                      width: _isGoogleHovered ? 1.5 : 1.2,
                                     ),
                                     boxShadow: [
                                       BoxShadow(
@@ -947,12 +928,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                             ? const Color(
                                                 0xFF66BB6A,
                                               ).withOpacity(0.25)
-                                            : Colors.black.withOpacity(
-                                                0.04,
-                                              ),
-                                        blurRadius: _isGoogleHovered
-                                            ? 14
-                                            : 10,
+                                            : Colors.black.withOpacity(0.04),
+                                        blurRadius: _isGoogleHovered ? 14 : 10,
                                         offset: Offset(
                                           0,
                                           _isGoogleHovered ? 5 : 3,
@@ -965,18 +942,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                         ? const SizedBox(
                                             width: 24,
                                             height: 24,
-                                            child:
-                                                CircularProgressIndicator(
-                                              color: Color(
-                                                0xFF176a21,
-                                              ),
+                                            child: CircularProgressIndicator(
+                                              color: Color(0xFF176a21),
                                               strokeWidth: 2.5,
                                             ),
                                           )
                                         : const Row(
                                             mainAxisAlignment:
-                                                MainAxisAlignment
-                                                    .center,
+                                                MainAxisAlignment.center,
                                             children: [
                                               _GoogleIcon(size: 22),
                                               SizedBox(width: 12),
@@ -984,11 +957,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                                 'เข้าสู่ระบบด้วย Google',
                                                 style: TextStyle(
                                                   fontSize: 16,
-                                                  fontWeight:
-                                                      FontWeight.bold,
-                                                  color: Color(
-                                                    0xFF37474F,
-                                                  ),
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Color(0xFF37474F),
                                                 ),
                                               ),
                                             ],
@@ -1003,6 +973,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                       const SizedBox(height: 24),
 
+                      // ส่วนท้าย: ลิงก์สร้างบัญชีใหม่
                       Column(
                         children: [
                           const Text(
@@ -1014,24 +985,18 @@ class _LoginScreenState extends State<LoginScreen> {
                             cursor: _isLoading
                                 ? SystemMouseCursors.basic
                                 : SystemMouseCursors.click,
-                            onEnter: (_) => setState(
-                              () => _isRegisterHovered = true,
-                            ),
-                            onExit: (_) => setState(
-                              () => _isRegisterHovered = false,
-                            ),
+                            onEnter: (_) =>
+                                setState(() => _isRegisterHovered = true),
+                            onExit: (_) =>
+                                setState(() => _isRegisterHovered = false),
                             child: GestureDetector(
                               onTap: _isLoading
                                   ? null
                                   : () {
-                                      Navigator.pushNamed(
-                                        context,
-                                        '/register',
-                                      );
+                                      Navigator.pushNamed(context, '/register');
                                     },
                               child: AnimatedDefaultTextStyle(
-                                duration:
-                                    const Duration(milliseconds: 150),
+                                duration: const Duration(milliseconds: 150),
                                 style: TextStyle(
                                   color: _isRegisterHovered
                                       ? const Color(0xFF2E7D32)
@@ -1048,7 +1013,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'Version 1.0.3', // เปลี่ยนเลขเวอร์ชันตรงนี้เวลามีอัปเดต
+                            'Version 1.0.4',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey.shade400,
@@ -1067,74 +1032,6 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
-}
-
-// CustomClipper สำหรับ Layer 1 (ชั้นหลัง: Organic Blob คลื่นโปร่งแสงเพื่อความมีมิติ)
-class _HeaderWaveClipperLayer1 extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    var path = Path();
-    path.lineTo(0, size.height - 40);
-
-    var firstControlPoint = Offset(size.width * 0.35, size.height - 110);
-    var firstEndPoint = Offset(size.width * 0.65, size.height - 25);
-    path.quadraticBezierTo(
-      firstControlPoint.dx,
-      firstControlPoint.dy,
-      firstEndPoint.dx,
-      firstEndPoint.dy,
-    );
-
-    var secondControlPoint = Offset(size.width * 0.88, size.height + 25);
-    var secondEndPoint = Offset(size.width, size.height - 60);
-    path.quadraticBezierTo(
-      secondControlPoint.dx,
-      secondControlPoint.dy,
-      secondEndPoint.dx,
-      secondEndPoint.dy,
-    );
-
-    path.lineTo(size.width, 0);
-    path.close();
-    return path;
-  }
-
-  @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
-}
-
-// CustomClipper สำหรับ Layer 2 (ชั้นหน้า: Organic Blob Wave หลัก สีเขียวเข้ม)
-class _HeaderWaveClipperLayer2 extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    var path = Path();
-    path.lineTo(0, size.height - 75);
-
-    var firstControlPoint = Offset(size.width * 0.28, size.height + 15);
-    var firstEndPoint = Offset(size.width * 0.58, size.height - 45);
-    path.quadraticBezierTo(
-      firstControlPoint.dx,
-      firstControlPoint.dy,
-      firstEndPoint.dx,
-      firstEndPoint.dy,
-    );
-
-    var secondControlPoint = Offset(size.width * 0.85, size.height - 100);
-    var secondEndPoint = Offset(size.width, size.height - 35);
-    path.quadraticBezierTo(
-      secondControlPoint.dx,
-      secondControlPoint.dy,
-      secondEndPoint.dx,
-      secondEndPoint.dy,
-    );
-
-    path.lineTo(size.width, 0);
-    path.close();
-    return path;
-  }
-
-  @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
 }
 
 // วิดเจ็ตไอคอน Google สีสันสมจริง (Custom Painted 4-Color Google G Logo)

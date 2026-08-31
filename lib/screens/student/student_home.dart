@@ -49,11 +49,11 @@ class _StudentHomeState extends State<StudentHome>
   LatLng? selectedStopLatLng; // เก็บพิกัดป้ายที่เลือก
   String? estimatedArrivalText; // ข้อความแสดงเวลา ETA
   int? remainingStops; // เก็บจำนวนป้ายที่เหลือก่อนถึงจุดหมาย
-  String?
-  targetedShuttleId; // เก็บ ID ของรถคันที่ใกล้ที่สุดเพื่อส่งคำขอเจาะจง
+  String? targetedShuttleId; // เก็บ ID ของรถคันที่ใกล้ที่สุดเพื่อส่งคำขอเจาะจง
   LatLng? _myLocation; // ตำแหน่งปัจจุบันของนักศึกษา
-  StreamSubscription<Position>?
-  _positionSubscription; // ฟังตำแหน่งแบบเรียลไทม์
+  StreamSubscription<Position>? _positionSubscription; // ฟังตำแหน่งแบบเรียลไทม์
+  String? _localSessionId; // เก็บ Session ID ของอุปกรณ์ปัจจุบัน
+  bool _isForceLoggingOut = false; // ตัวแปรป้องกันการเปิด Dialog แจ้งเตือนซ้ำ
 
   final MapController _mapController = MapController();
 
@@ -63,8 +63,7 @@ class _StudentHomeState extends State<StudentHome>
     const LatLng(16.84500, 100.23000),
   );
 
-  List<Map<String, dynamic>> activeShuttles =
-      []; // เก็บรายการรถที่กำลังออนไลน์
+  List<Map<String, dynamic>> activeShuttles = []; // เก็บรายการรถที่กำลังออนไลน์
 
   List<Map<String, dynamic>> busStops = [];
   bool _isLoadingStops = true;
@@ -87,12 +86,20 @@ class _StudentHomeState extends State<StudentHome>
       if (members.isNotEmpty) {
         double avgLat =
             members
-                .map((e) => (e['lat'] is num ? (e['lat'] as num).toDouble() : (double.tryParse(e['lat'].toString()) ?? 0.0)))
+                .map(
+                  (e) => (e['lat'] is num
+                      ? (e['lat'] as num).toDouble()
+                      : (double.tryParse(e['lat'].toString()) ?? 0.0)),
+                )
                 .reduce((a, b) => a + b) /
             members.length;
         double avgLng =
             members
-                .map((e) => (e['lng'] is num ? (e['lng'] as num).toDouble() : (double.tryParse(e['lng'].toString()) ?? 0.0)))
+                .map(
+                  (e) => (e['lng'] is num
+                      ? (e['lng'] as num).toDouble()
+                      : (double.tryParse(e['lng'].toString()) ?? 0.0)),
+                )
                 .reduce((a, b) => a + b) /
             members.length;
         result.add({
@@ -117,8 +124,10 @@ class _StudentHomeState extends State<StudentHome>
   String? activeRequestId;
   StreamSubscription<DocumentSnapshot>? requestSubscription;
   StreamSubscription<DocumentSnapshot>? userSubscription;
-  StreamSubscription? shuttleSubscription; // เพิ่ม Subscription สำหรับฟังตำแหน่งรถ
-  final List<StreamSubscription> _chatSubscriptions = []; // รายการ Subscription สำหรับฟังแชทรถทุกคัน
+  StreamSubscription?
+  shuttleSubscription; // เพิ่ม Subscription สำหรับฟังตำแหน่งรถ
+  final List<StreamSubscription> _chatSubscriptions =
+      []; // รายการ Subscription สำหรับฟังแชทรถทุกคัน
   Map<String, dynamic>? _incomingChatNotification;
   Timer? _chatNotificationTimer;
   final AudioPlayer _alertPlayer = AudioPlayer();
@@ -201,28 +210,25 @@ class _StudentHomeState extends State<StudentHome>
 
   // ดึงตำแหน่งปัจจุบันของนักศึกษาแล้วซูมแผนที่ไป พร้อมติดตามแบบ Real-time
   Future<void> _zoomToUserLocation() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
-
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return;
-    }
-
-    if (permission == LocationPermission.deniedForever) return;
-
     try {
-      // 1. ดึงตำแหน่งล่าสุด (Last Known) เพื่อให้แอปโหลดตำแหน่งได้เร็วที่สุด (Instant Loading)
+      if (!kIsWeb) {
+        bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) return;
+
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+          if (permission == LocationPermission.denied) return;
+        }
+
+        if (permission == LocationPermission.deniedForever) return;
+      }
+
+      // 1. ดึงตำแหน่งล่าสุด (Last Known) ถ้ามี
       Position? lastPosition;
       try {
         lastPosition = await Geolocator.getLastKnownPosition();
-      } catch (e) {
-        // Fallback for Web platform where getLastKnownPosition is unsupported
-      }
+      } catch (_) {}
 
       if (lastPosition != null && mounted) {
         final loc = LatLng(lastPosition.latitude, lastPosition.longitude);
@@ -236,30 +242,54 @@ class _StudentHomeState extends State<StudentHome>
         });
       }
 
-      // 2. ฟังการอัปเดตตำแหน่งแบบเรียลไทม์
-      _positionSubscription =
-          Geolocator.getPositionStream(
-            locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.high,
-              distanceFilter: 5, // อัปเดตเมื่อขยับ 5 เมตรขึ้นไป
-            ),
-          ).listen((Position position) {
-            if (mounted) {
-              final loc = LatLng(position.latitude, position.longitude);
-              setState(() {
-                _myLocation = loc;
-              });
-
-              // หากไม่มี Last Known Position ค่อยซูมครั้งแรกที่นี่
-              if (lastPosition == null) {
-                _mapController.move(loc, 17.0);
-                lastPosition = position;
-                Future.delayed(const Duration(milliseconds: 1500), () {
-                  if (mounted) _checkAndShowTutorial();
-                });
-              }
-            }
+      // 2. ดึงตำแหน่งจริงเพื่อเปิดหน้าต่างขอสิทธิ์ในเบราว์เซอร์ (Web / Safari Geolocation trigger)
+      try {
+        final currentPos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 8),
+          ),
+        );
+        if (mounted) {
+          final loc = LatLng(currentPos.latitude, currentPos.longitude);
+          setState(() {
+            _myLocation = loc;
           });
+          if (lastPosition == null) {
+            _mapController.move(loc, 17.0);
+            lastPosition = currentPos;
+            Future.delayed(const Duration(milliseconds: 1500), () {
+              if (mounted) _checkAndShowTutorial();
+            });
+          }
+        }
+      } catch (e) {
+        debugPrint("Current position error (Web fallback): $e");
+      }
+
+      // 3. ฟังการอัปเดตตำแหน่งแบบเรียลไทม์
+      _positionSubscription?.cancel();
+      _positionSubscription = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 5, // อัปเดตเมื่อขยับ 5 เมตรขึ้นไป
+        ),
+      ).listen((Position position) {
+        if (mounted) {
+          final loc = LatLng(position.latitude, position.longitude);
+          setState(() {
+            _myLocation = loc;
+          });
+
+          if (lastPosition == null) {
+            _mapController.move(loc, 17.0);
+            lastPosition = position;
+            Future.delayed(const Duration(milliseconds: 1500), () {
+              if (mounted) _checkAndShowTutorial();
+            });
+          }
+        }
+      });
     } catch (e) {
       debugPrint("Error getting location: $e");
     }
@@ -308,67 +338,72 @@ class _StudentHomeState extends State<StudentHome>
           .orderBy('timestamp', descending: true)
           .limit(5)
           .snapshots()
-          .listen((snapshot) {
-        if (isInitial) {
-          isInitial = false;
-          return; // ข้ามข้อความเก่าที่โหลดมาตอนแรก
-        }
-
-        // หากกำลังเปิดอยู่ในหน้าแชท (แท็บ 2) ไม่ต้องแสดงป๊อปอัปบังหน้าจอ
-        if (_selectedIndex == 2) return;
-
-        for (var change in snapshot.docChanges) {
-          if (change.type == DocumentChangeType.added) {
-            final data = change.doc.data();
-            if (data == null) continue;
-
-            final String senderRole =
-                (data['sender_role'] ?? data['senderRole'] ?? '').toString();
-            final String senderId =
-                (data['sender_id'] ?? data['senderId'] ?? '').toString();
-
-            // เช็คว่าเป็นข้อความจากคนขับ หรือไม่ใช่ตัวเอง
-            if (senderId != currentUserId &&
-                (senderRole == 'driver' || senderRole.isEmpty)) {
-              final String senderName = (data['sender_name'] ??
-                      data['senderName'] ??
-                      'คนขับรถ')
-                  .toString();
-              final String messageText = (data['text'] ??
-                      (data['imageUrl'] != null || data['image_url'] != null
-                          ? ' ได้ส่งรูปภาพ'
-                          : 'ข้อความใหม่'))
-                  .toString();
-
-              _triggerVoiceAlertForChat();
-
-              if (mounted) {
-                _chatNotificationTimer?.cancel();
-                setState(() {
-                  _incomingChatNotification = {
-                    'sender': senderName,
-                    'text': messageText,
-                    'roomId': roomId,
-                  };
-                });
-
-                _chatNotificationTimer = Timer(
-                  const Duration(seconds: 7),
-                  () {
-                    if (mounted) {
-                      setState(() {
-                        _incomingChatNotification = null;
-                      });
-                    }
-                  },
-                );
+          .listen(
+            (snapshot) {
+              if (isInitial) {
+                isInitial = false;
+                return; // ข้ามข้อความเก่าที่โหลดมาตอนแรก
               }
-            }
-          }
-        }
-      }, onError: (e) {
-        debugPrint("Error listening to chat room $roomId: $e");
-      });
+
+              // หากกำลังเปิดอยู่ในหน้าแชท (แท็บ 2) ไม่ต้องแสดงป๊อปอัปบังหน้าจอ
+              if (_selectedIndex == 2) return;
+
+              for (var change in snapshot.docChanges) {
+                if (change.type == DocumentChangeType.added) {
+                  final data = change.doc.data();
+                  if (data == null) continue;
+
+                  final String senderRole =
+                      (data['sender_role'] ?? data['senderRole'] ?? '')
+                          .toString();
+                  final String senderId =
+                      (data['sender_id'] ?? data['senderId'] ?? '').toString();
+
+                  // เช็คว่าเป็นข้อความจากคนขับ หรือไม่ใช่ตัวเอง
+                  if (senderId != currentUserId &&
+                      (senderRole == 'driver' || senderRole.isEmpty)) {
+                    final String senderName =
+                        (data['sender_name'] ?? data['senderName'] ?? 'คนขับรถ')
+                            .toString();
+                    final String messageText =
+                        (data['text'] ??
+                                (data['imageUrl'] != null ||
+                                        data['image_url'] != null
+                                    ? ' ได้ส่งรูปภาพ'
+                                    : 'ข้อความใหม่'))
+                            .toString();
+
+                    _triggerVoiceAlertForChat();
+
+                    if (mounted) {
+                      _chatNotificationTimer?.cancel();
+                      setState(() {
+                        _incomingChatNotification = {
+                          'sender': senderName,
+                          'text': messageText,
+                          'roomId': roomId,
+                        };
+                      });
+
+                      _chatNotificationTimer = Timer(
+                        const Duration(seconds: 7),
+                        () {
+                          if (mounted) {
+                            setState(() {
+                              _incomingChatNotification = null;
+                            });
+                          }
+                        },
+                      );
+                    }
+                  }
+                }
+              }
+            },
+            onError: (e) {
+              debugPrint("Error listening to chat room $roomId: $e");
+            },
+          );
       _chatSubscriptions.add(sub);
     }
   }
@@ -422,15 +457,15 @@ class _StudentHomeState extends State<StudentHome>
                 },
                 borderRadius: BorderRadius.circular(22),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [
-                        Color(0xFFFFFFFF),
-                        Color(0xFFF9FAF9),
-                      ],
+                      colors: [Color(0xFFFFFFFF), Color(0xFFF9FAF9)],
                     ),
                     borderRadius: BorderRadius.circular(22),
                     border: Border.all(
@@ -468,7 +503,9 @@ class _StudentHomeState extends State<StudentHome>
                               shape: BoxShape.circle,
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFF176a21).withValues(alpha: 0.25),
+                                  color: const Color(
+                                    0xFF176a21,
+                                  ).withValues(alpha: 0.25),
                                   blurRadius: 8,
                                   offset: const Offset(0, 3),
                                 ),
@@ -489,7 +526,10 @@ class _StudentHomeState extends State<StudentHome>
                               decoration: BoxDecoration(
                                 color: const Color(0xFF22C55E),
                                 shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2.0),
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 2.0,
+                                ),
                               ),
                             ),
                           ),
@@ -527,7 +567,9 @@ class _StudentHomeState extends State<StudentHome>
                                     color: const Color(0xFFE8F5E9),
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
-                                      color: const Color(0xFF81C784).withValues(alpha: 0.4),
+                                      color: const Color(
+                                        0xFF81C784,
+                                      ).withValues(alpha: 0.4),
                                       width: 0.8,
                                     ),
                                   ),
@@ -577,14 +619,19 @@ class _StudentHomeState extends State<StudentHome>
                               ),
                               decoration: BoxDecoration(
                                 gradient: const LinearGradient(
-                                  colors: [Color(0xFF1F8B2E), Color(0xFF176a21)],
+                                  colors: [
+                                    Color(0xFF1F8B2E),
+                                    Color(0xFF176a21),
+                                  ],
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                 ),
                                 borderRadius: BorderRadius.circular(14),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: const Color(0xFF176a21).withValues(alpha: 0.25),
+                                    color: const Color(
+                                      0xFF176a21,
+                                    ).withValues(alpha: 0.25),
                                     blurRadius: 6,
                                     offset: const Offset(0, 2),
                                   ),
@@ -647,14 +694,12 @@ class _StudentHomeState extends State<StudentHome>
 
   void _listenToShuttles() {
     final ref = FirebaseDatabase.instance.ref('shuttles');
-    
+
     // บังคับดึงข้อมูล 1 ครั้งตอนเริ่มต้น เพื่อกระตุ้นการเชื่อมต่อ WebSocket
     // (แก้ปัญหาบน Web ที่ onValue อาจไม่ทำงานจนกว่าจะมีการอัปเดตจากฝั่ง Server)
     ref.get();
 
-    shuttleSubscription = ref.onValue.listen((
-      event,
-    ) {
+    shuttleSubscription = ref.onValue.listen((event) {
       if (!mounted) return;
       if (!event.snapshot.exists || event.snapshot.value == null) {
         if (activeShuttles.isNotEmpty) {
@@ -688,8 +733,12 @@ class _StudentHomeState extends State<StudentHome>
               if (isRecentlyUpdated) {
                 newShuttles.add({
                   'id': key.toString(),
-                  'lat': (value['lat'] is num ? (value['lat'] as num).toDouble() : (double.tryParse(value['lat'].toString()) ?? 0.0)),
-                  'lng': (value['lng'] is num ? (value['lng'] as num).toDouble() : (double.tryParse(value['lng'].toString()) ?? 0.0)),
+                  'lat': (value['lat'] is num
+                      ? (value['lat'] as num).toDouble()
+                      : (double.tryParse(value['lat'].toString()) ?? 0.0)),
+                  'lng': (value['lng'] is num
+                      ? (value['lng'] as num).toDouble()
+                      : (double.tryParse(value['lng'].toString()) ?? 0.0)),
                   'passenger_status': value.containsKey('passenger_status')
                       ? value['passenger_status']
                       : 'available',
@@ -731,20 +780,37 @@ class _StudentHomeState extends State<StudentHome>
             if (id == targetedShuttleId) {
               String sName = 'รถคันเป้าหมาย';
               try {
-                final targetShuttle = newShuttles.firstWhere((s) => s['id'] == targetedShuttleId);
-                final String numStr = (targetShuttle['number'] ?? '').toString();
+                final targetShuttle = newShuttles.firstWhere(
+                  (s) => s['id'] == targetedShuttleId,
+                );
+                final String numStr = (targetShuttle['number'] ?? '')
+                    .toString();
                 if (numStr.isNotEmpty) sName = 'รถเบอร์ $numStr';
               } catch (_) {}
 
               if (newPassengerStatus == 'full') {
                 _alertPlayer.play(AssetSource('voice/glass_1.mp3'));
-                TopToast.show(context, 'แจ้งเตือน: $sName ที่กำลังมารับ "เต็มแล้ว" ', isError: true);
+                TopToast.show(
+                  context,
+                  'แจ้งเตือน: $sName ที่กำลังมารับ "เต็มแล้ว" ',
+                  isError: true,
+                );
               } else if (newPassengerStatus == 'break') {
                 _alertPlayer.play(AssetSource('voice/glass_1.mp3'));
-                TopToast.show(context, 'แจ้งเตือน: $sName "ขอพักเบรค" ชั่วคราว ', isError: true);
-              } else if (newPassengerStatus == 'available' && (oldPassengerStatus == 'full' || oldPassengerStatus == 'break')) {
+                TopToast.show(
+                  context,
+                  'แจ้งเตือน: $sName "ขอพักเบรค" ชั่วคราว ',
+                  isError: true,
+                );
+              } else if (newPassengerStatus == 'available' &&
+                  (oldPassengerStatus == 'full' ||
+                      oldPassengerStatus == 'break')) {
                 _alertPlayer.play(AssetSource('voice/glass_1.mp3'));
-                TopToast.show(context, 'อัปเดต: $sName "ว่างแล้ว" ', isError: false);
+                TopToast.show(
+                  context,
+                  'อัปเดต: $sName "ว่างแล้ว" ',
+                  isError: false,
+                );
               }
             }
           }
@@ -762,9 +828,12 @@ class _StudentHomeState extends State<StudentHome>
             if (isNew) {
               String numStr = (shuttle['number'] ?? '').toString();
               String sName = numStr.isNotEmpty ? 'รถเบอร์ $numStr' : 'รถรับส่ง';
-              TopToast.show(context, 'อัปเดต: $sName ออนไลน์เข้าสู่ระบบแล้ว ', isError: false);
+              TopToast.show(
+                context,
+                'อัปเดต: $sName ออนไลน์เข้าสู่ระบบแล้ว ',
+                isError: false,
+              );
             }
-
           } else if (targetLoc == null ||
               targetLoc.latitude != newLoc.latitude ||
               targetLoc.longitude != newLoc.longitude) {
@@ -789,7 +858,9 @@ class _StudentHomeState extends State<StudentHome>
           if (wasActive && !isStillActive) {
             String sName = 'รถรับส่งคันเป้าหมาย';
             try {
-              final targetShuttle = activeShuttles.firstWhere((s) => s['id'] == targetedShuttleId);
+              final targetShuttle = activeShuttles.firstWhere(
+                (s) => s['id'] == targetedShuttleId,
+              );
               final String numStr = (targetShuttle['number'] ?? '').toString();
               if (numStr.isNotEmpty) sName = 'รถเบอร์ $numStr';
             } catch (_) {}
@@ -836,26 +907,125 @@ class _StudentHomeState extends State<StudentHome>
 
   // ฟังข้อความแชทใหม่จากคนขับรถแบบ Real-time เพื่อส่งเสียงและแสดงป๊อปอัปแจ้งเตือน
 
-  void _listenToFavoriteStops() {
+  void _listenToFavoriteStops() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      userSubscription = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .snapshots()
-          .handleError((e) => print("Firestore Error (users): $e"))
-          .listen((doc) {
-            if (doc.exists && doc.data()!.containsKey('favorite_stops')) {
-              if (mounted) {
-                setState(() {
-                  favoriteStops = List<String>.from(
-                    doc.data()!['favorite_stops'],
-                  );
-                });
-              }
+    if (user == null) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _localSessionId = prefs.getString('current_session_id');
+    } catch (_) {}
+
+    userSubscription = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .snapshots()
+        .handleError((e) => print("Firestore Error (users): $e"))
+        .listen((doc) async {
+          if (!doc.exists || doc.data() == null) return;
+          final data = doc.data()!;
+
+          // 1. ตรวจสอบการเข้าสู่ระบบซ้ำ (Single Active Session)
+          final serverSessionId = data['current_session_id'] as String?;
+          if (serverSessionId != null) {
+            if (_localSessionId == null) {
+              _localSessionId = serverSessionId;
+              try {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setString('current_session_id', serverSessionId);
+              } catch (_) {}
+            } else if (serverSessionId != _localSessionId) {
+              _handleConcurrentLogin();
+              return;
             }
-          });
+          }
+
+          // 2. อัปเดตจุดจอดที่ชอบ
+          if (data.containsKey('favorite_stops') && data['favorite_stops'] != null) {
+            if (mounted) {
+              setState(() {
+                favoriteStops = List<String>.from(
+                  data['favorite_stops'],
+                );
+              });
+            }
+          }
+        });
+  }
+
+  /// จัดการเมื่อตรวจพบว่ามีการเข้าสู่ระบบซ้ำจากอุปกรณ์อื่น
+  void _handleConcurrentLogin() {
+    if (_isForceLoggingOut) return;
+    _isForceLoggingOut = true;
+
+    // ยกเลิกการฟังข้อมูลทั้งหมดทันที
+    userSubscription?.cancel();
+    requestSubscription?.cancel();
+    shuttleSubscription?.cancel();
+    _positionSubscription?.cancel();
+    for (var sub in _chatSubscriptions) {
+      sub.cancel();
     }
+    _chatNotificationTimer?.cancel();
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+              SizedBox(width: 10),
+              Text(
+                'มีการเข้าสู่ระบบจากอุปกรณ์อื่น',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF2C2F30),
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'บัญชีนี้ถูกเข้าสู่ระบบจากอุปกรณ์อื่นแล้ว ระบบได้นำคุณออกจากระบบเพื่อความปลอดภัย หากต้องการใช้งานต่อ กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
+            style: TextStyle(
+              fontSize: 14,
+              color: Color(0xFF595C5D),
+              height: 1.4,
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF176a21),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _logout();
+              },
+              child: const Text(
+                'ตกลง',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _toggleFavorite(String stopName) async {
@@ -1018,10 +1188,12 @@ class _StudentHomeState extends State<StudentHome>
           curr = previous[curr];
         }
       }
-      
+
       print(" DEBUG: Path calculated length = ${path.length}");
       if (path.isEmpty) {
-        print(" DEBUG: Path is EMPTY between ${startNode.latitude},${startNode.longitude} and ${endNode.latitude},${endNode.longitude}");
+        print(
+          " DEBUG: Path is EMPTY between ${startNode.latitude},${startNode.longitude} and ${endNode.latitude},${endNode.longitude}",
+        );
       }
 
       if (path.isNotEmpty) {
@@ -1153,8 +1325,12 @@ class _StudentHomeState extends State<StudentHome>
         loadedStops.add({
           'id': doc.id, // ใช้สำหรับ Key ของ Marker
           'name': data['name'],
-          'lat': (data['lat'] is num ? (data['lat'] as num).toDouble() : (double.tryParse(data['lat'].toString()) ?? 0.0)),
-          'lng': (data['lng'] is num ? (data['lng'] as num).toDouble() : (double.tryParse(data['lng'].toString()) ?? 0.0)),
+          'lat': (data['lat'] is num
+              ? (data['lat'] as num).toDouble()
+              : (double.tryParse(data['lat'].toString()) ?? 0.0)),
+          'lng': (data['lng'] is num
+              ? (data['lng'] as num).toDouble()
+              : (double.tryParse(data['lng'].toString()) ?? 0.0)),
           'order': data['order'], // สำคัญสำหรับคำนวณเส้นทาง
         });
       }
@@ -1407,7 +1583,8 @@ class _StudentHomeState extends State<StudentHome>
                     expectedStop['lat'],
                     expectedStop['lng'],
                   );
-                  if (distanceCalc.distance(closestBusLoc, expectedLoc) < 200.0) {
+                  if (distanceCalc.distance(closestBusLoc, expectedLoc) <
+                      200.0) {
                     tempCurrentOrder = expectedNext;
                   }
                 } catch (_) {}
@@ -1441,9 +1618,9 @@ class _StudentHomeState extends State<StudentHome>
       if (stepCount == 0) {
         waypoints.add(target);
         remainingStops = 0;
-        
+
         // Auto-Arrive System ย้ายมาไว้ตรงนี้
-        // จะปิดงานอัตโนมัติก็ต่อเมื่อ "ไม่มีป้ายให้ต้องไปก่อนหน้าแล้ว" (stepCount == 0) 
+        // จะปิดงานอัตโนมัติก็ต่อเมื่อ "ไม่มีป้ายให้ต้องไปก่อนหน้าแล้ว" (stepCount == 0)
         // และรถแจ้งว่าได้วิ่งผ่านป้ายเป้าหมายแล้ว (อ้างอิงจากระบบคนขับ)
         if (isOnBoard && closestBusLastPassed == targetOrder) {
           _handleAutoArrive();
@@ -1458,7 +1635,8 @@ class _StudentHomeState extends State<StudentHome>
           if (nextOrder > maxOrder) nextOrder -= maxOrder;
 
           // FIX: ป้องกันการวาดเส้นทางย้อนกลับไปหาป้ายที่เพิ่งวิ่งผ่านมาแล้ว
-          if (closestBusLastPassed != null && nextOrder == closestBusLastPassed) {
+          if (closestBusLastPassed != null &&
+              nextOrder == closestBusLastPassed) {
             continue;
           }
 
@@ -1664,14 +1842,15 @@ class _StudentHomeState extends State<StudentHome>
     if (!isManual) {
       if (_isAutoArriving) return;
       _isAutoArriving = true;
-      
+
       // หน่วงเวลา 5 วินาทีเมื่อถึงจุดหมาย
       await Future.delayed(const Duration(seconds: 5));
-      
+
       if (!mounted) return;
-      if (!isOnBoard) { // ถ้าผู้ใช้กดปิดเองไปแล้วระหว่างรอ 5 วิ
+      if (!isOnBoard) {
+        // ถ้าผู้ใช้กดปิดเองไปแล้วระหว่างรอ 5 วิ
         _isAutoArriving = false;
-        return; 
+        return;
       }
       _isAutoArriving = false;
     }
@@ -1751,7 +1930,8 @@ class _StudentHomeState extends State<StudentHome>
           selectedStopLatLng!,
         );
 
-        if (distanceToStop > 50) { // ตั้งค่ารัศมี 50 เมตร
+        if (distanceToStop > 50) {
+          // ตั้งค่ารัศมี 50 เมตร
           TopToast.show(
             context,
             'คุณต้องอยู่ใกล้ป้าย (รัศมี 50 เมตร) จึงจะเรียกรถได้ครับ\nระยะห่างปัจจุบัน: ${distanceToStop.toStringAsFixed(0)} เมตร',
@@ -2033,7 +2213,6 @@ class _StudentHomeState extends State<StudentHome>
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2292,8 +2471,14 @@ class _StudentHomeState extends State<StudentHome>
                       final LatLng displayLoc =
                           _currentShuttleLocations[id] ??
                           LatLng(
-                            (shuttle['lat'] is num ? (shuttle['lat'] as num).toDouble() : (double.tryParse(shuttle['lat'].toString()) ?? 0.0)),
-                            (shuttle['lng'] is num ? (shuttle['lng'] as num).toDouble() : (double.tryParse(shuttle['lng'].toString()) ?? 0.0)),
+                            (shuttle['lat'] is num
+                                ? (shuttle['lat'] as num).toDouble()
+                                : (double.tryParse(shuttle['lat'].toString()) ??
+                                      0.0)),
+                            (shuttle['lng'] is num
+                                ? (shuttle['lng'] as num).toDouble()
+                                : (double.tryParse(shuttle['lng'].toString()) ??
+                                      0.0)),
                           );
                       return Marker(
                         key: ValueKey('shuttle_$id'),
@@ -2367,10 +2552,7 @@ class _StudentHomeState extends State<StudentHome>
               gradient: const LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xFFFFFFFF),
-                  Color(0xFFF8FAF8),
-                ],
+                colors: [Color(0xFFFFFFFF), Color(0xFFF8FAF8)],
               ),
               borderRadius: const BorderRadius.vertical(
                 bottom: Radius.circular(26),
@@ -2483,19 +2665,17 @@ class _StudentHomeState extends State<StudentHome>
             bottom: false,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 300),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 7,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.95),
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: (activeShuttles.isNotEmpty
-                            ? const Color(0xFF176a21)
-                            : const Color(0xFFD84315))
-                        .withValues(alpha: 0.12),
+                    color:
+                        (activeShuttles.isNotEmpty
+                                ? const Color(0xFF176a21)
+                                : const Color(0xFFD84315))
+                            .withValues(alpha: 0.12),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -2526,8 +2706,9 @@ class _StudentHomeState extends State<StudentHome>
                       boxShadow: activeShuttles.isNotEmpty
                           ? [
                               BoxShadow(
-                                color: const Color(0xFF22C55E)
-                                    .withValues(alpha: 0.6),
+                                color: const Color(
+                                  0xFF22C55E,
+                                ).withValues(alpha: 0.6),
                                 blurRadius: 4,
                               ),
                             ]
@@ -2554,7 +2735,9 @@ class _StudentHomeState extends State<StudentHome>
         ),
 
         // ปุ่มขยายการ์ดข้อมูล (แสดงเฉพาะตอนการ์ดย่อ)
-        if (selectedStopName != null && isCardMinimized && !_isTutorialCardHidden)
+        if (selectedStopName != null &&
+            isCardMinimized &&
+            !_isTutorialCardHidden)
           Positioned(
             bottom: 210, // อยู่เหนือปุ่มเป้าเล็ง (150 + 60)
             right: 20,
@@ -2569,10 +2752,7 @@ class _StudentHomeState extends State<StudentHome>
                   isCardMinimized = false;
                 });
               },
-              child: const Icon(
-                Icons.open_in_full,
-                color: Color(0xFF176a21),
-              ),
+              child: const Icon(Icons.open_in_full, color: Color(0xFF176a21)),
             ),
           ),
 
@@ -2606,6 +2786,7 @@ class _StudentHomeState extends State<StudentHome>
               } else if (_myLocation != null) {
                 _mapController.move(_myLocation!, 17.0);
               } else {
+                _zoomToUserLocation();
                 _mapController.move(_psruCenter, 15.5);
               }
             },
@@ -2695,8 +2876,12 @@ class _StudentHomeState extends State<StudentHome>
             const distanceCalc = Distance();
             double minDistance = double.infinity;
             for (var vStop in _visualStops) {
-              double lat = (vStop['lat'] is num ? (vStop['lat'] as num).toDouble() : (double.tryParse(vStop['lat'].toString()) ?? 0.0));
-              double lng = (vStop['lng'] is num ? (vStop['lng'] as num).toDouble() : (double.tryParse(vStop['lng'].toString()) ?? 0.0));
+              double lat = (vStop['lat'] is num
+                  ? (vStop['lat'] as num).toDouble()
+                  : (double.tryParse(vStop['lat'].toString()) ?? 0.0));
+              double lng = (vStop['lng'] is num
+                  ? (vStop['lng'] as num).toDouble()
+                  : (double.tryParse(vStop['lng'].toString()) ?? 0.0));
               double d = distanceCalc.distance(_myLocation!, LatLng(lat, lng));
               if (d < minDistance) {
                 minDistance = d;
@@ -3143,9 +3328,7 @@ class _StudentHomeState extends State<StudentHome>
                     children: [
                       CustomPaint(
                         size: Size(width, 80),
-                        painter: _CurvedNavPainter(
-                          notchCenter: animatedX,
-                        ),
+                        painter: _CurvedNavPainter(notchCenter: animatedX),
                       ),
                       // 2. ปุ่มวงกลมสีเขียวมรกตลอยอยู่ในรอยบาก (พร้อมขอบสีขาวคมชัด)
                       Positioned(
@@ -3161,13 +3344,12 @@ class _StudentHomeState extends State<StudentHome>
                               end: Alignment.bottomRight,
                             ),
                             shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white,
-                              width: 3.0,
-                            ),
+                            border: Border.all(color: Colors.white, width: 3.0),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFF176a21).withValues(alpha: 0.38),
+                                color: const Color(
+                                  0xFF176a21,
+                                ).withValues(alpha: 0.38),
                                 blurRadius: 10,
                                 offset: const Offset(0, 4),
                               ),
@@ -3239,8 +3421,9 @@ class _StudentHomeState extends State<StudentHome>
                                           ),
                                           boxShadow: [
                                             BoxShadow(
-                                              color: const Color(0xFF22C55E)
-                                                  .withValues(alpha: 0.6),
+                                              color: const Color(
+                                                0xFF22C55E,
+                                              ).withValues(alpha: 0.6),
                                               blurRadius: 3,
                                             ),
                                           ],
@@ -3925,18 +4108,18 @@ class _StudentHomeState extends State<StudentHome>
                       onTap: isOnBoard
                           ? _toggleWaitState
                           : (isAcknowledged
-                              ? _boardShuttle
-                              : (isWaiting
-                                  ? _toggleWaitState
-                                  : (activeShuttles.isEmpty
-                                      ? () {
-                                          TopToast.show(
-                                            context,
-                                            'ไม่สามารถเรียกรถได้: ขณะนี้ไม่มีคนขับออนไลน์อยู่ในระบบ',
-                                            isError: true,
-                                          );
-                                        }
-                                      : _toggleWaitState))),
+                                ? _boardShuttle
+                                : (isWaiting
+                                      ? _toggleWaitState
+                                      : (activeShuttles.isEmpty
+                                            ? () {
+                                                TopToast.show(
+                                                  context,
+                                                  'ไม่สามารถเรียกรถได้: ขณะนี้ไม่มีคนขับออนไลน์อยู่ในระบบ',
+                                                  isError: true,
+                                                );
+                                              }
+                                            : _toggleWaitState))),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
                         width: double.infinity,
@@ -3945,24 +4128,31 @@ class _StudentHomeState extends State<StudentHome>
                           gradient: LinearGradient(
                             colors: isWaiting
                                 ? [Colors.red.shade400, Colors.red.shade600]
-                                : (!isWaiting && !isOnBoard && !isAcknowledged && activeShuttles.isEmpty)
-                                    ? [Colors.grey.shade400, Colors.grey.shade500]
-                                    : [
-                                        const Color(0xFF9DF197),
-                                        const Color(0xFF176a21),
-                                      ],
+                                : (!isWaiting &&
+                                      !isOnBoard &&
+                                      !isAcknowledged &&
+                                      activeShuttles.isEmpty)
+                                ? [Colors.grey.shade400, Colors.grey.shade500]
+                                : [
+                                    const Color(0xFF9DF197),
+                                    const Color(0xFF176a21),
+                                  ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
                           borderRadius: BorderRadius.circular(23),
                           boxShadow: [
                             BoxShadow(
-                              color: (!isWaiting && !isOnBoard && !isAcknowledged && activeShuttles.isEmpty)
+                              color:
+                                  (!isWaiting &&
+                                      !isOnBoard &&
+                                      !isAcknowledged &&
+                                      activeShuttles.isEmpty)
                                   ? Colors.transparent
                                   : (isWaiting
-                                          ? Colors.red
-                                          : const Color(0xFF176a21))
-                                      .withOpacity(0.3),
+                                            ? Colors.red
+                                            : const Color(0xFF176a21))
+                                        .withOpacity(0.3),
                               blurRadius: 12,
                               offset: const Offset(0, 4),
                             ),
@@ -4025,7 +4215,8 @@ class _CurvedNavPainter extends CustomPainter {
     const double barTop = 16.0;
     const double notchDepth = 25.0;
     const double notchHalfWidth = 34.0;
-    const double radius = 16.0; // ปรับลดความโค้งขอบมนซ้าย-ขวาลงมาที่ 16px ตามที่ต้องการ
+    const double radius =
+        16.0; // ปรับลดความโค้งขอบมนซ้าย-ขวาลงมาที่ 16px ตามที่ต้องการ
 
     // 1. สร้าง Base Path สี่เหลี่ยมขอบมนโค้งมนสวยกระชับ
     final RRect barRRect = RRect.fromRectAndRadius(
@@ -4079,14 +4270,14 @@ class _CurvedNavPainter extends CustomPainter {
 
     // 5. วาดพื้นหลังไล่เฉดสีขาวไข่มุก (Soft Pearl Gradient) สวยพรีเมียม
     final Paint fillPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          Color(0xFFFFFFFF),
-          Color(0xFFF9FBF9),
-        ],
-      ).createShader(Rect.fromLTWH(0, barTop, size.width, size.height - barTop));
+      ..shader =
+          const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFFFFFFF), Color(0xFFF9FBF9)],
+          ).createShader(
+            Rect.fromLTWH(0, barTop, size.width, size.height - barTop),
+          );
     canvas.drawPath(finalPath, fillPaint);
 
     // 6. วาดเส้นขอบบางประณีต (Subtle Hairline Accent Border)
@@ -4102,5 +4293,3 @@ class _CurvedNavPainter extends CustomPainter {
     return oldDelegate.notchCenter != notchCenter;
   }
 }
-
-

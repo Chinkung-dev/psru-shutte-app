@@ -11,8 +11,9 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import '../../widgets/top_toast.dart';
 import 'package:flutter_tts/flutter_tts.dart'; // สำหรับเสียง AI พูดภาษาไทย
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'; // สำหรับเล่นเสียงแจ้งเตือนมือถือ
 import 'package:audioplayers/audioplayers.dart'; // สำหรับเล่นไฟล์เสียง MP3 จุดจอด
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'; // สำหรับเล่นเสียงแจ้งเตือนมือถือ
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../route_data.dart';
 import 'driver_profile.dart'; // Import หน้าโปรไฟล์คนขับรถ
 import 'driver_status_screen.dart'; // Import หน้าสถานะรถ
@@ -42,6 +43,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   StreamSubscription<Position>? positionStream;
   StreamSubscription<QuerySnapshot>? requestStream;
   StreamSubscription? myShuttleSubscription; // ฟังสถานะตัวเอง
+  StreamSubscription<DocumentSnapshot>? _userSessionSubscription; // ฟังเซสชันของบัญชีคนขับ
+  String? _localSessionId; // เก็บ Session ID ของเครื่องปัจจุบัน
+  bool _isForceLoggingOut = false; // ป้องกันการเปิด Dialog เตือนซ้ำ
   Timer?
   _heartbeatTimer; // Heartbeat สำหรับอัปเดตเวลาให้สดใหม่อยู่เสมอตอนจอดรอรับส่ง
   String _currentPassengerStatus = 'available';
@@ -222,6 +226,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
     _fetchStopsFromFirebase();
     _fetchDriverShuttle(); // ดึงข้อมูลรถของคนขับ
+    _listenToUserSession(); // เริ่มฟังสถานะเซสชันของคนขับเพื่อป้องกันการล็อกอินซ้ำ
   }
 
   // ฟังก์ชันสำหรับหาว่าคนขับคนนี้ รับผิดชอบรถคันไหน
@@ -761,6 +766,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     _markerAnimationController.dispose();
     _otherMarkersAnimationController.dispose();
     positionStream?.cancel();
+    _userSessionSubscription?.cancel();
     requestStream?.cancel();
     _chatNotificationSub?.cancel();
     _chatSubscription?.cancel();
@@ -768,6 +774,114 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     myShuttleSubscription?.cancel();
     allShuttlesSubscription?.cancel();
     super.dispose();
+  }
+
+  void _listenToUserSession() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _localSessionId = prefs.getString('current_session_id');
+    } catch (_) {}
+
+    _userSessionSubscription?.cancel();
+    _userSessionSubscription = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .snapshots()
+        .handleError(
+          (e) => debugPrint("Firestore Error (driver user session): $e"),
+        )
+        .listen((doc) async {
+          if (!doc.exists || doc.data() == null) return;
+          final data = doc.data()!;
+
+          // 1. ตรวจสอบการเข้าสู่ระบบซ้ำ (Single Active Session)
+          final serverSessionId = data['current_session_id'] as String?;
+          if (serverSessionId != null) {
+            if (_localSessionId == null) {
+              _localSessionId = serverSessionId;
+              try {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setString('current_session_id', serverSessionId);
+              } catch (_) {}
+            } else if (serverSessionId != _localSessionId) {
+              _handleConcurrentLogin();
+              return;
+            }
+          }
+        });
+  }
+
+  /// จัดการเมื่อตรวจพบว่ามีการเข้าสู่ระบบซ้ำจากอุปกรณ์อื่นสำหรับคนขับ
+  void _handleConcurrentLogin() {
+    if (_isForceLoggingOut) return;
+    _isForceLoggingOut = true;
+
+    // หยุดการส่งพิกัด GPS ทันทีเพื่อความปลอดภัย
+    positionStream?.cancel();
+    _heartbeatTimer?.cancel();
+    flutterTts.stop();
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+              SizedBox(width: 10),
+              Text(
+                'มีการเข้าสู่ระบบจากอุปกรณ์อื่น',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF2C2F30),
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'บัญชีคนขับนี้ถูกเข้าสู่ระบบจากอุปกรณ์อื่นแล้ว ระบบได้นำคุณออกจากระบบเพื่อความปลอดภัย หากต้องการใช้งานต่อ กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
+            style: TextStyle(
+              fontSize: 14,
+              color: Color(0xFF595C5D),
+              height: 1.4,
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF176a21),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _logout();
+              },
+              child: const Text(
+                'ตกลง',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _logout() async {

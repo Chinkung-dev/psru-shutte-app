@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:io';
+import 'dart:typed_data';
 
 class StudentChatScreen extends StatefulWidget {
   final String? shuttleId;
@@ -142,12 +142,23 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
 
   Future<void> _pickAndSendImage() async {
     try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera, // บังคับเปิดกล้องถ่ายสดเท่านั้น (ป้องกันอัปรูปจาก Gallery)
-        imageQuality: 50, // บีบอัดคุณภาพรูป
-        maxWidth: 1024, // จำกัดความกว้างไม่ให้เกิน 1024px
-        maxHeight: 1024, // จำกัดความสูงไม่ให้เกิน 1024px
-      );
+      XFile? image;
+      try {
+        image = await _picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 50,
+          maxWidth: 1024,
+          maxHeight: 1024,
+        );
+      } catch (cameraError) {
+        // กรณีอุปกรณ์/เบราว์เซอร์ไม่รองรับ Camera API ตรงๆ ให้ fallback เป็นคลังภาพ/ไฟล์
+        image = await _picker.pickImage(
+          source: ImageSource.gallery,
+          imageQuality: 50,
+          maxWidth: 1024,
+          maxHeight: 1024,
+        );
+      }
       
       if (image == null) return;
 
@@ -158,8 +169,12 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
       final String fileName = '${DateTime.now().millisecondsSinceEpoch}_${image.name}';
       final Reference ref = FirebaseStorage.instance.ref().child('chat_images').child(fileName);
       
-      final File file = File(image.path);
-      final UploadTask uploadTask = ref.putFile(file, SettableMetadata(contentType: 'image/jpeg'));
+      // ใช้อ่านเป็นไบต์ (Uint8List) เพื่อให้รองรับทั้ง Flutter Web (Hosting), Android และ iOS
+      final Uint8List bytes = await image.readAsBytes();
+      final UploadTask uploadTask = ref.putData(
+        bytes,
+        SettableMetadata(contentType: 'image/jpeg'),
+      );
       
       final TaskSnapshot snapshot = await uploadTask;
       final String downloadUrl = await snapshot.ref.getDownloadURL();
