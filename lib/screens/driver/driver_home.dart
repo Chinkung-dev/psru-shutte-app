@@ -1694,6 +1694,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
   Future<void> _acknowledgeRequest() async {
     if (activeRequestIds.isNotEmpty) {
+      final int count = activeRequestIds.length;
       final batch = FirebaseFirestore.instance.batch();
       for (var id in activeRequestIds) {
         final docRef = FirebaseFirestore.instance
@@ -1705,6 +1706,24 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         });
       }
       await batch.commit();
+
+      // บันทึกสถิติลง Analytics
+      try {
+        final now = DateTime.now();
+        final dateStr =
+            "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+        FirebaseFirestore.instance
+            .collection('analytics')
+            .doc('daily_stats_$dateStr')
+            .set({
+              'acknowledged_requests_count': FieldValue.increment(count),
+              'on_time_trips': FieldValue.increment(count),
+              'last_updated': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+      } catch (e) {
+        print("Error updating driver acknowledge analytics: $e");
+      }
 
       if (mounted) {
         setState(() {
@@ -2046,7 +2065,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               initialZoom: 15.5,
               minZoom: 14.5,
               maxZoom: 18.0,
-              cameraConstraint: CameraConstraint.contain(bounds: _psruBounds),
+              cameraConstraint:
+                  CameraConstraint.containCenter(bounds: _psruBounds),
               interactionOptions: InteractionOptions(
                 flags:
                     InteractiveFlag.pinchZoom |
@@ -2117,9 +2137,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                         isPickupSelected || isDropoffSelected;
 
                     return Marker(
-                      key: ValueKey('stop_${name}'),
+                      key: ValueKey('stop_$name'),
                       point: LatLng(vStop['lat'], vStop['lng']),
-                      width: isHighlighted ? 150 : 130,
+                      width: 160,
                       height: isHighlighted ? 80 : 65,
                       child: RepaintBoundary(
                         child: _buildStopMarker(
@@ -2127,6 +2147,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                           isPickupSelected: isPickupSelected,
                           isDropoffSelected: isDropoffSelected,
                           dropoffCount: dropoffCount,
+                          isGroup: vStop['isGroup'] == true,
                         ),
                       ),
                     );
@@ -2483,10 +2504,13 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         // หน้าต่างออฟไลน์ (แสดงเป็นการ์ดลอยด้านล่างเมื่อยังไม่เริ่มงาน)
         if (!isOnline)
           Positioned(
-            bottom: 105,
-            left: 0,
-            right: 0,
-            child: _buildOfflineSheet(),
+            bottom: 100,
+            left: 16,
+            right: 16,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: _buildOfflineSheet(),
+            ),
           ),
 
         // การแจ้งเตือนเวลามีนักศึกษาเรียก (Popup ด้านล่าง)
@@ -2494,99 +2518,110 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             waitingStudentStop != null &&
             currentRequestStatus == 'waiting')
           Positioned(
-            bottom: 105,
-            left: 0,
-            right: 0,
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF1F8B2E), Color(0xFF176a21)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF176a21).withValues(alpha: 0.35),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
+            bottom: 100,
+            left: 16,
+            right: 16,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 18,
                   ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF9DF197),
-                      shape: BoxShape.circle,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF1F8B2E), Color(0xFF176a21)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                    child: const Icon(
-                      Icons.front_hand,
-                      color: Color(0xFF176a21),
-                      size: 24,
-                    ),
+                    borderRadius: BorderRadius.circular(26),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF176a21).withValues(alpha: 0.35),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'มีนักศึกษารออยู่ที่:',
-                          style: TextStyle(color: Colors.white70, fontSize: 13),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF9DF197),
+                          shape: BoxShape.circle,
                         ),
-                        Text(
-                          waitingStudentStop!,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 17,
-                            fontWeight: FontWeight.bold,
+                        child: const Icon(
+                          Icons.front_hand,
+                          color: Color(0xFF176a21),
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'มีนักศึกษารออยู่ที่:',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                              ),
+                            ),
+                            Text(
+                              waitingStudentStop!,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (activeStudentCount > 1)
+                              Text(
+                                '(จำนวน $activeStudentCount คน)',
+                                style: const TextStyle(
+                                  color: Color(0xFF9DF197),
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: _acknowledgeRequest,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 12,
                           ),
-                        ),
-                        if (activeStudentCount > 1)
-                          Text(
-                            '(จำนวน $activeStudentCount คน)',
-                            style: const TextStyle(
-                              color: Color(0xFF9DF197),
-                              fontSize: 13.5,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(24),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.15),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Text(
+                            'รับทราบ',
+                            style: TextStyle(
+                              color: Color(0xFF176a21),
                               fontWeight: FontWeight.bold,
+                              fontSize: 15,
                             ),
                           ),
-                      ],
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: _acknowledgeRequest,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 12,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(24),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.15),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: const Text(
-                        'รับทราบ',
-                        style: TextStyle(
-                          color: Color(0xFF176a21),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -2778,89 +2813,139 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   }
 
   Widget _buildOfflineSheet() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(32),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF2C2F30).withOpacity(0.1),
-            blurRadius: 30,
-            offset: const Offset(0, 10),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 440),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(
+            color: const Color(0xFF176a21).withValues(alpha: 0.10),
+            width: 1.0,
           ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: const BoxDecoration(
-                  color: Colors.grey,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Text(
-                'ออฟไลน์ (ยังไม่เริ่มงาน)',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF595C5D),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'ระบบกำลังรอการเชื่อมต่อเพื่อเริ่มติดตามตำแหน่งรถ',
-            style: TextStyle(color: Colors.grey, fontSize: 13),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          GestureDetector(
-            onTap: _startShift,
-            child: Container(
-              height: 56,
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF176a21).withValues(alpha: 0.12),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ป้ายสถานะ Capsule Pill
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF9DF197), Color(0xFF176a21)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+                color: const Color(0xFFF1F5F2),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: Colors.black.withValues(alpha: 0.04),
                 ),
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF176a21).withOpacity(0.3),
-                    blurRadius: 15,
-                    offset: const Offset(0, 5),
-                  ),
-                ],
               ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.play_arrow, color: Colors.white, size: 24),
-                  SizedBox(width: 10),
-                  Text(
-                    'เริ่มงาน (Online)',
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF57C00),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'สถานะ: ออฟไลน์ (ยังไม่เริ่มงาน)',
                     style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.white,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
+                      color: Color(0xFF5A605B),
                     ),
                   ),
                 ],
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            const Text(
+              'พร้อมเริ่มให้บริการรถรับส่ง',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF1E2923),
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'กดปุ่มด้านล่างเพื่อเริ่มแชร์ตำแหน่ง GPS และรับคำขอจากนักศึกษา',
+              style: TextStyle(
+                color: Color(0xFF718076),
+                fontSize: 12.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _startShift,
+                borderRadius: BorderRadius.circular(24),
+                child: Ink(
+                  height: 52,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF1F8B2E), Color(0xFF176a21)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF176a21).withValues(alpha: 0.35),
+                        blurRadius: 14,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.20),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.play_arrow_rounded,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      const Text(
+                        'เริ่มงาน (Online)',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2941,17 +3026,26 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     required bool isPickupSelected,
     required bool isDropoffSelected,
     int dropoffCount = 0,
+    bool isGroup = false,
   }) {
     final bool isHighlighted = isPickupSelected || isDropoffSelected;
 
-    // กำหนดสีตามสถานะ: ป้ายลงรถเป็นสีเขียวเข้ม #176a21 / ป้ายขึ้นรถเป็นสีส้ม #F28522
+    String cleanName = name
+        .replaceAll('(ขาเข้า)', '')
+        .replaceAll('(ขาออก)', '')
+        .trim();
+
     Color pinBgColor = Colors.white;
-    Color pinBorderColor = const Color(0xFF757778);
-    Color pinIconColor = const Color(0xFF757778);
+    Color pinBorderColor = isGroup
+        ? const Color(0xFF176a21)
+        : const Color(0xFF66BB6A);
+    Color pinIconColor = isGroup
+        ? const Color(0xFF176a21)
+        : const Color(0xFF436B49);
     Color labelBgColor = Colors.white;
-    Color labelTextColor = const Color(0xFF2C2F30);
-    Color labelBorderColor = const Color(0xFF176a21);
-    IconData iconData = Icons.hail;
+    Color labelTextColor = const Color(0xFF1E2923);
+    Color labelBorderColor = const Color(0xFF176a21).withValues(alpha: 0.20);
+    IconData iconData = Icons.hail_rounded;
 
     if (isDropoffSelected) {
       pinBgColor = const Color(0xFF176a21);
@@ -2960,22 +3054,22 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       labelBgColor = const Color(0xFF176a21);
       labelTextColor = Colors.white;
       labelBorderColor = Colors.white;
-      iconData = Icons.location_on;
+      iconData = Icons.location_on_rounded;
     } else if (isPickupSelected) {
-      pinBgColor = const Color(0xFFF28522);
+      pinBgColor = const Color(0xFFF57C00);
       pinBorderColor = Colors.white;
       pinIconColor = Colors.white;
-      labelBgColor = const Color(0xFFF28522);
+      labelBgColor = const Color(0xFFF57C00);
       labelTextColor = Colors.white;
       labelBorderColor = Colors.white;
-      iconData = Icons.hail;
+      iconData = Icons.hail_rounded;
     }
 
     return Stack(
       clipBehavior: Clip.none,
       alignment: Alignment.center,
       children: [
-        // หมุดไอคอนจุดจอด (อยู่ตรงกลาง LatLng พอดีเป๊ะ)
+        // หมุดไอคอนจุดจอด
         Container(
           width: isHighlighted ? 34 : 28,
           height: isHighlighted ? 34 : 28,
@@ -2984,17 +3078,17 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             shape: BoxShape.circle,
             border: Border.all(
               color: pinBorderColor,
-              width: isHighlighted ? 2.5 : 1,
+              width: isHighlighted ? 2.5 : 2,
             ),
             boxShadow: [
               BoxShadow(
                 color: isDropoffSelected
-                    ? const Color(0xFF176a21).withOpacity(0.5)
+                    ? const Color(0xFF176a21).withValues(alpha: 0.40)
                     : (isPickupSelected
-                          ? const Color(0xFFF28522).withOpacity(0.5)
-                          : Colors.black.withOpacity(0.1)),
-                blurRadius: isHighlighted ? 8 : 3,
-                spreadRadius: isHighlighted ? 2 : 0,
+                          ? const Color(0xFFF57C00).withValues(alpha: 0.40)
+                          : const Color(0xFF176a21).withValues(alpha: 0.18)),
+                blurRadius: isHighlighted ? 10 : 6,
+                spreadRadius: isHighlighted ? 1 : 0,
                 offset: const Offset(0, 2),
               ),
             ],
@@ -3018,8 +3112,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 border: Border.all(color: Colors.white, width: 1.5),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 4,
+                    color: const Color(0xFF176a21).withValues(alpha: 0.30),
+                    blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
                 ],
@@ -3028,11 +3122,11 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Icon(
-                    Icons.person_pin_circle,
+                    Icons.person_pin_circle_rounded,
                     color: Colors.white,
-                    size: 12,
+                    size: 13,
                   ),
-                  const SizedBox(width: 2),
+                  const SizedBox(width: 3),
                   Text(
                     'ลง $dropoffCount คน',
                     style: const TextStyle(
@@ -3046,25 +3140,32 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             ),
           ),
 
-        // ป้ายชื่อจุดจอดรถ (ลอยอยู่ด้านบน)
+        // ป้ายชื่อจุดจอดรถ
         Positioned(
-          bottom: isHighlighted ? 48 : 40,
+          bottom: isHighlighted ? 38 : 32,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
               color: labelBgColor,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: labelBorderColor, width: 1.5),
+              border: Border.all(
+                color: labelBorderColor,
+                width: isHighlighted ? 1.5 : 1,
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.15),
-                  blurRadius: 4,
+                  color: isHighlighted
+                      ? (isDropoffSelected
+                            ? const Color(0xFF176a21).withValues(alpha: 0.25)
+                            : const Color(0xFFF57C00).withValues(alpha: 0.25))
+                      : Colors.black.withValues(alpha: 0.10),
+                  blurRadius: isHighlighted ? 8 : 6,
                   offset: const Offset(0, 2),
                 ),
               ],
             ),
             child: Text(
-              name,
+              cleanName,
               style: TextStyle(
                 fontSize: isHighlighted ? 11 : 10,
                 fontWeight: FontWeight.bold,

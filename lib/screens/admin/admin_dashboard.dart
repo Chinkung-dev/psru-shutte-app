@@ -1,7 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import '../../route_data.dart';
@@ -9,7 +10,6 @@ import 'admin_live_map.dart';
 import 'admin_drivers_tab.dart';
 import 'admin_students_tab.dart';
 import 'admin_analytics_tab.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // เพิ่ม Import FirebaseAuth สำหรับล็อกเอาต์
 import 'admin_profile_dialog.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -21,19 +21,15 @@ class AdminDashboardScreen extends StatefulWidget {
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  int _selectedIndex = 1; // Start on Live Map for preview, or 0 for Overview
+  int _selectedIndex = 0; // เริ่มต้นที่หน้าภาพรวมระบบ
 
   @override
   Widget build(BuildContext context) {
-    final isDesktop = MediaQuery.of(context).size.width > 900;
-    final isTablet =
-        MediaQuery.of(context).size.width > 600 &&
-        MediaQuery.of(context).size.width <= 900;
+    final isDesktop = MediaQuery.of(context).size.width > 960;
 
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: const Color(0xFFF7F9FA),
-
+      backgroundColor: const Color(0xFFF2F6F3),
       drawer: isDesktop
           ? null
           : Drawer(
@@ -91,6 +87,7 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
   StreamSubscription? _shuttlesSub;
   StreamSubscription? _rtdbSub;
   StreamSubscription? _ridesSub;
+  StreamSubscription? _analyticsSub;
 
   List<Map<String, dynamic>> _firestoreShuttles = [];
   Map<String, Map<dynamic, dynamic>> _rtdbShuttles = {};
@@ -103,15 +100,21 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
   }
 
   void _listenToShuttles() {
-    _shuttlesSub = FirebaseFirestore.instance.collection('shuttles').snapshots().handleError((e) => print("Firestore Error (shuttles): $e")).listen((snapshot) {
+    _shuttlesSub = FirebaseFirestore.instance
+        .collection('shuttles')
+        .snapshots()
+        .listen((snapshot) {
       if (!mounted) return;
-      _firestoreShuttles = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+      _firestoreShuttles =
+          snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
       _mergeAndRefreshShuttles();
+    }, onError: (e) {
+      debugPrint("Firestore Error (shuttles): $e");
     });
 
     _rtdbSub = FirebaseDatabase.instance.ref('shuttles').onValue.listen((event) {
       if (!mounted) return;
-      if (event.snapshot.exists) {
+      if (event.snapshot.exists && event.snapshot.value is Map) {
         final data = event.snapshot.value as Map<dynamic, dynamic>;
         final Map<String, Map<dynamic, dynamic>> parsed = {};
         data.forEach((key, value) {
@@ -124,6 +127,8 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
         _rtdbShuttles = {};
       }
       _mergeAndRefreshShuttles();
+    }, onError: (e) {
+      debugPrint("RTDB Error (shuttles): $e");
     });
   }
 
@@ -132,7 +137,6 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
     final now = DateTime.now();
     final Map<String, Map<String, dynamic>> shuttleMap = {};
 
-    // 1. ดึงข้อมูลจาก RTDB เป็นหลัก (เพราะสถานะออนไลน์จริงอัปเดตที่ RTDB)
     _rtdbShuttles.forEach((rtdbKey, rtdbDoc) {
       Map<String, dynamic>? matchingFsDoc;
       for (var fsDoc in _firestoreShuttles) {
@@ -213,7 +217,6 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
       };
     });
 
-    // 2. ผสานข้อมูลจาก Firestore Shuttles
     for (var fsDoc in _firestoreShuttles) {
       final String name = (fsDoc['name'] ?? fsDoc['id']).toString();
       final String number = (fsDoc['number'] ?? '').toString();
@@ -243,7 +246,6 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
 
     List<Map<String, dynamic>> list = shuttleMap.values.toList();
 
-    // เรียงลำดับ: รถที่ออนไลน์ (online) อยู่ด้านบนสุดเสมอ
     list.sort((a, b) {
       bool aOnline = a['status'] == 'online';
       bool bOnline = b['status'] == 'online';
@@ -269,52 +271,64 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
       }
     }
 
-    setState(() {
-      availableCount = a;
-      fullCount = f;
-      breakCount = b;
-      offlineCount = o;
-      activeShuttleList = list;
-    });
+    if (mounted) {
+      setState(() {
+        availableCount = a;
+        fullCount = f;
+        breakCount = b;
+        offlineCount = o;
+        activeShuttleList = list;
+      });
+    }
   }
 
   void _listenToRideRequests() {
+    final now = DateTime.now();
+    final dateStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+    _analyticsSub = FirebaseFirestore.instance
+        .collection('analytics')
+        .doc('daily_stats_$dateStr')
+        .snapshots()
+        .listen((doc) {
+      if (!mounted) return;
+      if (doc.exists && doc.data() != null) {
+        final data = doc.data()!;
+        final int totalPass =
+            ((data['total_passengers'] ?? data['total_requests'] ?? 0) as num)
+                .toInt();
+        final num totalWaitSec = (data['total_wait_seconds'] ?? 0) as num;
+        final int boardedCount =
+            ((data['boarded_count'] ?? 0) as num).toInt();
+        final int ackCount =
+            ((data['acknowledged_requests_count'] ?? 0) as num).toInt();
+
+        // ใช้นับจำนวนรอบที่ขึ้นรถจริง (boarded_count) เป็นหลัก หากยังไม่มีให้ใช้ ackCount
+        final int tripCount = boardedCount > 0 ? boardedCount : ackCount;
+
+        double avgMins = 0.0;
+        if (tripCount > 0 && totalWaitSec > 0) {
+          avgMins = (totalWaitSec / tripCount) / 60.0;
+        }
+
+        setState(() {
+          passengersToday = totalPass;
+          avgWaitTimeMins = avgMins;
+        });
+      }
+    });
+
     _ridesSub = FirebaseFirestore.instance
         .collection('ride_requests')
         .snapshots()
         .listen((snapshot) {
       if (!mounted) return;
-
-      int todayCount = 0;
-      double totalWaitMins = 0.0;
-      int waitCount = 0;
-
-      final now = DateTime.now();
-      final startOfDay = DateTime(now.year, now.month, now.day);
-
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final Timestamp? ts = data['timestamp'] as Timestamp?;
-        if (ts != null) {
-          final dt = ts.toDate();
-          if (dt.isAfter(startOfDay)) {
-            todayCount++;
-            final Timestamp? ackTs = data['acknowledged_at'] as Timestamp?;
-            if (ackTs != null) {
-              final ackDt = ackTs.toDate();
-              totalWaitMins += ackDt.difference(dt).inSeconds / 60.0;
-              waitCount++;
-            }
-          }
-        } else {
-          todayCount++;
-        }
+      if (passengersToday == 0 && snapshot.docs.isNotEmpty) {
+        setState(() {
+          passengersToday = snapshot.docs.length;
+        });
       }
-
-      setState(() {
-        passengersToday = todayCount;
-        avgWaitTimeMins = waitCount > 0 ? (totalWaitMins / waitCount) : 0.0;
-      });
     });
   }
 
@@ -323,45 +337,47 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
     _shuttlesSub?.cancel();
     _rtdbSub?.cancel();
     _ridesSub?.cancel();
+    _analyticsSub?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDesktop = MediaQuery.of(context).size.width > 900;
+    final isDesktop = MediaQuery.of(context).size.width > 960;
 
     return CustomScrollView(
       slivers: [
         if (!isDesktop)
           SliverAppBar(
             backgroundColor: Colors.white,
+            elevation: 0,
             pinned: true,
             leading: IconButton(
-              icon: const Icon(Icons.menu, color: Colors.black87),
+              icon: const Icon(Icons.menu, color: Color(0xFF176a21)),
               onPressed: () => Scaffold.of(context).openDrawer(),
             ),
             title: const Text(
-              'ศูนย์ควบคุม',
+              'ศูนย์ควบคุมภาพรวม',
               style: TextStyle(
-                color: Colors.black87,
+                color: Color(0xFF176a21),
                 fontWeight: FontWeight.bold,
+                fontSize: 18,
               ),
             ),
           ),
         if (isDesktop)
-          SliverToBoxAdapter(
-            child: Container(
-              color: Colors.white,
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
-              child: const DashboardHeader(),
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(28, 20, 28, 12),
+              child: DashboardHeader(),
             ),
           ),
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          padding: const EdgeInsets.fromLTRB(28, 12, 28, 32),
           sliver: SliverList(
             delegate: SliverChildListDelegate([
               const FleetOverviewTitle(),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               StatsRowWidget(
                 availableCount: availableCount,
                 fullCount: fullCount,
@@ -370,23 +386,31 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
                 passengersToday: passengersToday,
                 avgWaitTimeMins: avgWaitTimeMins,
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
               LayoutBuilder(
                 builder: (context, constraints) {
-                  if (constraints.maxWidth > 800) {
+                  if (constraints.maxWidth > 900) {
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(flex: 4, child: LeftColumnContent(activeShuttles: activeShuttleList)),
+                        Expanded(
+                          flex: 5,
+                          child: LeftColumnContent(
+                            activeShuttles: activeShuttleList,
+                          ),
+                        ),
                         const SizedBox(width: 24),
-                        const Expanded(flex: 6, child: RightColumnContent()),
+                        const Expanded(
+                          flex: 6,
+                          child: RightColumnContent(),
+                        ),
                       ],
                     );
                   } else {
                     return Column(
                       children: [
                         LeftColumnContent(activeShuttles: activeShuttleList),
-                        const SizedBox(height: 32),
+                        const SizedBox(height: 24),
                         const RightColumnContent(),
                       ],
                     );
@@ -413,18 +437,33 @@ class AdminSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      child: SizedBox(
-        width: 250,
-        child: Column(
+    return Container(
+      width: 260,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          right: BorderSide(
+            color: Colors.black.withOpacity(0.05),
+            width: 1,
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF176a21).withOpacity(0.04),
+            blurRadius: 16,
+            offset: const Offset(4, 0),
+          ),
+        ],
+      ),
+      child: Column(
         children: [
+          // ส่วนหัว Sidebar แสดงโลโก้แบบเดิม
           Padding(
             padding: const EdgeInsets.only(
               top: 24.0,
               left: 24.0,
               right: 24.0,
-              bottom: 10.0,
+              bottom: 16.0,
             ),
             child: Align(
               alignment: Alignment.centerLeft,
@@ -435,89 +474,278 @@ class AdminSidebar extends StatelessWidget {
               ),
             ),
           ),
-          _buildNavItem(Icons.dashboard_rounded, 'Overview', 0),
-          _buildNavItem(Icons.map_outlined, 'Live Map', 1),
-          _buildNavItem(Icons.people_outline, 'Drivers', 2),
-          _buildNavItem(Icons.school_outlined, 'Students', 3),
-          _buildNavItem(Icons.analytics_outlined, 'Analytics', 4),
-          const Spacer(),
-          _buildNavItem(Icons.settings_outlined, 'Settings', 5),
-          _buildNavItem(Icons.help_outline, 'Support', 6),
+          const Divider(height: 1, color: Color(0xFFEFF2F0)),
           const SizedBox(height: 16),
-          // เพิ่มปุ่มออกจากระบบ (Logout)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: ListTile(
-              leading: const Icon(Icons.logout, color: Colors.redAccent, size: 22),
-              title: const Text(
-                'ออกจากระบบ',
-                style: TextStyle(
-                  color: Colors.redAccent,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 15,
-                ),
-              ),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              hoverColor: Colors.redAccent.withOpacity(0.1),
-              onTap: () async {
-                bool? confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (BuildContext context) {
-                    return AlertDialog(
-                      title: const Text('ยืนยันการออกจากระบบ'),
-                      content: const Text('คุณต้องการออกจากระบบใช่หรือไม่?'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.of(context).pop(false),
-                          child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
-                        ),
-                        TextButton(
-                          onPressed: () => Navigator.of(context).pop(true),
-                          child: const Text('ออกจากระบบ', style: TextStyle(color: Colors.redAccent)),
-                        ),
-                      ],
-                    );
-                  },
-                );
 
-                if (confirm == true) {
-                  await FirebaseAuth.instance.signOut();
-                  if (context.mounted) {
-                    Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
-                  }
-                }
-              },
+          // รายการเมนูหลัก
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              children: [
+                _buildNavItem(
+                  icon: Icons.dashboard_rounded,
+                  title: 'ภาพรวมระบบ',
+                  subtitle: 'Dashboard',
+                  index: 0,
+                ),
+                _buildNavItem(
+                  icon: Icons.map_rounded,
+                  title: 'แผนที่ติดตามสด',
+                  subtitle: 'Live Map',
+                  index: 1,
+                ),
+                _buildNavItem(
+                  icon: Icons.badge_rounded,
+                  title: 'จัดการคนขับรถ',
+                  subtitle: 'Drivers',
+                  index: 2,
+                ),
+                _buildNavItem(
+                  icon: Icons.school_rounded,
+                  title: 'จัดการนักศึกษา',
+                  subtitle: 'Students',
+                  index: 3,
+                ),
+                _buildNavItem(
+                  icon: Icons.insights_rounded,
+                  title: 'รายงานและสถิติ',
+                  subtitle: 'Analytics',
+                  index: 4,
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 24),
+
+          // ส่วนท้าย Sidebar: โปรไฟล์ & ออกจากระบบ
+          const Divider(height: 1, color: Color(0xFFEFF2F0)),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                InkWell(
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => const AdminProfileDialog(),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF2F6F3),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFF176a21).withOpacity(0.08),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF176a21),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.admin_panel_settings_rounded,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'ผู้ดูแลระบบ',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: Color(0xFF2C2F30),
+                                ),
+                              ),
+                              Text(
+                                'จัดการโปรไฟล์',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF718076),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(
+                          Icons.chevron_right_rounded,
+                          color: Color(0xFF718076),
+                          size: 18,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                InkWell(
+                  onTap: () async {
+                    bool? confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (BuildContext context) {
+                        return AlertDialog(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          title: const Row(
+                            children: [
+                              Icon(
+                                Icons.logout_rounded,
+                                color: Colors.redAccent,
+                              ),
+                              SizedBox(width: 10),
+                              Text(
+                                'ยืนยันการออกจากระบบ',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          content: const Text(
+                            'คุณต้องการออกจากระบบผู้ดูแลใช่หรือไม่?',
+                            style: TextStyle(fontSize: 14),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(false),
+                              child: const Text(
+                                'ยกเลิก',
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            ),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.redAccent,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: () => Navigator.of(context).pop(true),
+                              child: const Text('ออกจากระบบ'),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+
+                    if (confirm == true) {
+                      try {
+                        await FirebaseAuth.instance.signOut();
+                        if (context.mounted) {
+                          Navigator.pushNamedAndRemoveUntil(
+                            context,
+                            '/login',
+                            (route) => false,
+                          );
+                        }
+                      } catch (e) {
+                        debugPrint("Sign out error: $e");
+                      }
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF0F0),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.power_settings_new_rounded,
+                          color: Colors.redAccent,
+                          size: 18,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'ออกจากระบบ',
+                          style: TextStyle(
+                            color: Colors.redAccent,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
-      ),
       ),
     );
   }
 
-  Widget _buildNavItem(IconData icon, String title, int index) {
+  Widget _buildNavItem({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required int index,
+  }) {
     final isActive = selectedIndex == index;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: isActive ? const Color(0xFF176a21) : Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: isActive
+            ? [
+                BoxShadow(
+                  color: const Color(0xFF176a21).withOpacity(0.25),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null,
+      ),
       child: ListTile(
-        tileColor: isActive
-            ? const Color(0xFF176a21).withOpacity(0.1)
-            : Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
         leading: Icon(
           icon,
-          color: isActive ? const Color(0xFF176a21) : Colors.grey.shade600,
+          color: isActive ? Colors.white : const Color(0xFF5A605B),
           size: 22,
         ),
         title: Text(
           title,
           style: TextStyle(
-            color: isActive ? const Color(0xFF176a21) : Colors.grey.shade700,
-            fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-            fontSize: 15,
+            color: isActive ? Colors.white : const Color(0xFF2C2F30),
+            fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+            fontSize: 14,
           ),
         ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        subtitle: Text(
+          subtitle,
+          style: TextStyle(
+            color: isActive
+                ? Colors.white.withOpacity(0.8)
+                : const Color(0xFF8A938C),
+            fontSize: 11,
+          ),
+        ),
         onTap: () => onItemSelected(index),
       ),
     );
@@ -529,60 +757,117 @@ class DashboardHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Text(
-          'ศูนย์ควบคุม',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.black.withOpacity(0.04)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF176a21).withOpacity(0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
           ),
-        ),
-        const Spacer(),
-        Container(
-          width: 300,
-          height: 40,
-          decoration: BoxDecoration(
-            color: Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: TextField(
-            style: const TextStyle(color: Colors.black87),
-            decoration: InputDecoration(
-              hintText: 'ค้นหาเส้นทาง, คนขับ...',
-              hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-              prefixIcon: Icon(
-                Icons.search,
-                color: Colors.grey.shade500,
-                size: 20,
-              ),
-              border: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(vertical: 10),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8F5E9),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.dashboard_rounded,
+              color: Color(0xFF176a21),
+              size: 22,
             ),
           ),
-        ),
-        const SizedBox(width: 16),
-        IconButton(
-          icon: const Icon(Icons.notifications_outlined, color: Colors.black87),
-          onPressed: () {},
-        ),
-        const SizedBox(width: 8),
-        InkWell(
-          onTap: () {
-            showDialog(
-              context: context,
-              builder: (context) => const AdminProfileDialog(),
-            );
-          },
-          borderRadius: BorderRadius.circular(18),
-          child: const CircleAvatar(
-            backgroundColor: Color(0xFF176a21),
-            radius: 18,
-            child: Icon(Icons.person, color: Colors.white, size: 20),
+          const SizedBox(width: 14),
+          const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'ศูนย์ควบคุมภาพรวม',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF176a21),
+                ),
+              ),
+              Text(
+                'PSRU Smart Campus Transportation',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF5A605B),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
+          const Spacer(),
+          Container(
+            width: 260,
+            height: 42,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF2F6F3),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: const Color(0xFF176a21).withOpacity(0.12),
+              ),
+            ),
+            child: TextField(
+              style: const TextStyle(color: Color(0xFF2C2F30), fontSize: 13),
+              decoration: InputDecoration(
+                hintText: 'ค้นหาข้อมูลในระบบ...',
+                hintStyle: const TextStyle(
+                  color: Color(0xFF718076),
+                  fontSize: 13,
+                ),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: Color(0xFF176a21),
+                  size: 20,
+                ),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          InkWell(
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (context) => const AdminProfileDialog(),
+              );
+            },
+            borderRadius: BorderRadius.circular(22),
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFF176a21),
+                  width: 2,
+                ),
+              ),
+              child: const CircleAvatar(
+                backgroundColor: Color(0xFFE8F5E9),
+                radius: 18,
+                child: Icon(
+                  Icons.admin_panel_settings_rounded,
+                  color: Color(0xFF176a21),
+                  size: 20,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -592,55 +877,68 @@ class FleetOverviewTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Row(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
               'ภาพรวมระบบรถรับส่ง',
               style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF1E2923),
               ),
             ),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Color(0xFF176a21),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'ระบบทำงานปกติ',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black54,
-                    ),
-                  ),
-                ],
+            const SizedBox(height: 4),
+            Text(
+              'ติดตามสถานะรถ ความหนาแน่น และเวลาการรอแบบเรียลไทม์',
+              style: TextStyle(
+                color: const Color(0xFF5A605B).withOpacity(0.9),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 4),
-        const Text(
-          'ข้อมูลและสถิติแบบเรียลไทม์สำหรับ PSRU Shuttle',
-          style: TextStyle(color: Colors.black54, fontSize: 14),
+        const Spacer(),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: const Color(0xFF176a21).withOpacity(0.15),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF176a21).withOpacity(0.06),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Color(0xFF176a21),
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'ระบบทำงานปกติ (Live)',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF176a21),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -667,259 +965,318 @@ class StatsRowWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 16,
-      runSpacing: 16,
-      children: [
-        _buildFleetStatusCard(context),
-        _buildStatCard(
-          context,
-          label: 'นักศึกษาที่ใช้บริการวันนี้',
-          icon: Icons.people_alt,
-          iconColor: const Color(0xFF176a21),
-          iconBgColor: const Color(0xFF9DF197).withOpacity(0.3),
-          trend: 'รวมวันนี้',
-          trendColor: const Color(0xFF176a21),
-          value: passengersToday.toString(),
-        ),
-        _buildStatCard(
-          context,
-          label: 'เวลารอเฉลี่ย',
-          icon: Icons.timer,
-          iconColor: const Color(0xFF00bcd4),
-          iconBgColor: const Color(0xFF00bcd4).withOpacity(0.1),
-          trend: 'นาที/คน',
-          trendColor: const Color(0xFF176a21),
-          value: avgWaitTimeMins.toStringAsFixed(1),
-          unit: ' นาที',
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double spacing = 16.0;
+        int columns = 3;
+        if (constraints.maxWidth < 650) {
+          columns = 1;
+        } else if (constraints.maxWidth < 980) {
+          columns = 2;
+        }
+
+        final double cardWidth =
+            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            SizedBox(
+              width: cardWidth,
+              child: _buildFleetStatusCard(),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: _buildStatCard(
+                label: 'ผู้ใช้บริการสะสมวันนี้',
+                icon: Icons.people_alt_rounded,
+                iconColor: const Color(0xFF176a21),
+                iconBgColor: const Color(0xFFE8F5E9),
+                badgeText: 'รวมวันนี้',
+                value: passengersToday.toString(),
+                unit: ' คน',
+                gradientColors: const [Color(0xFF176a21), Color(0xFF66BB6A)],
+              ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: _buildStatCard(
+                label: 'เวลารอรถเฉลี่ย',
+                icon: Icons.hourglass_top_rounded,
+                iconColor: const Color(0xFF0288D1),
+                iconBgColor: const Color(0xFFE1F5FE),
+                badgeText: 'นาที/คน',
+                value: avgWaitTimeMins.toStringAsFixed(1),
+                unit: ' นาที',
+                gradientColors: const [Color(0xFF0288D1), Color(0xFF4FC3F7)],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _buildStatCard(
-    BuildContext context, {
+  Widget _buildStatCard({
+    required String label,
     required IconData icon,
     required Color iconColor,
     required Color iconBgColor,
-    required String trend,
-    required Color trendColor,
+    required String badgeText,
     required String value,
     String? unit,
+    required List<Color> gradientColors,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.black.withOpacity(0.04)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF176a21).withOpacity(0.06),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 4,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: gradientColors),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: iconBgColor,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(icon, color: iconColor, size: 22),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF2F6F3),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: const Color(0xFF176a21).withOpacity(0.1),
+                          ),
+                        ),
+                        child: Text(
+                          badgeText,
+                          style: const TextStyle(
+                            color: Color(0xFF176a21),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: Color(0xFF718076),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        value,
+                        style: const TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF1E2923),
+                        ),
+                      ),
+                      if (unit != null)
+                        Text(
+                          unit,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF718076),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFleetStatusCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.black.withOpacity(0.04)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF176a21).withOpacity(0.06),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 4,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Color(0xFF176a21),
+                    Color(0xFF66BB6A),
+                    Color(0xFF9DF197),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'สถานะรถรับส่งทั้งหมด',
+                    style: TextStyle(
+                      color: Color(0xFF718076),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildMiniStat(
+                          icon: Icons.directions_bus_rounded,
+                          color: const Color(0xFF176a21),
+                          bgColor: const Color(0xFFE8F5E9),
+                          value: availableCount.toString(),
+                          label: 'กำลังวิ่ง',
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildMiniStat(
+                          icon: Icons.groups_rounded,
+                          color: const Color(0xFFE65100),
+                          bgColor: const Color(0xFFFFF3E0),
+                          value: fullCount.toString(),
+                          label: 'รถเต็ม',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildMiniStat(
+                          icon: Icons.coffee_rounded,
+                          color: const Color(0xFFF57C00),
+                          bgColor: const Color(0xFFFFF8E1),
+                          value: breakCount.toString(),
+                          label: 'พักเบรก',
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildMiniStat(
+                          icon: Icons.power_off_rounded,
+                          color: const Color(0xFF757575),
+                          bgColor: const Color(0xFFF5F5F5),
+                          value: offlineCount.toString(),
+                          label: 'ออฟไลน์',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMiniStat({
+    required IconData icon,
+    required Color color,
+    required Color bgColor,
+    required String value,
     required String label,
   }) {
-    // Calculate width to be responsive
-    final screenWidth = MediaQuery.of(context).size.width;
-    double cardWidth = (screenWidth - 250 - 48 - 32) / 3;
-    if (screenWidth <= 900) cardWidth = (screenWidth - 48 - 16) / 2;
-    if (screenWidth <= 600) cardWidth = screenWidth - 48;
-    if (cardWidth < 200) cardWidth = 200; // minimum width
-
     return Container(
-      width: cardWidth,
-      height: 190,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.black54,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: iconBgColor,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: iconColor),
-              ),
-              Text(
-                trend,
-                style: TextStyle(
-                  color: trendColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              if (unit != null)
-                Text(
-                  unit,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFleetStatusCard(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    double cardWidth = (screenWidth - 250 - 48 - 32) / 3;
-    if (screenWidth <= 900) cardWidth = (screenWidth - 48 - 16) / 2;
-    if (screenWidth <= 600) cardWidth = screenWidth - 48;
-    if (cardWidth < 200) cardWidth = 200;
-
-    return Container(
-      width: cardWidth,
-      height: 190,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'สถานะรถทั้งหมด',
-            style: TextStyle(
-              color: Colors.black54,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildMiniStat(
-                  Icons.directions_bus,
-                  const Color(0xFF176a21),
-                  const Color(0xFF9DF197).withOpacity(0.3),
-                  availableCount.toString(),
-                  'กำลังวิ่ง',
-                ),
-              ),
-              Expanded(
-                child: _buildMiniStat(
-                  Icons.bus_alert,
-                  Colors.orange,
-                  Colors.orange.withOpacity(0.1),
-                  fullCount.toString(),
-                  'รถเต็ม',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildMiniStat(
-                  Icons.local_cafe,
-                  Colors.amber.shade700,
-                  Colors.amber.withOpacity(0.1),
-                  breakCount.toString(),
-                  'พักเบรก',
-                ),
-              ),
-              Expanded(
-                child: _buildMiniStat(
-                  Icons.directions_off,
-                  Colors.grey.shade600,
-                  Colors.grey.withOpacity(0.1),
-                  offlineCount.toString(),
-                  'เลิกงาน',
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMiniStat(
-    IconData icon,
-    Color color,
-    Color bgColor,
-    String value,
-    String label,
-  ) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, color: color, size: 20),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 8),
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 value,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: color,
                   height: 1.0,
                 ),
               ),
-              const SizedBox(height: 4),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  label,
-                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: color.withOpacity(0.85),
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -934,7 +1291,6 @@ class LeftColumnContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Sort shuttles to match student app: online first, then by number
     final sortedShuttles = List<Map<String, dynamic>>.from(activeShuttles);
     sortedShuttles.sort((a, b) {
       bool aOnline = a['status'] == 'online';
@@ -951,146 +1307,111 @@ class LeftColumnContent extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text(
-              'สถานะรถ',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF2C2F30)),
-            ),
-            Row(
-              children: [
-                // ปุ่มรีเซ็ตสถานะรถ (สำหรับเคลียร์รถที่ค้างในระบบ)
-                IconButton(
-                  icon: const Icon(Icons.refresh, color: Colors.grey, size: 20),
-                  tooltip: 'รีเซ็ตรถที่ค้างในระบบเป็นออฟไลน์',
-                  onPressed: () async {
-                    bool? confirm = await showDialog<bool>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('รีเซ็ตรถทั้งหมด'),
-                        content: const Text('คุณต้องการบังคับให้รถทุกคันในระบบเปลี่ยนสถานะเป็น "ออฟไลน์" ใช่หรือไม่? (ใช้สำหรับเคลียร์รถที่ค้างตอนทดสอบ)'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, true),
-                            child: const Text('รีเซ็ตทั้งหมด', style: TextStyle(color: Colors.red)),
-                          ),
-                        ],
-                      ),
-                    );
-
-                    if (confirm == true) {
-                      try {
-                        // 1. Reset in Firestore
-                        final snapshot = await FirebaseFirestore.instance.collection('shuttles').get();
-                        final batch = FirebaseFirestore.instance.batch();
-                        for (var doc in snapshot.docs) {
-                          // batch.update(doc.reference, {
-                          // 'status': 'offline',
-                          // 'passenger_status': 'offline'
-                          // });
-                        }
-                        await batch.commit();
-                        
-                        // 2. Reset in RTDB
-                        final rtdbSnapshot = await FirebaseDatabase.instance.ref('shuttles').get();
-                        if (rtdbSnapshot.exists) {
-                          final updates = <String, dynamic>{};
-                          final data = rtdbSnapshot.value as Map<dynamic, dynamic>;
-                          data.forEach((key, value) {
-                            updates['$key/status'] = 'offline';
-                            updates['$key/passenger_status'] = 'offline';
-                          });
-                          await FirebaseDatabase.instance.ref('shuttles').update(updates);
-                        }
-
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('รีเซ็ตรถทุกคันเป็นออฟไลน์เรียบร้อยแล้ว')),
-                          );
-                        }
-                      } catch (e) {
-                        print('Error resetting shuttles: $e');
-                      }
-                    }
-                  },
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE8F5E9),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Text(
-                    'REAL-TIME',
-                    style: TextStyle(
-                      color: Color(0xFF176a21),
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        if (sortedShuttles.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 40),
-            child: Center(
-              child: Text(
-                'ยังไม่มีข้อมูลรถรับส่งในระบบ',
-                style: TextStyle(color: Colors.grey, fontSize: 15),
+              'สถานะรถรับส่งประจำการ',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF1E2923),
               ),
-            ),
-          )
-        else
-          ...sortedShuttles.map((shuttle) {
-            return _buildShuttleCard(shuttle);
-          }),
-
-        const SizedBox(height: 32),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'แผนที่รถรับส่ง',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.grey.shade200,
-                borderRadius: BorderRadius.circular(8),
+                color: const Color(0xFFE8F5E9),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.sensors_rounded,
+                    color: Color(0xFF176a21),
+                    size: 14,
+                  ),
+                  SizedBox(width: 4),
+                  Text(
+                    'เรียลไทม์',
+                    style: TextStyle(
+                      color: Color(0xFF176a21),
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        if (sortedShuttles.isEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 36),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Center(
+              child: Text(
+                'ยังไม่มีข้อมูลรถรับส่งในระบบ',
+                style: TextStyle(color: Color(0xFF718076), fontSize: 14),
+              ),
+            ),
+          )
+        else
+          ...sortedShuttles.map((shuttle) => _buildShuttleCard(shuttle)),
+        const SizedBox(height: 24),
+
+        // กล่องแผนที่ย่อจำลอง
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'พิกัดรถบนแผนที่มหาวิทยาลัย',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1E2923),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF2F6F3),
+                borderRadius: BorderRadius.circular(10),
               ),
               child: const Text(
-                'LIVE MAP',
+                'PSRU MAP',
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: Colors.black54,
+                  color: Color(0xFF176a21),
                 ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         Container(
-          height: 250,
+          height: 240,
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.grey.shade200),
+            border: Border.all(color: Colors.black.withOpacity(0.04)),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF176a21).withOpacity(0.05),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           clipBehavior: Clip.antiAlias,
           child: FlutterMap(
-            options: MapOptions(
-              initialCenter: const LatLng(16.83017, 100.21046),
+            options: const MapOptions(
+              initialCenter: LatLng(16.83017, 100.21046),
               initialZoom: 15.0,
               maxZoom: 18.0,
-              interactionOptions: const InteractionOptions(
-                flags: InteractiveFlag.none, // Make it a static preview map
+              interactionOptions: InteractionOptions(
+                flags: InteractiveFlag.none,
               ),
             ),
             children: [
@@ -1102,57 +1423,40 @@ class LeftColumnContent extends StatelessWidget {
                 polylines: shuttleRoutes.map((segment) {
                   return Polyline(
                     points: segment,
-                    strokeWidth: 4.0,
-                    color: const Color(0xFF176a21).withOpacity(0.5),
+                    strokeWidth: 3.5,
+                    color: const Color(0xFF176a21).withOpacity(0.4),
                   );
                 }).toList(),
               ),
               MarkerLayer(
-                markers: activeShuttles.where((s) => s['status'] == 'online').map((shuttle) {
+                markers: activeShuttles
+                    .where((s) => s['status'] == 'online')
+                    .map((shuttle) {
                   return Marker(
-                    point: LatLng(shuttle['lat'] ?? 16.82753, shuttle['lng'] ?? 100.20686),
-                    width: 60,
-                    height: 65,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF176a21),
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black26,
-                                blurRadius: 4,
-                                offset: Offset(0, 2),
-                              )
-                            ],
+                    point: LatLng(
+                      shuttle['lat'] ?? 16.82753,
+                      shuttle['lng'] ?? 100.20686,
+                    ),
+                    width: 50,
+                    height: 50,
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF176a21),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
                           ),
-                          padding: const EdgeInsets.all(4),
-                          child: const Icon(
-                            Icons.directions_bus,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF176a21).withOpacity(0.8),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            ((shuttle['number'] ?? '').toString()).replaceAll(RegExp(r'sh#|shuttle#', caseSensitive: false), '').trim(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.directions_bus_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
                     ),
                   );
                 }).toList(),
@@ -1167,37 +1471,33 @@ class LeftColumnContent extends StatelessWidget {
   Widget _buildShuttleCard(Map<String, dynamic> shuttle) {
     final String number = (shuttle['number'] ?? '').toString();
     String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
-    final String badgeText = cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : shuttle['name'];
-    
+    final String titleText =
+        cleanNum.isNotEmpty ? 'รถรับส่งคันที่ $cleanNum' : (shuttle['name'] ?? 'Shuttle');
+
     final bool isOnline = shuttle['status'] == 'online';
     final String passengerStatus = shuttle['passenger_status'] ?? 'offline';
-    
-    Color dotColor = Colors.grey;
-    String subtitleText = 'นอกเวลางาน (ออฟไลน์)';
-    Color subtitleColor = Colors.grey[600]!;
-    String rightBadgeText = 'ออฟไลน์';
+
+    Color statusColor = const Color(0xFF757575);
+    Color statusBgColor = const Color(0xFFF5F5F5);
+    String statusText = 'ออฟไลน์';
+    String subtitleText = 'ยังไม่เริ่มให้บริการ';
 
     if (isOnline) {
       if (passengerStatus == 'available') {
-        dotColor = const Color(0xFF176a21); // เขียว
-        subtitleText = 'กำลังวิ่งให้บริการ';
-        subtitleColor = const Color(0xFF595C5D);
-        rightBadgeText = 'ให้บริการ';
+        statusColor = const Color(0xFF176a21);
+        statusBgColor = const Color(0xFFE8F5E9);
+        statusText = 'พร้อมบริการ';
+        subtitleText = 'กำลังวิ่งรับส่งผู้โดยสาร';
       } else if (passengerStatus == 'full') {
-        dotColor = const Color(0xFF757778); // เทาเข้ม
-        subtitleText = 'กำลังวิ่งให้บริการ (รถเต็ม)';
-        subtitleColor = const Color(0xFFE53935);
-        rightBadgeText = 'รถเต็ม';
+        statusColor = const Color(0xFFE65100);
+        statusBgColor = const Color(0xFFFFF3E0);
+        statusText = 'ที่นั่งเต็ม';
+        subtitleText = 'กำลังเดินทางไปจุดส่งถัดไป';
       } else if (passengerStatus == 'break') {
-        dotColor = const Color(0xFFF28522); // ส้ม
-        subtitleText = 'คนขับกำลังพักเบรค';
-        subtitleColor = const Color(0xFFF28522);
-        rightBadgeText = 'พักเบรค';
-      } else {
-        dotColor = Colors.grey;
-        subtitleText = 'นอกเวลางาน';
-        subtitleColor = Colors.grey[600]!;
-        rightBadgeText = 'ออฟไลน์';
+        statusColor = const Color(0xFFF57C00);
+        statusBgColor = const Color(0xFFFFF8E1);
+        statusText = 'พักเบรก';
+        subtitleText = 'คนขับกำลังพักชั่วคราว';
       }
     }
 
@@ -1206,90 +1506,67 @@ class LeftColumnContent extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.black.withOpacity(0.04)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
+            color: const Color(0xFF176a21).withOpacity(0.04),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Row(
         children: [
-          Stack(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: isOnline && passengerStatus == 'available'
-                      ? const Color(0xFFE8F5E9)
-                      : const Color(0xFFF5F7F8),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.directions_bus,
-                  color: isOnline && passengerStatus == 'available'
-                      ? const Color(0xFF176a21)
-                      : Colors.grey[600],
-                  size: 26,
-                ),
-              ),
-              Positioned(
-                top: 2,
-                right: 2,
-                child: Container(
-                  width: 14,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    color: dotColor,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
-                  ),
-                ),
-              ),
-            ],
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: statusBgColor,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.directions_bus_rounded,
+              color: statusColor,
+              size: 24,
+            ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  badgeText,
+                  titleText,
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF2C2F30),
+                    color: Color(0xFF1E2923),
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   subtitleText,
                   style: TextStyle(
-                    fontSize: 13.5,
-                    color: subtitleColor,
+                    fontSize: 12,
+                    color: const Color(0xFF5A605B).withOpacity(0.9),
                     fontWeight: FontWeight.w500,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: const Color(0xFFF5F7F8),
+              color: statusBgColor,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              rightBadgeText,
+              statusText,
               style: TextStyle(
-                color: Colors.grey[600],
-                fontSize: 12,
+                color: statusColor,
+                fontSize: 11.5,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -1311,7 +1588,7 @@ class _RightColumnContentState extends State<RightColumnContent> {
   StreamSubscription? _ridesSub;
   StreamSubscription? _rtdbSub;
 
-  List<double> _hourlyCounts = [0, 0, 0, 0, 0, 0, 0];
+  List<double> _hourlyCounts = List.filled(13, 0.0);
   String _peakTimeText = '-';
   int _totalCompletedTrips = 0;
   int _totalRideRequests = 0;
@@ -1324,59 +1601,59 @@ class _RightColumnContentState extends State<RightColumnContent> {
 
   void _listenToRealtimeData() {
     final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
+    final dateStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
 
     _ridesSub = FirebaseFirestore.instance
-        .collection('ride_requests')
-        .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
+        .collection('analytics')
+        .doc('daily_stats_$dateStr')
         .snapshots()
-        .listen((snapshot) {
+        .listen((doc) {
       if (!mounted) return;
 
-      int totalRequests = snapshot.docs.length;
-      List<double> buckets = List.filled(7, 0.0);
-      Map<int, int> hourCounts = {}; // hour (0-23) -> count
+      int totalRequests = 0;
+      List<double> buckets = List.filled(13, 0.0);
+      Map<int, int> hourCounts = {};
 
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final Timestamp? ts = data['timestamp'] as Timestamp?;
-        if (ts != null) {
-          final dt = ts.toDate();
-          int h = dt.hour;
-          hourCounts[h] = (hourCounts[h] ?? 0) + 1;
+      if (doc.exists && doc.data() != null) {
+        final data = doc.data()!;
+        totalRequests = ((data['total_requests'] ??
+                data['total_passengers'] ??
+                0) as num)
+            .toInt();
 
-          // Map to 7 buckets: 7:00, 8:00, 10:00, 12:00, 14:00, 16:00, 18:00
-          if (h <= 7) {
-            buckets[0]++;
-          } else if (h <= 8) {
-            buckets[1]++;
-          } else if (h <= 10) {
-            buckets[2]++;
-          } else if (h <= 12) {
-            buckets[3]++;
-          } else if (h <= 14) {
-            buckets[4]++;
-          } else if (h <= 16) {
-            buckets[5]++;
-          } else {
-            buckets[6]++;
-          }
+        if (data['hourly_counts'] != null) {
+          final map = Map<String, dynamic>.from(data['hourly_counts']);
+          map.forEach((hStr, val) {
+            final int h = int.tryParse(hStr) ?? 0;
+            final int count = ((val ?? 0) as num).toInt();
+            hourCounts[h] = count;
+
+            if (h <= 7) {
+              buckets[0] += count;
+            } else if (h >= 19) {
+              buckets[12] += count;
+            } else {
+              buckets[h - 7] += count;
+            }
+          });
         }
       }
 
-      // Calculate peak time (hour with max requests)
       String peak = '-';
       if (hourCounts.isNotEmpty) {
         int maxHour = 12;
         int maxCount = -1;
         hourCounts.forEach((hour, reqCount) {
-          if (reqCount > maxCount) {
+          if (reqCount > maxCount && reqCount > 0) {
             maxCount = reqCount;
             maxHour = hour;
           }
         });
-        String paddedH = maxHour.toString().padLeft(2, '0');
-        peak = '$paddedH:00 น.';
+        if (maxCount > 0) {
+          String paddedH = maxHour.toString().padLeft(2, '0');
+          peak = '$paddedH:00 น.';
+        }
       }
 
       setState(() {
@@ -1420,11 +1697,12 @@ class _RightColumnContentState extends State<RightColumnContent> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.black.withOpacity(0.04)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.02),
-                blurRadius: 10,
-                offset: const Offset(0, 5),
+                color: const Color(0xFF176a21).withOpacity(0.05),
+                blurRadius: 20,
+                offset: const Offset(0, 6),
               ),
             ],
           ),
@@ -1438,108 +1716,100 @@ class _RightColumnContentState extends State<RightColumnContent> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'ปริมาณผู้โดยสารรายวัน',
+                        'ปริมาณผู้โดยสารประจำวัน',
                         style: TextStyle(
                           fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF1E2923),
                         ),
                       ),
-                      SizedBox(height: 4),
+                      SizedBox(height: 2),
                       Text(
-                        'แนวโน้มประสิทธิภาพในช่วง 24 ชั่วโมงที่ผ่านมา',
-                        style: TextStyle(color: Colors.black54, fontSize: 13),
+                        'แนวโน้มความหนาแน่นของการเรียกรถในแต่ละช่วงเวลา',
+                        style: TextStyle(
+                          color: Color(0xFF718076),
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
+                      horizontal: 10,
+                      vertical: 5,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(16),
+                      color: const Color(0xFFF2F6F3),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Text(
-                      '24 ชั่วโมงล่าสุด',
+                      '24 ชม. ล่าสุด',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 11,
                         fontWeight: FontWeight.bold,
+                        color: Color(0xFF176a21),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
               SizedBox(
-                height: 200,
+                height: 180,
                 width: double.infinity,
-                child: CustomPaint(painter: ChartPainter(values: _hourlyCounts)),
+                child: CustomPaint(
+                  painter: ChartPainter(values: _hourlyCounts),
+                ),
               ),
-              const SizedBox(height: 16),
-              const Row(
+              const SizedBox(height: 14),
+              Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    '7:00',
-                    style: TextStyle(color: Colors.black54, fontSize: 11),
-                  ),
-                  Text(
-                    '08:00',
-                    style: TextStyle(color: Colors.black54, fontSize: 11),
-                  ),
-                  Text(
-                    '10:00',
-                    style: TextStyle(color: Colors.black54, fontSize: 11),
-                  ),
-                  Text(
-                    '12:00',
-                    style: TextStyle(color: Colors.black54, fontSize: 11),
-                  ),
-                  Text(
-                    '14:00',
-                    style: TextStyle(color: Colors.black54, fontSize: 11),
-                  ),
-                  Text(
-                    '16:00',
-                    style: TextStyle(color: Colors.black54, fontSize: 11),
-                  ),
-                  Text(
-                    '18:00',
-                    style: TextStyle(color: Colors.black54, fontSize: 11),
-                  ),
-                ],
+                children: List.generate(13, (index) {
+                  final String h = (7 + index).toString().padLeft(2, '0');
+                  return Text(
+                    '$h:00',
+                    style: const TextStyle(
+                      color: Color(0xFF718076),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  );
+                }),
               ),
-              const SizedBox(height: 24),
-              const Divider(color: Color(0xFFEEEEEE)),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
+              const Divider(color: Color(0xFFEFF2F0)),
+              const SizedBox(height: 14),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildChartStat('เวลาที่กดเรียกรถเยอะที่สุด', _peakTimeText),
-                  _buildChartStat('เที่ยวรถรวม', '$_totalCompletedTrips เที่ยว'),
-                  _buildChartStat('กดเรียกรถทั้งหมด', '$_totalRideRequests ครั้ง'),
+                  _buildChartStat('ช่วงที่เรียกรถเยอะสุด', _peakTimeText),
+                  _buildChartStat('เที่ยวรถรวมวันนี้', '$_totalCompletedTrips รอบ'),
+                  _buildChartStat('คำขอเรียกรถรวม', '$_totalRideRequests ครั้ง'),
                 ],
               ),
             ],
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 20),
         Row(
           children: [
             Expanded(
               child: _buildInfoCard(
-                icon: Icons.assignment,
-                title: 'บันทึกซ่อมบำรุง',
-                subtitle: 'รถ 2 คันถึงกำหนด\nตรวจเช็ค',
+                icon: Icons.build_circle_rounded,
+                title: 'บันทึกการบำรุงรักษา',
+                subtitle: 'ตรวจเช็คสภาพตามระยะ',
+                color: const Color(0xFF176a21),
+                bgColor: const Color(0xFFE8F5E9),
               ),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: _buildInfoCard(
-                icon: Icons.campaign,
-                title: 'ประกาศแจ้งเตือน',
-                subtitle: 'แจ้งเตือนนักศึกษา\nเรื่องรถล่าช้า',
+                icon: Icons.notifications_active_rounded,
+                title: 'ประกาศของระบบ',
+                subtitle: 'แจ้งเตือนผู้ใช้งาน',
+                color: const Color(0xFF0288D1),
+                bgColor: const Color(0xFFE1F5FE),
               ),
             ),
           ],
@@ -1555,15 +1825,19 @@ class _RightColumnContentState extends State<RightColumnContent> {
         Text(
           label,
           style: const TextStyle(
-            fontSize: 10,
-            color: Colors.black54,
-            fontWeight: FontWeight.bold,
+            fontSize: 11,
+            color: Color(0xFF718076),
+            fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 4),
         Text(
           value,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w900,
+            color: Color(0xFF1E2923),
+          ),
         ),
       ],
     );
@@ -1573,32 +1847,34 @@ class _RightColumnContentState extends State<RightColumnContent> {
     required IconData icon,
     required String title,
     required String subtitle,
+    required Color color,
+    required Color bgColor,
   }) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: Colors.black.withOpacity(0.04)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF176a21).withOpacity(0.04),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 10,
-                  offset: Offset(0, 4),
-                ),
-              ],
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(16),
             ),
-            child: Icon(icon, color: const Color(0xFF176a21), size: 24),
+            child: Icon(icon, color: color, size: 22),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1606,17 +1882,17 @@ class _RightColumnContentState extends State<RightColumnContent> {
                 Text(
                   title,
                   style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13.5,
+                    color: Color(0xFF1E2923),
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   subtitle,
                   style: const TextStyle(
-                    color: Colors.black54,
-                    fontSize: 12,
-                    height: 1.2,
+                    color: Color(0xFF718076),
+                    fontSize: 11.5,
                   ),
                 ),
               ],
@@ -1630,14 +1906,16 @@ class _RightColumnContentState extends State<RightColumnContent> {
 
 class ChartPainter extends CustomPainter {
   final List<double> values;
-  ChartPainter({this.values = const [0, 0, 0, 0, 0, 0, 0]});
+  ChartPainter({List<double>? values})
+      : values = values ?? List.filled(13, 0.0);
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = const Color(0xFF176a21)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
 
     final points = <Offset>[];
     double maxV = values.reduce((a, b) => a > b ? a : b);
@@ -1669,7 +1947,6 @@ class ChartPainter extends CustomPainter {
       }
     }
 
-    // Draw Gradient Fill
     final fillPath = Path.from(path);
     fillPath.lineTo(size.width, size.height);
     fillPath.lineTo(0, size.height);
@@ -1680,7 +1957,7 @@ class ChartPainter extends CustomPainter {
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [
-          const Color(0xFF176a21).withOpacity(0.3),
+          const Color(0xFF176a21).withOpacity(0.25),
           const Color(0xFF176a21).withOpacity(0.0),
         ],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
@@ -1688,13 +1965,12 @@ class ChartPainter extends CustomPainter {
     canvas.drawPath(fillPath, fillPaint);
     canvas.drawPath(path, paint);
 
-    // Draw data points
     final dotPaint = Paint()..color = const Color(0xFF176a21);
     final dotBgPaint = Paint()..color = Colors.white;
 
     void drawDot(Offset offset) {
-      canvas.drawCircle(offset, 6, dotBgPaint);
-      canvas.drawCircle(offset, 4, dotPaint);
+      canvas.drawCircle(offset, 4.0, dotBgPaint);
+      canvas.drawCircle(offset, 2.5, dotPaint);
     }
 
     for (var pt in points) {
@@ -1706,4 +1982,3 @@ class ChartPainter extends CustomPainter {
   bool shouldRepaint(covariant ChartPainter oldDelegate) =>
       oldDelegate.values != values;
 }
-

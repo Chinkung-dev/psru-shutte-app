@@ -1,11 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:intl/intl.dart';
-import 'dart:async';
 import '../../route_data.dart';
+import 'admin_profile_dialog.dart';
 
 class AdminLiveMapTab extends StatefulWidget {
   const AdminLiveMapTab({super.key});
@@ -14,20 +15,36 @@ class AdminLiveMapTab extends StatefulWidget {
   State<AdminLiveMapTab> createState() => _AdminLiveMapTabState();
 }
 
-class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderStateMixin {
+class _AdminLiveMapTabState extends State<AdminLiveMapTab>
+    with TickerProviderStateMixin {
   final MapController _mapController = MapController();
   final LatLng _psruCenter = const LatLng(16.83017, 100.21046);
-  
+
   List<Map<String, dynamic>> activeShuttles = [];
   List<Map<String, dynamic>> busStops = [];
 
   void _animatedMapMove(LatLng destLocation, double destZoom) {
-    final latTween = Tween<double>(begin: _mapController.camera.center.latitude, end: destLocation.latitude);
-    final lngTween = Tween<double>(begin: _mapController.camera.center.longitude, end: destLocation.longitude);
-    final zoomTween = Tween<double>(begin: _mapController.camera.zoom, end: destZoom);
+    final latTween = Tween<double>(
+      begin: _mapController.camera.center.latitude,
+      end: destLocation.latitude,
+    );
+    final lngTween = Tween<double>(
+      begin: _mapController.camera.center.longitude,
+      end: destLocation.longitude,
+    );
+    final zoomTween = Tween<double>(
+      begin: _mapController.camera.zoom,
+      end: destZoom,
+    );
 
-    final controller = AnimationController(duration: const Duration(milliseconds: 500), vsync: this);
-    final Animation<double> animation = CurvedAnimation(parent: controller, curve: Curves.fastOutSlowIn);
+    final controller = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+    final Animation<double> animation = CurvedAnimation(
+      parent: controller,
+      curve: Curves.fastOutSlowIn,
+    );
 
     controller.addListener(() {
       _mapController.move(
@@ -37,7 +54,8 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
     });
 
     animation.addStatusListener((status) {
-      if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
+      if (status == AnimationStatus.completed ||
+          status == AnimationStatus.dismissed) {
         controller.dispose();
       }
     });
@@ -45,13 +63,14 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
     controller.forward();
   }
 
-  // จัดกลุ่มจุดจอดที่อยู่ใกล้กันให้แสดงเป็นหมุดเดียว (สอดคล้องกับฝั่งนักศึกษาและคนขับ)
   final Map<String, List<String>> _groupedStops = {
     '7-Eleven PSRU และตึก IT': ['7-Eleven PSRU', 'ตึก IT '],
-    'คณะสังคมศาสตร์ และคณะพยาบาลศาสตร์': ['คณะสังคมศาสตร์', 'คณะพยาบาลศาสตร์'],
+    'คณะสังคมศาสตร์ และคณะพยาบาลศาสตร์': [
+      'คณะสังคมศาสตร์',
+      'คณะพยาบาลศาสตร์',
+    ],
   };
 
-  // ข้อมูลจุดจอดสำหรับแสดงบนแผนที่ (ยุบรวมจุดที่จัดกลุ่มแล้ว)
   List<Map<String, dynamic>> get _visualStops {
     List<Map<String, dynamic>> result = [];
     Set<String> groupedNames = {};
@@ -89,16 +108,16 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
     }
     return result;
   }
-  
+
   StreamSubscription? shuttleSubscription;
   StreamSubscription? rideRequestsSubscription;
 
   int totalPassengersToday = 0;
   double onTimePercentage = 100.0;
 
-  Map<String, LatLng> _currentShuttleLocations = {};
-  Map<String, LatLng> _oldShuttleLocations = {};
-  Map<String, LatLng> _targetShuttleLocations = {};
+  final Map<String, LatLng> _currentShuttleLocations = {};
+  final Map<String, LatLng> _oldShuttleLocations = {};
+  final Map<String, LatLng> _targetShuttleLocations = {};
 
   String? _selectedShuttleId;
 
@@ -120,22 +139,26 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
       parent: _markerAnimationController,
       curve: Curves.easeInOut,
     )..addListener(() {
-      if (mounted) {
-        setState(() {
-          for (var id in _targetShuttleLocations.keys) {
-            final oldLoc = _oldShuttleLocations[id];
-            final targetLoc = _targetShuttleLocations[id];
-            if (oldLoc != null && targetLoc != null) {
-              final lat = oldLoc.latitude + (targetLoc.latitude - oldLoc.latitude) * _markerAnimation.value;
-              final lng = oldLoc.longitude + (targetLoc.longitude - oldLoc.longitude) * _markerAnimation.value;
-              _currentShuttleLocations[id] = LatLng(lat, lng);
-            } else if (targetLoc != null) {
-              _currentShuttleLocations[id] = targetLoc;
+        if (mounted) {
+          setState(() {
+            for (var id in _targetShuttleLocations.keys) {
+              final oldLoc = _oldShuttleLocations[id];
+              final targetLoc = _targetShuttleLocations[id];
+              if (oldLoc != null && targetLoc != null) {
+                final lat = oldLoc.latitude +
+                    (targetLoc.latitude - oldLoc.latitude) *
+                        _markerAnimation.value;
+                final lng = oldLoc.longitude +
+                    (targetLoc.longitude - oldLoc.longitude) *
+                        _markerAnimation.value;
+                _currentShuttleLocations[id] = LatLng(lat, lng);
+              } else if (targetLoc != null) {
+                _currentShuttleLocations[id] = targetLoc;
+              }
             }
-          }
-        });
-      }
-    });
+          });
+        }
+      });
   }
 
   void _listenToRideRequests() {
@@ -187,7 +210,8 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
 
   Future<void> _fetchStopsFromFirebase() async {
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('stops').get();
+      final snapshot =
+          await FirebaseFirestore.instance.collection('stops').get();
       List<Map<String, dynamic>> loadedStops = [];
       for (var doc in snapshot.docs) {
         final data = doc.data();
@@ -204,7 +228,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
         });
       }
     } catch (e) {
-      print("Error fetching stops: $e");
+      debugPrint("Error fetching stops: $e");
     }
   }
 
@@ -217,9 +241,9 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
         bool shouldAnimate = false;
         final now = DateTime.now();
         final data = event.snapshot.value as Map<dynamic, dynamic>;
-        
+
         final List<Map<String, dynamic>> newShuttles = [];
-        
+
         data.forEach((key, value) {
           if (value != null && value is Map) {
             final status = value['status'];
@@ -227,27 +251,36 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
               final lastUpdatedMillis = value['last_updated'];
               bool isRecentlyUpdated = false;
               if (lastUpdatedMillis != null) {
-                final lastUpdated = DateTime.fromMillisecondsSinceEpoch((lastUpdatedMillis as num).toInt());
-                isRecentlyUpdated = now.difference(lastUpdated).inMinutes <= 3;
+                final lastUpdated = DateTime.fromMillisecondsSinceEpoch(
+                  (lastUpdatedMillis as num).toInt(),
+                );
+                isRecentlyUpdated = now.difference(lastUpdated).inMinutes <= 4;
               }
-              
+
               if (isRecentlyUpdated) {
                 newShuttles.add({
                   'id': key.toString(),
                   'number': value.containsKey('number') ? value['number'] : '',
+                  'name': value.containsKey('name') ? value['name'] : 'Shuttle',
                   'lat': (value['lat'] as num).toDouble(),
                   'lng': (value['lng'] as num).toDouble(),
-                  'passenger_status': value.containsKey('passenger_status') ? value['passenger_status'] : 'available',
+                  'driver_name': value['driver_name'] ?? 'คนขับประจำรถ',
+                  'driver_avatar': value['driver_avatar'] ?? '',
+                  'capacity_percent': value['capacity_percent'] ?? 0,
+                  'passenger_status': value.containsKey('passenger_status')
+                      ? value['passenger_status']
+                      : 'available',
                 });
               }
             }
           }
         });
-        
+
         for (var shuttle in newShuttles) {
           final String id = shuttle['id'];
           final LatLng newLoc = LatLng(shuttle['lat'], shuttle['lng']);
           final currentLoc = _currentShuttleLocations[id];
+
           if (currentLoc != null && currentLoc != newLoc) {
             _oldShuttleLocations[id] = currentLoc;
             _targetShuttleLocations[id] = newLoc;
@@ -257,16 +290,19 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
             _targetShuttleLocations[id] = newLoc;
           }
         }
-        
+
         final activeIds = newShuttles.map((s) => s['id'] as String).toSet();
-        _currentShuttleLocations.removeWhere((id, loc) => !activeIds.contains(id));
-        _oldShuttleLocations.removeWhere((id, loc) => !activeIds.contains(id));
-        _targetShuttleLocations.removeWhere((id, loc) => !activeIds.contains(id));
-        
+        _currentShuttleLocations
+            .removeWhere((id, loc) => !activeIds.contains(id));
+        _oldShuttleLocations
+            .removeWhere((id, loc) => !activeIds.contains(id));
+        _targetShuttleLocations
+            .removeWhere((id, loc) => !activeIds.contains(id));
+
         setState(() {
           activeShuttles = newShuttles;
         });
-        
+
         if (shouldAnimate) {
           _markerAnimationController.forward(from: 0.0);
         }
@@ -291,38 +327,38 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
             color: Colors.white,
             shape: BoxShape.circle,
             border: Border.all(
-              color: isGroup ? const Color(0xFF176a21) : const Color(0xFF757778),
-              width: 1.5,
+              color: isGroup ? const Color(0xFF176a21) : const Color(0xFF66BB6A),
+              width: 2,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 3,
+                color: const Color(0xFF176a21).withOpacity(0.18),
+                blurRadius: 6,
                 offset: const Offset(0, 2),
               ),
             ],
           ),
           child: Icon(
-            Icons.hail,
-            color: isGroup ? const Color(0xFF176a21) : const Color(0xFF757778),
+            Icons.hail_rounded,
+            color: isGroup ? const Color(0xFF176a21) : const Color(0xFF436B49),
             size: 15,
           ),
         ),
         Positioned(
-          bottom: 34,
+          bottom: 32,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: const Color(0xFF176a21),
-                width: 1.5,
+                color: const Color(0xFF176a21).withOpacity(0.2),
+                width: 1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.15),
-                  blurRadius: 4,
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 6,
                   offset: const Offset(0, 2),
                 ),
               ],
@@ -332,7 +368,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
               style: const TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF2C2F30),
+                color: Color(0xFF1E2923),
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -345,18 +381,20 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
   }
 
   Widget _buildShuttleMarker(Map<String, dynamic> shuttle) {
-    Color statusColor = const Color(0xFF176a21); // Default (available)
+    Color statusColor = const Color(0xFF176a21);
     final passengerStatus = shuttle['passenger_status'] ?? 'available';
     if (passengerStatus == 'full') {
-      statusColor = const Color(0xFF757778); // Full (grey)
+      statusColor = const Color(0xFFE65100);
     } else if (passengerStatus == 'break') {
-      statusColor = const Color(0xFFF28522); // Break (orange)
+      statusColor = const Color(0xFFF57C00);
     } else if (passengerStatus == 'offline' || shuttle['status'] == 'offline') {
-      statusColor = Colors.red; // Offline (red)
+      statusColor = const Color(0xFF757575);
     }
 
     String displayNum = (shuttle['number'] ?? '').toString();
-    displayNum = displayNum.replaceAll(RegExp(r'sh#|shuttle#', caseSensitive: false), '').trim();
+    displayNum = displayNum
+        .replaceAll(RegExp(r'sh#|shuttle#', caseSensitive: false), '')
+        .trim();
 
     return Stack(
       clipBehavior: Clip.none,
@@ -368,9 +406,9 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: statusColor.withOpacity(0.6),
-                blurRadius: 12,
-                spreadRadius: 4,
+                color: statusColor.withOpacity(0.35),
+                blurRadius: 10,
+                spreadRadius: 2,
               ),
             ],
           ),
@@ -382,9 +420,9 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
               shape: BoxShape.circle,
             ),
             child: const Icon(
-              Icons.directions_bus,
+              Icons.directions_bus_rounded,
               color: Colors.white,
-              size: 22,
+              size: 20,
             ),
           ),
         ),
@@ -392,9 +430,9 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
           Positioned(
             bottom: -4,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
               decoration: BoxDecoration(
-                color: const Color(0xFF176a21).withOpacity(0.95),
+                color: const Color(0xFF176a21),
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: Colors.white, width: 1.0),
               ),
@@ -402,7 +440,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
                 displayNum,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: 10.5,
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -419,16 +457,20 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
         initialCenter: _psruCenter,
         initialZoom: 15.5,
         maxZoom: 18.0,
-        minZoom: 14.5,
-        cameraConstraint: CameraConstraint.contain(
+        minZoom: 14.0,
+        cameraConstraint: CameraConstraint.containCenter(
           bounds: LatLngBounds(
             const LatLng(16.81500, 100.19000),
             const LatLng(16.84500, 100.23000),
           ),
         ),
         interactionOptions: InteractionOptions(
-          flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag | InteractiveFlag.doubleTapZoom | InteractiveFlag.scrollWheelZoom,
-          cursorKeyboardRotationOptions: CursorKeyboardRotationOptions.disabled(), // ปิดการหมุนด้วยคีย์บอร์ด/เมาส์บน Web
+          flags: InteractiveFlag.pinchZoom |
+              InteractiveFlag.drag |
+              InteractiveFlag.doubleTapZoom |
+              InteractiveFlag.scrollWheelZoom,
+          cursorKeyboardRotationOptions:
+              CursorKeyboardRotationOptions.disabled(),
         ),
       ),
       children: [
@@ -440,32 +482,33 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
           polylines: shuttleRoutes.map((segment) {
             return Polyline(
               points: segment,
-              strokeWidth: 5.0,
+              strokeWidth: 4.5,
               color: const Color(0xFF176a21).withOpacity(0.4),
             );
-        }).toList(),
+          }).toList(),
         ),
         MarkerLayer(
           markers: [
             ..._visualStops.map((stop) => Marker(
-              key: ValueKey('stop_${stop['id'] ?? stop['name']}'),
-              point: LatLng(stop['lat'], stop['lng']),
-              width: 160,
-              height: 65,
-              child: RepaintBoundary(
-                child: _buildStopMarker(
-                  name: stop['name'] ?? '',
-                  isGroup: stop['isGroup'] == true,
-                ),
-              ),
-            )),
+                  key: ValueKey('stop_${stop['id'] ?? stop['name']}'),
+                  point: LatLng(stop['lat'], stop['lng']),
+                  width: 160,
+                  height: 65,
+                  child: RepaintBoundary(
+                    child: _buildStopMarker(
+                      name: stop['name'] ?? '',
+                      isGroup: stop['isGroup'] == true,
+                    ),
+                  ),
+                )),
             ...activeShuttles.map((shuttle) {
               final id = shuttle['id'];
-              final loc = _currentShuttleLocations[id] ?? LatLng(shuttle['lat'], shuttle['lng']);
+              final loc = _currentShuttleLocations[id] ??
+                  LatLng(shuttle['lat'], shuttle['lng']);
               return Marker(
                 point: loc,
-                width: 80,
-                height: 80,
+                width: 70,
+                height: 70,
                 child: GestureDetector(
                   onTap: () {
                     setState(() {
@@ -488,358 +531,471 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final bool isCompact = constraints.maxWidth < 700;
-        final bool isDesktop = MediaQuery.of(context).size.width > 900;
+        final bool isCompact = constraints.maxWidth < 720;
+        final bool isDesktop = MediaQuery.of(context).size.width > 960;
 
         return Column(
           children: [
-            // Top Dashboard-style Header
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
-              child: Row(
-                children: [
-                  if (!isDesktop)
-                    IconButton(
-                      icon: const Icon(Icons.menu, color: Colors.black87),
-                      onPressed: () => Scaffold.of(context).openDrawer(),
-                    ),
-                  if (!isDesktop) const SizedBox(width: 16),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
+            // ส่วน Header ด้านบน
+            if (isDesktop)
+              Container(
+                color: Colors.transparent,
+                padding: const EdgeInsets.fromLTRB(28, 20, 28, 12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: Colors.black.withOpacity(0.04)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF176a21).withOpacity(0.04),
+                        blurRadius: 18,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Row(
                     children: [
-                      const Text(
-                        'ศูนย์ควบคุม',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F5E9),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(
+                          Icons.map_rounded,
+                          color: Color(0xFF176a21),
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'แผนที่ติดตามรถรับส่งสด (Live Map)',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFF176a21),
+                            ),
+                          ),
+                          Text(
+                            'พิกัดรถรับส่งและจุดจอดรอบมหาวิทยาลัยแบบเรียลไทม์',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF5A605B),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      InkWell(
+                        onTap: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) => const AdminProfileDialog(),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(22),
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: const Color(0xFF176a21),
+                              width: 2,
+                            ),
+                          ),
+                          child: const CircleAvatar(
+                            backgroundColor: Color(0xFFE8F5E9),
+                            radius: 18,
+                            child: Icon(
+                              Icons.admin_panel_settings_rounded,
+                              color: Color(0xFF176a21),
+                              size: 20,
+                            ),
+                          ),
                         ),
                       ),
                     ],
                   ),
-                  const Spacer(),
-                  if (!isCompact)
-                    Container(
-                      width: 300,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: TextField(
-                        style: const TextStyle(color: Colors.black87),
-                        decoration: InputDecoration(
-                          hintText: 'ค้นหาเส้นทาง, คนขับ...',
-                          hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-                          prefixIcon: Icon(
-                            Icons.search,
-                            color: Colors.grey.shade500,
-                            size: 20,
-                          ),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                      ),
-                    ),
-                  if (!isCompact) const SizedBox(width: 16),
-                  if (!isCompact)
-                    IconButton(
-                      icon: const Icon(Icons.notifications_outlined, color: Colors.black87),
-                      onPressed: () {},
-                    ),
-                  if (!isCompact) const SizedBox(width: 8),
-                  if (!isCompact)
-                    const CircleAvatar(
-                      backgroundColor: Color(0xFF176a21),
-                      radius: 18,
-                      child: Icon(Icons.person, color: Colors.white, size: 20),
-                    ),
-                  if (isCompact)
-                    IconButton(
-                      icon: const Icon(Icons.search, color: Colors.black87),
-                      onPressed: () {},
-                    ),
-                ],
+                ),
               ),
-            ),
-            
-            // Map and Floating Elements Area
+
+            // พื้นที่แผนที่และแผงควบคุมลอย
             Expanded(
               child: Stack(
                 children: [
-                  // Live Map
                   _buildMap(),
-                  
-                  // Floating Command Center Details
+
+                  // แผงข้อมูลรถที่กำลังวิ่ง (ซ้ายบน)
                   Positioned(
-                    top: 24,
-                    left: 24,
+                    top: 20,
+                    left: 20,
                     child: Container(
-                      width: 280,
-                      padding: const EdgeInsets.all(20),
+                      width: isCompact ? 220 : 260,
+                      padding: const EdgeInsets.all(18),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.95),
+                        color: Colors.white,
                         borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: const Color(0xFF176a21).withOpacity(0.1),
+                        ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
+                            color: const Color(0xFF176a21).withOpacity(0.08),
                             blurRadius: 20,
-                            offset: const Offset(0, 10),
-                          )
+                            offset: const Offset(0, 8),
+                          ),
                         ],
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('รถที่กำลังวิ่งทั้งหมด', style: TextStyle(color: Colors.black54, fontSize: 13)),
-                          const SizedBox(height: 16),
-                          _buildRouteItem('รถทั้งหมดในระบบ', '${activeShuttles.length} คัน', activeShuttles.isNotEmpty),
-                        ],
-                      ),
-                    ),
-                  ),
-
-            // Right Panel: Live Tracking
-            if (_selectedShuttleId != null)
-              Positioned(
-                top: isCompact ? 250 : (!isDesktop ? 88 : 24),
-                right: 24,
-                bottom: 120, // Leave space for bottom bar
-                child: Builder(
-                  builder: (context) {
-                    final selectedShuttle = activeShuttles.firstWhere(
-                      (s) => s['id'] == _selectedShuttleId,
-                      orElse: () => activeShuttles.isNotEmpty ? activeShuttles.first : {},
-                    );
-                    
-                    if (selectedShuttle.isEmpty) return const SizedBox.shrink();
-
-                    return Container(
-                      width: isCompact ? constraints.maxWidth - 48 : 340,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(32),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.08),
-                            blurRadius: 24,
-                            offset: const Offset(0, 12),
-                          )
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(32),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          Row(
                             children: [
-                              // Header
-                              Padding(
-                                padding: const EdgeInsets.all(24.0),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 10,
-                                      height: 10,
-                                      decoration: const BoxDecoration(color: Color(0xFF176a21), shape: BoxShape.circle),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Text('กำลังติดตามสด', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF176a21))),
-                                    const Spacer(),
-                                    GestureDetector(
-                                      onTap: () {
-                                        setState(() {
-                                          _selectedShuttleId = null;
-                                        });
-                                      },
-                                      child: const Icon(Icons.close, color: Colors.black54, size: 24),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                                child: Text('รถบัส #${selectedShuttle['number']}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                              ),
-                              const SizedBox(height: 16),
-
-                              // Driver Info
                               Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 24),
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: Colors.grey.shade200),
-                                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
-                                ),
-                                child: Row(
-                                  children: [
-                                    const CircleAvatar(
-                                      radius: 24,
-                                      backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'),
-                                    ),
-                                    const SizedBox(width: 16),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          const Text('คนขับหลัก', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black54, letterSpacing: 1)),
-                                          const SizedBox(height: 2),
-                                          const Text('คนขับรถรับส่ง', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                          const SizedBox(height: 4),
-                                          Row(
-                                            children: [
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                decoration: BoxDecoration(color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(8)),
-                                                child: const Row(
-                                                  children: [
-                                                    Icon(Icons.star, size: 10, color: Color(0xFF176a21)),
-                                                    SizedBox(width: 4),
-                                                    Text('5.0', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF176a21))),
-                                                  ],
-                                                ),
-                                              ),
-                                            ],
-                                          )
-                                        ],
-                                      ),
-                                    )
-                                  ],
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF176a21),
+                                  shape: BoxShape.circle,
                                 ),
                               ),
-
-                              const SizedBox(height: 24),
-
-                              // Stats
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                                child: Row(
-                                  children: [
-                                    Expanded(child: _buildPanelStat('ความจุปัจจุบัน', '${selectedShuttle['capacity_percent'] ?? 0}', '%', (selectedShuttle['capacity_percent'] ?? 0) / 100)),
-                                    const SizedBox(width: 16),
-                                    Expanded(child: _buildPanelStat('สถานะผู้โดยสาร', '', '', 1.0, subStatus: selectedShuttle['passenger_status'] == 'full' ? 'หนาแน่น' : (selectedShuttle['passenger_status'] == 'break' ? 'พักเบรก' : 'ว่าง'))),
-                                  ],
+                              const SizedBox(width: 8),
+                              const Text(
+                                'สถานะกองรถ (Fleet)',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: Color(0xFF1E2923),
                                 ),
                               ),
-                              const SizedBox(height: 24),
                             ],
                           ),
+                          const SizedBox(height: 14),
+                          _buildRouteItem(
+                            'รถออนไลน์ทั้งหมด',
+                            '${activeShuttles.length} คัน',
+                            activeShuttles.isNotEmpty,
+                          ),
+                          const SizedBox(height: 8),
+                          _buildRouteItem(
+                            'จุดจอดในระบบ',
+                            '${busStops.length} จุด',
+                            true,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // แผงรายละเอียดเมื่อคลิกเลือกรถ (ขวาบน)
+                  if (_selectedShuttleId != null)
+                    Positioned(
+                      top: 20,
+                      right: 20,
+                      bottom: 110,
+                      child: Builder(
+                        builder: (context) {
+                          final selectedShuttle = activeShuttles.firstWhere(
+                            (s) => s['id'] == _selectedShuttleId,
+                            orElse: () => activeShuttles.isNotEmpty
+                                ? activeShuttles.first
+                                : {},
+                          );
+
+                          if (selectedShuttle.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+
+                          return Container(
+                            width: isCompact
+                                ? constraints.maxWidth - 40
+                                : 320,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(28),
+                              border: Border.all(
+                                color: Colors.black.withOpacity(0.04),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF176a21)
+                                      .withOpacity(0.12),
+                                  blurRadius: 24,
+                                  offset: const Offset(0, 10),
+                                ),
+                              ],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(28),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    height: 4,
+                                    decoration: const BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Color(0xFF176a21),
+                                          Color(0xFF66BB6A),
+                                          Color(0xFF9DF197),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.all(20.0),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 8,
+                                          height: 8,
+                                          decoration: const BoxDecoration(
+                                            color: Color(0xFF176a21),
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        const Text(
+                                          'กำลังติดตามสด',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF176a21),
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        InkWell(
+                                          onTap: () {
+                                            setState(() {
+                                              _selectedShuttleId = null;
+                                            });
+                                          },
+                                          child: const Icon(
+                                            Icons.close_rounded,
+                                            color: Color(0xFF718076),
+                                            size: 22,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 20.0,
+                                    ),
+                                    child: Text(
+                                      'รถรับส่ง #${selectedShuttle['number'] ?? ''}',
+                                      style: const TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w900,
+                                        color: Color(0xFF1E2923),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+
+                                  // ข้อมูลคนขับ
+                                  Container(
+                                    margin: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                    ),
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF2F6F3),
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(
+                                        color: const Color(0xFF176a21)
+                                            .withOpacity(0.08),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(2),
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: const Color(0xFF176a21),
+                                              width: 2,
+                                            ),
+                                          ),
+                                          child: const CircleAvatar(
+                                            radius: 20,
+                                            backgroundColor: Color(0xFFE8F5E9),
+                                            child: Icon(
+                                              Icons.person_rounded,
+                                              color: Color(0xFF176a21),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Text(
+                                                'คนขับประจำรถ',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Color(0xFF718076),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                selectedShuttle['driver_name'] ??
+                                                    'คนขับรถรับส่ง',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 14,
+                                                  color: Color(0xFF1E2923),
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+
+                                  // ข้อมูลสถานะความจุ
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 20.0,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: _buildPanelStat(
+                                            'ความจุผู้โดยสาร',
+                                            '${selectedShuttle['capacity_percent'] ?? 0}%',
+                                            (selectedShuttle['capacity_percent'] ??
+                                                    0) /
+                                                100,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: _buildPanelStatusBadge(
+                                            selectedShuttle['passenger_status'] ??
+                                                'available',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+
+                  // แถบสรุปสถิติด้านล่าง (Bottom Dashboard Floating Bar)
+                  Positioned(
+                    bottom: 24,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        height: 68,
+                        width: (constraints.maxWidth - 48).clamp(280.0, 420.0),
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(34),
+                          border: Border.all(
+                            color: const Color(0xFF176a21).withOpacity(0.12),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF176a21).withOpacity(0.10),
+                              blurRadius: 20,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            Expanded(
+                              child: _buildBottomStat(
+                                Icons.groups_rounded,
+                                NumberFormat('#,##0')
+                                    .format(totalPassengersToday),
+                                'ผู้โดยสารสะสม',
+                              ),
+                            ),
+                            Container(
+                              width: 1,
+                              height: 32,
+                              color: const Color(0xFFEFF2F0),
+                              margin: const EdgeInsets.symmetric(horizontal: 12),
+                            ),
+                            Expanded(
+                              child: _buildBottomStat(
+                                Icons.timer_outlined,
+                                '${onTimePercentage.toStringAsFixed(1)}%',
+                                'อัตราตรงเวลา',
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    );
-                  }
-                ),
-              ),
-
-            // Bottom Dashboard Bar
-            Positioned(
-              bottom: 24,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Container(
-                  height: 80,
-                  width: (constraints.maxWidth - 48).clamp(0.0, 400.0),
-                  padding: EdgeInsets.symmetric(horizontal: isCompact ? 16 : 32),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.95),
-                    borderRadius: BorderRadius.circular(40),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
-                        blurRadius: 20,
-                        offset: const Offset(0, -5),
-                      )
-                    ],
+                    ),
                   ),
-                  child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    Expanded(
-                      child: _buildBottomStat(
-                        Icons.people_alt_outlined,
-                        NumberFormat('#,##0').format(totalPassengersToday),
-                        'ผู้โดยสารรวม',
-                      ),
-                    ),
-                    Container(
-                      width: 1,
-                      height: 40,
-                      color: Colors.grey.shade300,
-                      margin: EdgeInsets.symmetric(horizontal: isCompact ? 8 : 16),
-                    ),
-                    Expanded(
-                      child: _buildBottomStat(
-                        Icons.schedule,
-                        '${onTimePercentage.toStringAsFixed(1)}%',
-                        'ตรงเวลา',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
 
-            // Map Controls
-            Positioned(
-              bottom: 120,
-              left: 24,
-              child: Column(
-                children: [
-                  _buildMapControlButton(Icons.add, () {
-                    final currentZoom = _mapController.camera.zoom;
-                    _animatedMapMove(_mapController.camera.center, currentZoom + 1.0);
-                  }),
-                  const SizedBox(height: 8),
-                  _buildMapControlButton(Icons.remove, () {
-                    final currentZoom = _mapController.camera.zoom;
-                    _animatedMapMove(_mapController.camera.center, currentZoom - 1.0);
-                  }),
-                  const SizedBox(height: 16),
-                  _buildMapControlButton(Icons.my_location, () {
-                    _animatedMapMove(_psruCenter, 15.5);
-                  }),
-                ],
-              ),
-            )
+                  // ปุ่มควบคุมแผนที่ (Zoom In, Out, Center)
+                  Positioned(
+                    bottom: 110,
+                    left: 20,
+                    child: Column(
+                      children: [
+                        _buildMapControlButton(Icons.add_rounded, () {
+                          final currentZoom = _mapController.camera.zoom;
+                          _animatedMapMove(
+                            _mapController.camera.center,
+                            currentZoom + 1.0,
+                          );
+                        }),
+                        const SizedBox(height: 8),
+                        _buildMapControlButton(Icons.remove_rounded, () {
+                          final currentZoom = _mapController.camera.zoom;
+                          _animatedMapMove(
+                            _mapController.camera.center,
+                            currentZoom - 1.0,
+                          );
+                        }),
+                        const SizedBox(height: 12),
+                        _buildMapControlButton(
+                          Icons.my_location_rounded,
+                          () {
+                            _animatedMapMove(_psruCenter, 15.5);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
           ],
         );
-      }
-    );
-  }
-
-  Widget _buildMapPin(String label, {bool isActive = true}) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: isActive ? const Color(0xFF176a21) : Colors.grey.shade600,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-        ),
-        Container(
-          width: 24,
-          height: 24,
-          margin: const EdgeInsets.only(top: 4),
-          decoration: BoxDecoration(
-            color: isActive ? const Color(0xFF176a21) : Colors.grey.shade600,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 3),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 4, offset: const Offset(0, 2))],
-          ),
-        )
-      ],
+      },
     );
   }
 
@@ -847,20 +1003,29 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
     return Row(
       children: [
         Container(
-          width: 10,
-          height: 10,
+          width: 8,
+          height: 8,
           decoration: BoxDecoration(
-            color: isPrimary ? const Color(0xFF176a21) : Colors.blue.shade700,
+            color: isPrimary ? const Color(0xFF176a21) : const Color(0xFF757575),
             shape: BoxShape.circle,
           ),
         ),
-        const SizedBox(width: 12),
-        Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+        const SizedBox(width: 10),
+        Text(
+          name,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 12.5,
+            color: Color(0xFF2C2F30),
+          ),
+        ),
         const Spacer(),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
-            color: isPrimary ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+            color: isPrimary
+                ? const Color(0xFFE8F5E9)
+                : const Color(0xFFF5F5F5),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
@@ -868,7 +1033,9 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.bold,
-              color: isPrimary ? const Color(0xFF176a21) : Colors.black54,
+              color: isPrimary
+                  ? const Color(0xFF176a21)
+                  : const Color(0xFF757575),
             ),
           ),
         ),
@@ -876,88 +1043,92 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
     );
   }
 
-  Widget _buildPanelStat(String label, String value, String unit, double progress, {String? subStatus}) {
+  Widget _buildPanelStat(String label, String value, double progress) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F9FA),
+        color: const Color(0xFFF2F6F3),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: Colors.black54, fontSize: 12)),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF718076),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF1E2923),
+            ),
+          ),
           const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-              Text(unit, style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.bold)),
-            ],
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: progress.clamp(0.0, 1.0),
+              backgroundColor: Colors.black.withOpacity(0.06),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Color(0xFF176a21),
+              ),
+              minHeight: 4,
+            ),
           ),
-          const SizedBox(height: 12),
-          LinearProgressIndicator(
-            value: progress,
-            backgroundColor: Colors.grey.shade300,
-            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF176a21)),
-            minHeight: 4,
-            borderRadius: BorderRadius.circular(2),
-          ),
-          if (subStatus != null) ...[
-            const SizedBox(height: 8),
-            Text(subStatus, style: const TextStyle(color: Color(0xFF176a21), fontWeight: FontWeight.bold, fontSize: 10)),
-          ]
         ],
       ),
     );
   }
 
-  Widget _buildTimelineItem(String title, String time, String subtitle, bool isNext) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-      child: Row(
+  Widget _buildPanelStatusBadge(String status) {
+    Color color = const Color(0xFF176a21);
+    Color bgColor = const Color(0xFFE8F5E9);
+    String text = 'พร้อมบริการ';
+
+    if (status == 'full') {
+      color = const Color(0xFFE65100);
+      bgColor = const Color(0xFFFFF3E0);
+      text = 'ที่นั่งเต็ม';
+    } else if (status == 'break') {
+      color = const Color(0xFFF57C00);
+      bgColor = const Color(0xFFFFF8E1);
+      text = 'พักเบรก';
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Column(
-            children: [
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: isNext ? const Color(0xFF176a21) : Colors.grey.shade300,
-                  shape: BoxShape.circle,
-                  border: isNext ? Border.all(color: const Color(0xFF176a21).withOpacity(0.3), width: 4) : null,
-                ),
-              ),
-              Container(
-                width: 2,
-                height: 40,
-                color: Colors.grey.shade200,
-              )
-            ],
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: isNext ? const Color(0xFF176a21) : Colors.black87)),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(color: isNext ? const Color(0xFFE8F5E9) : Colors.transparent, borderRadius: BorderRadius.circular(4)),
-                      child: Text(time, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isNext ? const Color(0xFF176a21) : Colors.black54)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(subtitle, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-              ],
+          const Text(
+            'สถานะรับส่ง',
+            style: TextStyle(
+              color: Color(0xFF718076),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
             ),
-          )
+          ),
+          const SizedBox(height: 8),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 8),
         ],
       ),
     );
@@ -967,8 +1138,15 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: const Color(0xFF176a21), size: 28),
-        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: const BoxDecoration(
+            color: Color(0xFFE8F5E9),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: const Color(0xFF176a21), size: 18),
+        ),
+        const SizedBox(width: 10),
         Flexible(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -977,12 +1155,26 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
               FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
-                child: Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                child: Text(
+                  value,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                    color: Color(0xFF1E2923),
+                  ),
+                ),
               ),
               FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
-                child: Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: Color(0xFF718076),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ),
             ],
           ),
@@ -993,22 +1185,28 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab> with TickerProviderSt
 
   Widget _buildMapControlButton(IconData icon, VoidCallback onTap) {
     return Container(
-      width: 44,
-      height: 44,
+      width: 42,
+      height: 42,
       decoration: BoxDecoration(
         color: Colors.white,
         shape: BoxShape.circle,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4))],
+        border: Border.all(color: const Color(0xFF176a21).withOpacity(0.12)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF176a21).withOpacity(0.08),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(21),
           onTap: onTap,
-          child: Icon(icon, color: Colors.black87),
+          child: Icon(icon, color: const Color(0xFF176a21), size: 20),
         ),
       ),
     );
   }
 }
-

@@ -48,6 +48,10 @@ class _StudentHomeState extends State<StudentHome>
   String? selectedDropOffName; // จุดลงรถ
   LatLng? selectedStopLatLng; // เก็บพิกัดป้ายที่เลือก
   String? estimatedArrivalText; // ข้อความแสดงเวลา ETA
+  double currentEtaSeconds = 0.0; // เวลา ETA ล่าสุดที่คำนวณได้เป็นวินาที
+  double? pickupEtaSeconds; // เวลา ETA จากรถมายังจุดขึ้นรถตอนเรียกรถ
+  DateTime? requestStartTime; // เวลาที่เริ่มส่งคำขอเรียกรถ
+  bool _hasRecordedWaitAnalytics = false; // ป้องกันการบันทึกสถิติเวลารอซ้ำ
   int? remainingStops; // เก็บจำนวนป้ายที่เหลือก่อนถึงจุดหมาย
   String? targetedShuttleId; // เก็บ ID ของรถคันที่ใกล้ที่สุดเพื่อส่งคำขอเจาะจง
   LatLng? _myLocation; // ตำแหน่งปัจจุบันของนักศึกษา
@@ -150,6 +154,8 @@ class _StudentHomeState extends State<StudentHome>
   bool _isAutoFollow = true; // ตัวแปรเช็คว่ากล้องติดตามเป้าหมายอยู่หรือไม่
   bool _isTutorialShowing =
       false; // ตัวแปรเช็คว่าอยู่ในขั้นตอนสอน Tutorial อยู่หรือไม่
+  bool _isMapReady = false; // เช็คว่าแผนที่ FlutterMap โหลดพร้อมรับคำสั่งเลื่อนกล้องแล้ว
+  bool _hasInitialPositionZoomed = false; // เช็คว่าเลื่อนกล้องไปตำแหน่งผู้ใช้ครั้งแรกแล้วหรือยัง
 
   @override
   void initState() {
@@ -209,7 +215,7 @@ class _StudentHomeState extends State<StudentHome>
   }
 
   // ดึงตำแหน่งปัจจุบันของนักศึกษาแล้วซูมแผนที่ไป พร้อมติดตามแบบ Real-time
-  Future<void> _zoomToUserLocation() async {
+  Future<void> _zoomToUserLocation({bool forceMove = false}) async {
     try {
       if (!kIsWeb) {
         bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -224,71 +230,61 @@ class _StudentHomeState extends State<StudentHome>
         if (permission == LocationPermission.deniedForever) return;
       }
 
-      // 1. ดึงตำแหน่งล่าสุด (Last Known) ถ้ามี
-      Position? lastPosition;
-      try {
-        lastPosition = await Geolocator.getLastKnownPosition();
-      } catch (_) {}
-
-      if (lastPosition != null && mounted) {
-        final loc = LatLng(lastPosition.latitude, lastPosition.longitude);
+      void handleNewLocation(LatLng loc, {bool isFromUserAction = false}) {
+        if (!mounted) return;
         setState(() {
           _myLocation = loc;
         });
-        _mapController.move(loc, 17.0);
 
-        Future.delayed(const Duration(milliseconds: 1500), () {
-          if (mounted) _checkAndShowTutorial();
-        });
-      }
-
-      // 2. ดึงตำแหน่งจริงเพื่อเปิดหน้าต่างขอสิทธิ์ในเบราว์เซอร์ (Web / Safari Geolocation trigger)
-      try {
-        final currentPos = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            timeLimit: Duration(seconds: 8),
-          ),
-        );
-        if (mounted) {
-          final loc = LatLng(currentPos.latitude, currentPos.longitude);
-          setState(() {
-            _myLocation = loc;
+        if ((!_hasInitialPositionZoomed || isFromUserAction) && _isMapReady) {
+          _hasInitialPositionZoomed = true;
+          _mapController.move(loc, 17.0);
+          Future.delayed(const Duration(milliseconds: 1500), () {
+            if (mounted) _checkAndShowTutorial();
           });
-          if (lastPosition == null) {
-            _mapController.move(loc, 17.0);
-            lastPosition = currentPos;
-            Future.delayed(const Duration(milliseconds: 1500), () {
-              if (mounted) _checkAndShowTutorial();
-            });
-          }
         }
-      } catch (e) {
-        debugPrint("Current position error (Web fallback): $e");
       }
 
-      // 3. ฟังการอัปเดตตำแหน่งแบบเรียลไทม์
+      // 1. ดึงตำแหน่งล่าสุด (Last Known) ทันที ถ้ามี
+      try {
+        final lastPosition = await Geolocator.getLastKnownPosition();
+        if (lastPosition != null && mounted) {
+          handleNewLocation(
+            LatLng(lastPosition.latitude, lastPosition.longitude),
+            isFromUserAction: forceMove,
+          );
+        }
+      } catch (_) {}
+
+      // 2. เริ่มดักฟัง stream ทันทีแบบ Non-blocking (ทำให้รับตำแหน่งจากเบราว์เซอร์/Sensors ได้ทันที)
       _positionSubscription?.cancel();
       _positionSubscription = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 5, // อัปเดตเมื่อขยับ 5 เมตรขึ้นไป
+        locationSettings: LocationSettings(
+          accuracy: kIsWeb ? LocationAccuracy.medium : LocationAccuracy.high,
+          distanceFilter: 3,
         ),
       ).listen((Position position) {
-        if (mounted) {
-          final loc = LatLng(position.latitude, position.longitude);
-          setState(() {
-            _myLocation = loc;
-          });
+        handleNewLocation(
+          LatLng(position.latitude, position.longitude),
+          isFromUserAction: forceMove,
+        );
+      }, onError: (e) {
+        debugPrint("Location stream error: $e");
+      });
 
-          if (lastPosition == null) {
-            _mapController.move(loc, 17.0);
-            lastPosition = position;
-            Future.delayed(const Duration(milliseconds: 1500), () {
-              if (mounted) _checkAndShowTutorial();
-            });
-          }
-        }
+      // 3. ยิงดึง getCurrentPosition ควบคู่ไปด้วยแบบ Asynchronous (ไม่ await บล็อก stream)
+      Geolocator.getCurrentPosition(
+        locationSettings: LocationSettings(
+          accuracy: kIsWeb ? LocationAccuracy.medium : LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 4),
+        ),
+      ).then((currentPos) {
+        handleNewLocation(
+          LatLng(currentPos.latitude, currentPos.longitude),
+          isFromUserAction: forceMove,
+        );
+      }).catchError((e) {
+        debugPrint("Current position error: $e");
       });
     } catch (e) {
       debugPrint("Error getting location: $e");
@@ -1260,6 +1256,10 @@ class _StudentHomeState extends State<StudentHome>
     setState(() {
       highlightedPath = fullPath;
       estimatedArrivalText = eta;
+      currentEtaSeconds = sec;
+      if (!isOnBoard && pickupEtaSeconds == null) {
+        pickupEtaSeconds = sec;
+      }
     });
   }
 
@@ -1659,6 +1659,53 @@ class _StudentHomeState extends State<StudentHome>
     _listenToAllChatMessages();
   }
 
+  // บันทึกสถิติเวลารอรถจริงจนกระทั่งขึ้นรถ โดยอิงจากเวลา ETA
+  void _recordWaitTimeAnalytics() {
+    if (_hasRecordedWaitAnalytics) return;
+    _hasRecordedWaitAnalytics = true;
+
+    try {
+      int waitSec = 0;
+      if (requestStartTime != null) {
+        final int actualWait =
+            DateTime.now().difference(requestStartTime!).inSeconds;
+        // หากรอจริงตั้งแต่ 45 วินาทีขึ้นไป และไม่เกิน 30 นาที ให้ใช้เวลารอจริง
+        if (actualWait >= 45 && actualWait <= 1800) {
+          waitSec = actualWait;
+        } else if (pickupEtaSeconds != null && pickupEtaSeconds! > 0) {
+          // หากเวลารอจริงน้อยเกินไปจากการกดทดสอบ ให้อิงจากเวลา ETA ที่ประเมินไว้
+          waitSec = pickupEtaSeconds!.round();
+        } else if (currentEtaSeconds > 0) {
+          waitSec = currentEtaSeconds.round();
+        } else {
+          waitSec = actualWait > 0 ? actualWait : 120;
+        }
+      } else if (pickupEtaSeconds != null && pickupEtaSeconds! > 0) {
+        waitSec = pickupEtaSeconds!.round();
+      } else if (currentEtaSeconds > 0) {
+        waitSec = currentEtaSeconds.round();
+      } else {
+        waitSec = 120; // ค่ามาตรฐานเริ่มต้น 2 นาที
+      }
+
+      final now = DateTime.now();
+      final dateStr =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+      FirebaseFirestore.instance
+          .collection('analytics')
+          .doc('daily_stats_$dateStr')
+          .set({
+            'total_wait_seconds': FieldValue.increment(waitSec),
+            'boarded_count': FieldValue.increment(1),
+            'on_time_trips': FieldValue.increment(1),
+            'last_updated': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+    } catch (e) {
+      print("Error updating wait analytics on board: $e");
+    }
+  }
+
   // ฟังก์ชันเมื่อนักศึกษากด "ขึ้นรถเรียบร้อยแล้ว"
   Future<void> _boardShuttle() async {
     if (activeRequestId != null) {
@@ -1671,6 +1718,9 @@ class _StudentHomeState extends State<StudentHome>
         print("Error updating request status to on_board: $e");
       }
     }
+
+    _recordWaitTimeAnalytics();
+
     if (mounted) {
       setState(() {
         isOnBoard = true;
@@ -1703,6 +1753,9 @@ class _StudentHomeState extends State<StudentHome>
         selectedStopLatLng = null;
         estimatedArrivalText = null;
         highlightedPath.clear();
+        requestStartTime = null;
+        pickupEtaSeconds = null;
+        _hasRecordedWaitAnalytics = false;
       });
 
       // เลื่อนกล้องกลับมาที่ตำแหน่งของนักศึกษาเมื่อลงรถเสร็จสิ้น
@@ -1963,18 +2016,31 @@ class _StudentHomeState extends State<StudentHome>
                 'dropoff_stop': selectedDropOffName,
             });
 
+        requestStartTime = DateTime.now();
+        _hasRecordedWaitAnalytics = false;
+        if (currentEtaSeconds > 0) {
+          pickupEtaSeconds = currentEtaSeconds;
+        }
+
         // บันทึกสถิติลง Analytics สำหรับสร้างกราฟในหน้า Admin
         try {
           final now = DateTime.now();
           final dateStr =
               "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
           final hourStr = now.hour.toString().padLeft(2, '0');
+          final String stopKey = (selectedStopName ?? 'จุดรับผู้โดยสาร')
+              .replaceAll('/', '_')
+              .replaceAll('.', '_');
 
           await FirebaseFirestore.instance
               .collection('analytics')
               .doc('daily_stats_$dateStr')
               .set({
+                'total_passengers': FieldValue.increment(1),
+                'total_requests': FieldValue.increment(1),
                 'hourly_counts': {hourStr: FieldValue.increment(1)},
+                'stop_counts': {stopKey: FieldValue.increment(1)},
+                'last_updated': FieldValue.serverTimestamp(),
               }, SetOptions(merge: true));
         } catch (e) {
           print("Error updating analytics: $e");
@@ -1993,7 +2059,7 @@ class _StudentHomeState extends State<StudentHome>
                   if (mounted) {
                     TopToast.show(
                       context,
-                      'คนขับรับทราบแล้ว! กำลังเดินทางไปรับที่ป้ายครับ ',
+                      'คนขับรับทราบแล้ว! กำลังเดินทางไปรับที่ป้ายครับ',
                       isError: false,
                     );
                     setState(() {
@@ -2002,10 +2068,14 @@ class _StudentHomeState extends State<StudentHome>
                           true; // เปลี่ยนสถานะเป็นคนขับรับทราบแล้ว และคงเส้นทางกับป้ายจอดไว้
                       isCardMinimized = false;
                     });
+                    if (pickupEtaSeconds == null && currentEtaSeconds > 0) {
+                      pickupEtaSeconds = currentEtaSeconds;
+                    }
                     _updateRouteAndETA();
                   }
                 } else if (data != null && data['status'] == 'on_board') {
-                  // ถ้าสถานะถูกเปลี่ยนจากที่อื่น
+                  // บันทึกสถิติเวลารอจนกระทั่งขึ้นรถ
+                  _recordWaitTimeAnalytics();
                   if (mounted) {
                     if (!isOnBoard) {
                       setState(() {
@@ -2269,11 +2339,22 @@ class _StudentHomeState extends State<StudentHome>
           child: FlutterMap(
             mapController: _mapController,
             options: MapOptions(
-              initialCenter: _psruCenter,
-              initialZoom: 15.5,
+              initialCenter: _myLocation ?? _psruCenter,
+              initialZoom: _myLocation != null ? 17.0 : 15.5,
               minZoom: 14.5,
               maxZoom: 18.0,
-              cameraConstraint: CameraConstraint.contain(bounds: _psruBounds),
+              cameraConstraint:
+                  CameraConstraint.containCenter(bounds: _psruBounds),
+              onMapReady: () {
+                _isMapReady = true;
+                if (_myLocation != null && !_hasInitialPositionZoomed) {
+                  _hasInitialPositionZoomed = true;
+                  _mapController.move(_myLocation!, 17.0);
+                  Future.delayed(const Duration(milliseconds: 1500), () {
+                    if (mounted) _checkAndShowTutorial();
+                  });
+                }
+              },
               interactionOptions: InteractionOptions(
                 flags:
                     InteractiveFlag.pinchZoom |
@@ -2356,7 +2437,7 @@ class _StudentHomeState extends State<StudentHome>
                     final marker = Marker(
                       key: ValueKey('stop_${vStop['id'] ?? vStop['name']}'),
                       point: LatLng(vStop['lat'], vStop['lng']),
-                      width: isSelected ? 150 : 130,
+                      width: 160,
                       height: isSelected ? 75 : 65,
                       child: RepaintBoundary(
                         child: GestureDetector(
@@ -2385,6 +2466,7 @@ class _StudentHomeState extends State<StudentHome>
                           child: _buildStopMarker(
                             isSelected: isSelected,
                             name: vStop['name'] ?? '',
+                            isGroup: vStop['isGroup'] == true,
                           ),
                         ),
                       ),
@@ -2786,8 +2868,7 @@ class _StudentHomeState extends State<StudentHome>
               } else if (_myLocation != null) {
                 _mapController.move(_myLocation!, 17.0);
               } else {
-                _zoomToUserLocation();
-                _mapController.move(_psruCenter, 15.5);
+                _zoomToUserLocation(forceMove: true);
               }
             },
             child: Icon(
@@ -3466,12 +3547,21 @@ class _StudentHomeState extends State<StudentHome>
     );
   }
 
-  Widget _buildStopMarker({required bool isSelected, required String name}) {
+  Widget _buildStopMarker({
+    required bool isSelected,
+    required String name,
+    bool isGroup = false,
+  }) {
+    String cleanName = name
+        .replaceAll('(ขาเข้า)', '')
+        .replaceAll('(ขาออก)', '')
+        .trim();
+
     return Stack(
       clipBehavior: Clip.none,
       alignment: Alignment.center,
       children: [
-        // หมุดไอคอนจุดจอด (อยู่ตรงกลาง LatLng พอดีเป๊ะ)
+        // หมุดไอคอนจุดจอด
         Container(
           width: isSelected ? 34 : 28,
           height: isSelected ? 34 : 28,
@@ -3479,49 +3569,64 @@ class _StudentHomeState extends State<StudentHome>
             color: isSelected ? const Color(0xFF176a21) : Colors.white,
             shape: BoxShape.circle,
             border: Border.all(
-              color: isSelected ? Colors.white : const Color(0xFF757778),
-              width: isSelected ? 2.5 : 1,
+              color: isSelected
+                  ? Colors.white
+                  : (isGroup
+                        ? const Color(0xFF176a21)
+                        : const Color(0xFF66BB6A)),
+              width: isSelected ? 2.5 : 2,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: isSelected ? 0.3 : 0.1),
-                blurRadius: isSelected ? 6 : 3,
+                color: const Color(0xFF176a21).withValues(
+                  alpha: isSelected ? 0.40 : 0.18,
+                ),
+                blurRadius: isSelected ? 10 : 6,
+                spreadRadius: isSelected ? 1 : 0,
                 offset: const Offset(0, 2),
               ),
             ],
           ),
           child: Icon(
-            Icons.hail,
-            color: isSelected ? Colors.white : const Color(0xFF757778),
+            Icons.hail_rounded,
+            color: isSelected
+                ? Colors.white
+                : (isGroup
+                      ? const Color(0xFF176a21)
+                      : const Color(0xFF436B49)),
             size: isSelected ? 18 : 15,
           ),
         ),
-        // ป้ายชื่อจุดจอดรถ (ลอยอยู่ด้านบน)
+        // ป้ายชื่อจุดจอดรถ
         Positioned(
-          bottom: isSelected ? 48 : 40,
+          bottom: isSelected ? 38 : 32,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
               color: isSelected ? const Color(0xFF176a21) : Colors.white,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: isSelected ? Colors.white : const Color(0xFF176a21),
-                width: 1.5,
+                color: isSelected
+                    ? Colors.white
+                    : const Color(0xFF176a21).withValues(alpha: 0.20),
+                width: isSelected ? 1.5 : 1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.15),
-                  blurRadius: 4,
+                  color: isSelected
+                      ? const Color(0xFF176a21).withValues(alpha: 0.25)
+                      : Colors.black.withValues(alpha: 0.10),
+                  blurRadius: isSelected ? 8 : 6,
                   offset: const Offset(0, 2),
                 ),
               ],
             ),
             child: Text(
-              name,
+              cleanName,
               style: TextStyle(
                 fontSize: isSelected ? 11 : 10,
                 fontWeight: FontWeight.bold,
-                color: isSelected ? Colors.white : const Color(0xFF2C2F30),
+                color: isSelected ? Colors.white : const Color(0xFF1E2923),
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,

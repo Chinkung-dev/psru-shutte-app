@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -29,7 +30,7 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1000),
+      duration: const Duration(milliseconds: 900),
     );
 
     _fadeAnimation = CurvedAnimation(
@@ -37,7 +38,10 @@ class _SplashScreenState extends State<SplashScreen>
       curve: Curves.easeOut,
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
+    _scaleAnimation = Tween<double>(
+      begin: 0.88,
+      end: 1.0,
+    ).animate(
       CurvedAnimation(
         parent: _animationController,
         curve: Curves.easeOutCubic,
@@ -45,7 +49,13 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     _animationController.forward();
-    _checkAuthAndNavigate();
+
+    // รอให้เฟรมแรกวาดเสร็จก่อน เพื่อให้ Navigator พร้อมทำงานอย่างปลอดภัย
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _checkAuthAndNavigate();
+      }
+    });
   }
 
   @override
@@ -56,8 +66,8 @@ class _SplashScreenState extends State<SplashScreen>
 
   /// ตรวจสอบสถานะการเข้าสู่ระบบและนำทางไปยังหน้าจอที่ถูกต้อง
   Future<void> _checkAuthAndNavigate() async {
-    // หน่วงเวลาขั้นต่ำเพื่อให้แสดงอนิเมชันเปิดแอปอย่างนุ่มนวล
-    await Future.delayed(const Duration(milliseconds: 1400));
+    // หน่วงเวลาเพื่อให้แสดงอนิเมชันเปิดแอปอย่างนุ่มนวลและ Firebase Auth พร้อมทำงาน
+    await Future.delayed(const Duration(milliseconds: 1200));
 
     if (!mounted) return;
 
@@ -69,9 +79,11 @@ class _SplashScreenState extends State<SplashScreen>
         return;
       }
 
-      setState(() {
-        _statusText = 'กำลังตรวจสอบสิทธิ์การใช้งาน...';
-      });
+      if (mounted) {
+        setState(() {
+          _statusText = 'กำลังตรวจสอบสิทธิ์การใช้งาน...';
+        });
+      }
 
       if (user.email == 'admin-shuttle@gmail.com') {
         _navigateTo('/adminDashboard');
@@ -85,7 +97,7 @@ class _SplashScreenState extends State<SplashScreen>
           .collection('users')
           .doc(user.uid)
           .get()
-          .timeout(const Duration(seconds: 6));
+          .timeout(const Duration(seconds: 4));
 
       if (!mounted) return;
 
@@ -150,21 +162,28 @@ class _SplashScreenState extends State<SplashScreen>
         return;
     }
 
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => targetWidget,
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(
-            opacity: CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeInOutCubic,
-            ),
-            child: child,
-          );
-        },
-        transitionDuration: const Duration(milliseconds: 600),
-      ),
-    );
+    try {
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) => targetWidget,
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return FadeTransition(
+              opacity: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeInOutCubic,
+              ),
+              child: child,
+            );
+          },
+          transitionDuration: const Duration(milliseconds: 500),
+        ),
+      );
+    } catch (e) {
+      debugPrint("Navigation error: $e");
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed(routeName);
+      }
+    }
   }
 
   @override
