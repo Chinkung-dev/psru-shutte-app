@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 import 'driver_edit_profile_screen.dart';
+import '../../widgets/app_loading_view.dart';
 
 class DriverProfileScreen extends StatefulWidget {
   const DriverProfileScreen({super.key});
@@ -81,9 +82,9 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return const Scaffold(
-        backgroundColor: Color(0xFFF0F4F2),
-        body: Center(child: CircularProgressIndicator(color: Color(0xFF176a21))),
+      return const AppLoadingView(
+        isScaffold: true,
+        message: 'กำลังโหลดข้อมูลโปรไฟล์คนขับ...',
       );
     }
 
@@ -509,7 +510,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Image.asset(
-                'lib/screens/driver/logo.png',
+                'assets/images/LOGO02.png',
                 height: 38,
                 fit: BoxFit.contain,
                 errorBuilder: (context, error, stackTrace) => const Row(

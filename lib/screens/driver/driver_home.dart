@@ -61,9 +61,16 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   final MapController _mapController = MapController();
 
   final LatLng _psruCenter = const LatLng(16.83017, 100.21046);
+  // ขอบเขตพื้นที่ ม.ราชภัฏพิบูลสงคราม (ทะเลแก้ว)
   final LatLngBounds _psruBounds = LatLngBounds(
-    const LatLng(16.81500, 100.19000),
-    const LatLng(16.84500, 100.23000),
+    const LatLng(16.82300, 100.20300),
+    const LatLng(16.83800, 100.21800),
+  );
+
+  // ขอบเขตล็อกมุมกล้องให้อยู่เฉพาะใจกลางมหาวิทยาลัย ไม่ให้เลื่อนหลุดออกนอก ม.
+  final LatLngBounds _psruCameraBounds = LatLngBounds(
+    const LatLng(16.82700, 100.20650),
+    const LatLng(16.83450, 100.21450),
   );
 
   List<Map<String, dynamic>> busStops = [];
@@ -176,10 +183,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
               // ขยับกล้องแผนที่ให้ตามตัวรถอัตโนมัติเมื่อเปิดโหมด Auto-Follow อยู่
               if (_isAutoFollow && _currentLocation != null) {
-                _mapController.move(
-                  _currentLocation!,
-                  _mapController.camera.zoom,
-                );
+                if (_psruBounds.contains(_currentLocation!)) {
+                  _mapController.move(
+                    _currentLocation!,
+                    _mapController.camera.zoom,
+                  );
+                }
               }
             }
 
@@ -1146,6 +1155,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           });
           if (_psruBounds.contains(lastLoc)) {
             _mapController.move(lastLoc, 16.5);
+          } else {
+            _mapController.move(_psruCenter, 16.2);
           }
         }
       }
@@ -1197,9 +1208,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         if (_psruBounds.contains(newLoc)) {
           _mapController.move(newLoc, 16.5);
         } else {
+          _mapController.move(_psruCenter, 16.2);
           TopToast.show(
             context,
-            ' ตำแหน่ง GPS ของคุณอยู่นอกพื้นที่มหาวิทยาลัย',
+            'ตำแหน่ง GPS ของคุณอยู่นอกพื้นที่มหาวิทยาลัย',
             isError: true,
           );
         }
@@ -1285,7 +1297,11 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             _targetLocation = newLoc;
           });
           if (_isAutoFollow) {
-            _mapController.move(newLoc, 16.5);
+            if (_psruBounds.contains(newLoc)) {
+              _mapController.move(newLoc, 16.5);
+            } else {
+              _mapController.move(_psruCenter, 16.2);
+            }
           }
         } else {
           _targetLocation = newLoc;
@@ -2061,12 +2077,20 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           child: FlutterMap(
             mapController: _mapController,
             options: MapOptions(
-              initialCenter: _psruCenter,
-              initialZoom: 15.5,
-              minZoom: 14.5,
-              maxZoom: 18.0,
+              initialCenter:
+                  (_currentLocation != null &&
+                          _psruBounds.contains(_currentLocation!))
+                      ? _currentLocation!
+                      : _psruCenter,
+              initialZoom:
+                  (_currentLocation != null &&
+                          _psruBounds.contains(_currentLocation!))
+                      ? 16.5
+                      : 16.2,
+              minZoom: 15.8,
+              maxZoom: 18.5,
               cameraConstraint:
-                  CameraConstraint.containCenter(bounds: _psruBounds),
+                  CameraConstraint.containCenter(bounds: _psruCameraBounds),
               interactionOptions: InteractionOptions(
                 flags:
                     InteractiveFlag.pinchZoom |
@@ -2268,7 +2292,17 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 setState(() {
                   _isAutoFollow = true; // เปิดติดตามตำแหน่งรถอัตโนมัติ
                 });
-                _mapController.move(_currentLocation!, 16.5);
+                if (_currentLocation != null &&
+                    _psruBounds.contains(_currentLocation!)) {
+                  _mapController.move(_currentLocation!, 16.5);
+                } else {
+                  _mapController.move(_psruCenter, 16.2);
+                  TopToast.show(
+                    context,
+                    'ตำแหน่ง GPS อยู่นอกพื้นที่มหาวิทยาลัย',
+                    isError: false,
+                  );
+                }
               },
               child: Icon(
                 _isAutoFollow ? Icons.my_location : Icons.location_searching,
@@ -2324,7 +2358,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                       children: [
                         // ฝั่งซ้าย: โลโก้
                         Image.asset(
-                          'lib/screens/driver/logo.png',
+                          'assets/images/LOGO02.png',
                           height: 38,
                           fit: BoxFit.contain,
                           errorBuilder: (context, error, stackTrace) {

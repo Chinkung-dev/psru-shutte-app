@@ -1,10 +1,52 @@
-﻿# 📝 PSRU Shuttle App - Detailed System & Feature Documentation (Changelog)
+# 📝 PSRU Shuttle App - Detailed System & Feature Documentation (Changelog)
 
 เอกสารฉบับนี้รวบรวมรายละเอียดของระบบ ทั้งในส่วนของฟีเจอร์ โครงสร้างสถาปัตยกรรม (Architecture), ฐานข้อมูล (Database), ลอจิกอัลกอริทึมทางคณิตศาสตร์ (Mathematical Algorithms) และระบบซิงก์ข้อมูลแบบ Real-time ของแอปพลิเคชัน **PSRU Shuttle App** ไว้อย่างสมบูรณ์
 
 ---
 
 ## 🆕 อัปเดตล่าสุด (Recent Updates)
+
+### Version 1.0.4 (Analytics Intelligence & Journey Metrics Update)
+**อัปเดตระบบวิเคราะห์ข้อมูลขั้นสูง (Admin Analytics Intelligence & Multi-Period Aggregation)**
+- **ระบบสลับช่วงเวลาการวิเคราะห์ (Period Switcher - วันนี้ / สัปดาห์ / เดือน):**
+  - เพิ่มปุ่มเลือกช่วงเวลาแบบ Modern Capsule Segmented Pill Switcher ที่ส่วนบนสุดของหน้าแท็บ Analytics
+  - รองรับการดูสถิติ 3 ช่วงเวลา: **"วันนี้" (Today)**, **"สัปดาห์นี้" (This Week: จันทร์ - อาทิตย์)**, และ **"เดือนนี้" (This Month: วันที่ 1 ถึงสิ้นเดือน)**
+  - ระบบประมวลผลข้อมูลอัจฉริยะแบบช่วงเวลา (Range Aggregation Query) โดยใช้ `FieldPath.documentId` ดึงช่วงเอกสาร `daily_stats_YYYY-MM-DD` จาก Cloud Firestore เพื่อรวบรวมสถิติทั้งสัปดาห์และทั้งเดือนได้อย่างรวดเร็วและประหยัดโควต้าการอ่าน
+- **ระบบติดตามตัวชี้วัดเวลาเฉลี่ย (Average Wait Time & Trip Duration KPIs):**
+  - **เวลารอรถเฉลี่ย (Average Wait Time):** คำนวณจากระยะเวลาตั้งแต่ "นักศึกษากดเรียกรถ" จนถึง "นักศึกษากดขึ้นรถ" (`total_wait_seconds / boarded_count`) แสดงผลในรูปแบบนาทีและวินาที พร้อมการ์ดแสดงสถานะ เช่น "รวดเร็วมาก"
+  - **เวลาเดินทางเฉลี่ย (Average Trip Duration):** คำนวณจากระยะเวลาตั้งแต่ "นักศึกษาขึ้นรถ" จนถึง "รถถึงจุดหมายปลายทาง" (`total_trip_seconds / completed_trips_count`) แสดงผลในรูปแบบนาทีและวินาที พร้อมป้ายสถานะประเมินความคล่องตัว
+- **กราฟแนวโน้มไดนามิกตามช่วงเวลา (Adaptive Trend Line & Distribution Chart):**
+  - ปรับเปลี่ยนการแสดงผลกราฟตามช่วงเวลาที่เลือกโดยอัตโนมัติ:
+    - **วันนี้:** กราฟการกระจายตัวของผู้โดยสารรายชั่วโมง (07:00 - 18:00) และระบุชั่วโมงเร่งด่วน (Peak Hour)
+    - **สัปดาห์นี้:** กราฟแนวโน้มจำนวนผู้โดยสารรายวัน ตั้งแต่วันจันทร์ (จ.) ถึงวันอาทิตย์ (อา.)
+    - **เดือนนี้:** กราฟแนวโน้มจำนวนผู้โดยสารรวมแบ่งตามช่วง 4 สัปดาห์ของเดือน
+- **วงแหวนวัดประสิทธิภาพการเดินรถ (Operational Fleet Efficiency Ring):**
+  - แสดงผลสัดส่วนประสิทธิภาพการให้บริการเป็นเปอร์เซ็นต์ด้วย Custom Circular Progress Ring สีเขียวมินต์ พร้อมการวิเคราะห์สถานะเชิงเปรียบเทียบ
+- **การจัดอันดับ 5 จุดจอดที่มีการใช้งานสูงสุด (Dynamic Top 5 Popular Stops):**
+  - รวบรวมข้อมูลสถิติการขึ้นรถจากทุกจุดจอดตามช่วงเวลาที่เลือก และจัดอันดับ 5 ป้ายยอดนิยมแบบ Real-time พร้อมแถบ Progress Bar สีเขียวไล่ระดับ
+
+**อัปเดตระบบติดตามการเดินทางฝั่งนักศึกษา (Student Journey Duration Tracking)**
+- **การจับเวลาการเดินทางจริง (Live Trip Timer):** บันทึกเวลาเริ่มต้นเมื่อนักศึกษาขึ้นรถ (`boardStartTime`) เมื่อสถานะเปลี่ยนเป็น `on_board`
+- **ระบบส่งสถิติเวลาอัตโนมัติ (`_recordTripTimeAnalytics`):** คำนวณเวลาเดินทางจริง (`tripSeconds`) แล้วส่งอัปเดตแบบ `FieldValue.increment` ไปยัง Firestore `analytics/daily_stats_YYYY-MM-DD` ในฟิลด์ `total_trip_seconds` และ `completed_trips_count`
+- **รองรับทั้งสองกรณี:** บันทึกข้อมูลทั้งเมื่อนักศึกษากดปุ่ม "ถึงจุดหมายแล้ว" (`_completeRide`) ด้วยตนเอง และเมื่อระบบตัดจบการเดินทางอัตโนมัติ (`_handleAutoArrive`) เมื่อรถเข้าใกล้ป้ายปลายทางในรัศมี 15 เมตร
+
+**การแก้ไขข้อผิดพลาดระบบและเพิ่มความเสถียร (Bug Fixes & System Stability)**
+- **อัปเดตโลโก้แอปพลิเคชันฝั่งผู้ดูแลระบบ (Admin Logo Update):** เปลี่ยนโลโก้หลักในแถบเมนูข้าง (`AdminSidebar`) จากภาพเดิมเป็นภาพโลโก้ใหม่ `assets/images/LOGO02.png` (PSRU S² Tracker) ซึ่งแสดงผลครอบคลุมทุกหน้าจอของระบบแอดมิน (ภาพรวมระบบ, แผนที่ติดตามสด, จัดการคนขับรถ, จัดการนักศึกษา, รายงานและสถิติ รวมถึงเมนูด้านข้างบนมือถือ)
+- **อัปเดตโลโก้แอปพลิเคชันฝั่งนักศึกษา (Student App Logo Update):** เปลี่ยนโลโก้หลักของฝั่งนักศึกษาเป็นภาพโลโก้ใหม่ `assets/images/LOGO02.png` (PSRU S² Tracker) ครบทุกหน้าจอ ได้แก่ หน้าหลักและแผนที่สด (`student_home.dart`), หน้ารายการแชท (`student_chat_list_screen.dart`), หน้าสรุปสถานะรถสด (`student_live_status_screen.dart`), หน้าโปรไฟล์นักศึกษา (`student_profile.dart`), และหน้าแนะนำการใช้งานเริ่มต้น (`student_onboarding_screen.dart`)
+- **อัปเดตโลโก้หน้าเริ่มต้นแอปพลิเคชัน (Splash Screen Logo Update):** เปลี่ยนโลโก้บนหน้าโหลดเปิดแอป (`splash_screen.dart`) เป็นภาพโลโก้แนวตั้งทรงกลม `assets/images/LOGO01.png` (PSRU S² Tracker Badge) พร้อมปรับขนาดความสูงและการจัดวางในกรอบการ์ดให้สมดุลและสวยงามคมชัด
+- **ระบบหน้าจอโหลดกลางแบบมีแบรนด์ (Standardized Branded Loading Screen with `AppLoadingView`):**
+  - สร้างคอมโพเนนต์มาตรฐาน `AppLoadingView` (`lib/widgets/app_loading_view.dart`) ที่นำภาพโลโก้ใหม่ `assets/images/LOGO02.png` (PSRU S² Tracker) มาแสดงผลร่วมกับหลอดความคืบหน้า (`LinearProgressIndicator`) สีเขียวมหาวิทยาลัย (`#176a21`) และข้อความแจ้งเตือนสถานะภาษาไทยอย่างสวยงามลงตัว
+  - ปรับใช้แทนที่วงล้อหมุนธรรมดา (Default `CircularProgressIndicator`) ในทุกหน้าจอขณะกำลังโหลดข้อมูล (In-App Loading States):
+    - **ฝั่งนักศึกษา:** หน้าหลักแผนที่สด (`student_home.dart`), หน้ารายการแชท (`student_chat_list_screen.dart`), หน้าสรุปสถานะรถสด (`student_live_status_screen.dart`), หน้าโปรไฟล์นักศึกษา (`student_profile.dart`), หน้าแก้ไขโปรไฟล์ (`student_edit_profile_screen.dart`), หน้ารายการจุดจอดที่ชอบ (`favorite_stops_screen.dart`), และหน้าห้องแชทนักศึกษา (`student_chat_screen.dart`)
+    - **ฝั่งคนขับรถ:** หน้าสถานะรถรับส่ง (`driver_status_screen.dart`), หน้าโปรไฟล์คนขับ (`driver_profile.dart`), หน้าแก้ไขโปรไฟล์ (`driver_edit_profile_screen.dart`), และหน้าห้องแชทคนขับ (`driver_chat_screen.dart`)
+    - **ฝั่งผู้ดูแลระบบ:** หน้าวิเคราะห์ข้อมูลและสถิติ (`admin_analytics_tab.dart`), หน้าจัดการนักศึกษา (`admin_students_tab.dart`), หน้าจัดการคนขับรถ (`admin_drivers_tab.dart`), และหน้าต่างโปรไฟล์แอดมิน (`admin_profile_dialog.dart`)
+- **อัปเดตโลโก้แอปพลิเคชันฝั่งคนขับรถและหน้าเข้าสู่ระบบ (Driver App & Login Logo Update):** เปลี่ยนภาพโลโก้เดิม (`lib/screens/driver/logo.png`) เป็นภาพโลโก้ใหม่ `assets/images/LOGO02.png` (PSRU S² Tracker) ครบทุกหน้าจอของฝั่งคนขับรถ ได้แก่ หน้าหลักคนขับ (`driver_home.dart`), หน้าสถานะรถรับส่ง (`driver_status_screen.dart`), หน้าโปรไฟล์คนขับ (`driver_profile.dart`), รวมถึงหน้าจอเข้าสู่ระบบ (`login_screen.dart`) และลบการอ้างอิงไฟล์โลโก้เดิมออกทั้งหมด
+- **ล็อกขอบเขตแผนที่เฉพาะพื้นที่มหาวิทยาลัยราชภัฏพิบูลสงคราม (Campus Map Boundary Lock - Student & Driver Apps):**
+  - **ฝั่งนักศึกษา (`student_home.dart`):** ปรับปรุงขอบเขตพิกัดแผนที่ (`_psruBounds` และ `_psruCameraBounds`) ให้กระชับตามแนวเขตที่ดินของมหาวิทยาลัยราชภัฏพิบูลสงคราม (ทะเลแก้ว) ครอบคลุมบึงทะเลแก้ว, กลุ่มอาคารเรียน, หอพัก, สนามกีฬา และเส้นทางเดินรถรับส่งทั้งหมด (ทิศใต้ 16.82300, ทิศเหนือ 16.83800, ทิศตะวันตก 100.20300, ทิศตะวันออก 100.21800)
+  - **ฝั่งคนขับรถ (`driver_home.dart`):** ล็อกขอบเขตแผนที่และมุมกล้อง (`_psruBounds` และ `_psruCameraBounds`) สอดคล้องกับฝั่งนักศึกษา โดยใช้ `CameraConstraint.containCenter(bounds: _psruCameraBounds)` ป้องกันไม่ให้แผนที่เลื่อนหลุดออกนอก ม. พร้อมตั้ง `minZoom` 15.8, `maxZoom` 18.5, และ `initialZoom` 16.2/16.5
+  - **การตรวจจับพิกัด GPS อัจฉริยะ:** เพิ่มการตรวจสอบ `_psruBounds.contains` ทั้งตอนเปิดแอป, ตอนรับพิกัดสด, และตอนกดปุ่มติดตามตำแหน่งรถ (Recenter Floating Action Button) หากพิกัดอยู่นอกเขตมหาวิทยาลัย กล้องจะขยับมาตั้งหลักที่จุดกึ่งกลางของมหาวิทยาลัย (`_psruCenter`) และแจ้งเตือนผ่าน TopToast อย่างชัดเจน
+- **แก้ไข Flutter 3.27+ Framework Assertion Error ใน `admin_dashboard.dart`:** แก้ไขปัญหาระบบแจ้งเตือน `ListTile background color or ink splashes may be invisible` โดยนำวิดเจ็ต `Material` มาครอบ `ListTile` ใน `_buildNavItem` และย้ายสีพื้นหลังพร้อมขอบมนไปกำหนดที่ `Material` เพื่อให้การตอบสนองการกด (Ink Splash Ripple Effect) ทำงานได้อย่างถูกต้องและเสถียรบนทุกแพลตฟอร์ม
+- **ปรับปรุงข้อความระบุข้อมูลกองรถใน `admin_live_map.dart`:** ปรับปรุง Label และการจัดรูปแบบการแสดงผลข้อมูลกองรถให้ชัดเจนและเป็นระเบียบยิ่งขึ้น
 
 ### Version 1.0.3
 - **Web App Deployment**: บิลด์และดีพลอยแอปพลิเคชันขึ้น Firebase Hosting (ปัจจุบันสถานะคือ Disable ชั่วคราว)
@@ -67,7 +109,11 @@
 
 ### 👑 4. ฝั่งผู้ดูแลระบบ (Admin Master Dashboard)
 - [x] **แดชบอร์ดสถิติ Real-Time (Live Analytics Dashboard):** คำนวณผู้โดยสารรวมประจำวัน, ชั่วโมงที่มีการใช้งานสูงสุด (Peak Hour), จำนวนเที่ยววิ่ง
-- [x] **กราฟจำลองผู้โดยสารประจำวัน (24-Hour Passenger Distribution Chart):** วาดกราฟเส้นโค้งจำลองปริมาณผู้โดยสาร 24 ชั่วโมงด้วย Custom Painter
+- [x] **สวิตช์เลือกช่วงเวลาวิเคราะห์ข้อมูล (Period Switcher):** เลือกระหว่าง วันนี้ (Today), สัปดาห์นี้ (Week), เดือนนี้ (Month) พร้อมระบบ Aggregation ข้อมูลจาก Firestore อัตโนมัติ
+- [x] **ตัวชี้วัดเวลารอรถและเวลาเดินทางเฉลี่ย (Wait & Trip Duration KPIs):** คำนวณเวลารอรถเฉลี่ย (ตั้งแต่เรียกจนขึ้นรถ) และเวลาเดินทางเฉลี่ย (ตั้งแต่ขึ้นรถจนถึงจุดหมาย) พร้อมการ์ดสรุปผลและระดับความเร็ว
+- [x] **กราฟจำลองและแนวโน้มผู้โดยสาร (Adaptive Multi-Period Trend Chart):** แสดงชั่วโมงเร่งด่วนสำหรับ "วันนี้", แสดงแนวโน้มรายวัน (จ.-อา.) สำหรับ "สัปดาห์นี้", และแสดงแนวโน้มรายสัปดาห์ (สัปดาห์ 1-4) สำหรับ "เดือนนี้"
+- [x] **วงแหวนวัดประสิทธิภาพการเดินรถ (Operational Fleet Efficiency Ring):** คำนวณสัดส่วนความตรงต่อเวลาและการให้บริการเป็นเปอร์เซ็นต์ พร้อมตัวชี้วัดเปรียบเทียบ
+- [x] **การจัดอันดับ 5 จุดจอดรถยอดนิยม (Dynamic Top 5 Popular Stops):** รวบรวมยอดผู้โดยสารรายป้ายตามช่วงเวลาและจัดอันดับแบบไดนามิก
 - [x] **แผนที่ติดตามกองรถสด (Admin Live Fleet Map):** ยุบกลุ่มป้ายที่อยู่ใกล้กัน (`_groupedStops`) และติดตามรถทุกคันพร้อมสถิติสด
 - [x] **ระบบจัดการคนขับและนักศึกษา (User Management):** ค้นหา, กรองสถานะออนไลน์, เพิ่ม/แก้ไข/ลบ ข้อมูลสมาชิก
 
@@ -184,6 +230,52 @@ $$t = \frac{\vec{AP} \cdot \vec{AB}}{|\vec{AB}|^2} = \frac{(p_x - a_x)(b_x - a_x
 > เปรียบเหมือน **"กล่องยืดหยุ่น พอดีตัวทุกหน้าจอ"**
 > - ไม่ว่าจะเปิดดูแอปด้วยมือถือจอเล็ก มือถือจอใหญ่ ไอแพด แท็บเล็ต หรือเปิดบนจอคอมพิวเตอร์
 > - กล่องสรุปสถานะรถว่าง/รถเต็มทั้ง 4 กล่อง จะปรับขนาดความกว้างและความสูงให้เท่ากันพอดี 88 พิกเซลทุกใบเสมอ ตัวหนังสือและไอคอนจะจัดเรียงสวยงาม ไร้อาการเบี้ยว ทับซ้อน หรือตกขอบ
+
+---
+
+### 6. 📊 ระบบวิเคราะห์ข้อมูลและการคำนวณระยะเวลาเดินทาง (Multi-Period Analytics & Journey Duration Logic)
+
+> [!NOTE]
+> ระบบ Analytics ใน `admin_analytics_tab.dart` ทำงานร่วมกับระบบบันทึกเวลาใน `student_home.dart` เพื่อคำนวณและประมวลผลตัวชี้วัดสำคัญของการให้บริการ (Key Performance Indicators) ทั้งในระดับรายวัน รายสัปดาห์ และรายเดือน
+
+```mermaid
+graph TD
+    A["นักศึกษากดเรียกรถ (requested_at)"] -->|เวลารอคอย Wait Time| B["นักศึกษาขึ้นรถ (boardStartTime)"]
+    B -->|เวลาเดินทาง Trip Duration| C["ถึงจุดหมาย (Completed / Auto-Arrive)"]
+    B -.->|increment total_wait_seconds & boarded_count| D[("Firestore: daily_stats_YYYY-MM-DD")]
+    C -.->|increment total_trip_seconds & completed_trips_count| D
+    D -->|Query & Range Aggregation| E["Admin Analytics Dashboard"]
+    E --> F["เวลารอเฉลี่ย (Wait Time KPI)"]
+    E --> G["เวลาเดินทางเฉลี่ย (Trip Duration KPI)"]
+    E --> H["กราฟแนวโน้ม วันนี้ / สัปดาห์ / เดือน"]
+```
+
+1. **คณิตศาสตร์คำนวณตัวชี้วัดเวลาเฉลี่ย (Mathematical Journey Duration Formulas):**
+   - **เวลารอรถเฉลี่ย (Average Wait Time):**
+     $$\text{Average Wait Time} = \frac{\sum \text{total\_wait\_seconds}}{\text{boarded\_count}}$$
+     *คิดจากการที่นักศึกษากดเรียกรถจนกระทั่งกดขึ้นรถจริง*
+   - **เวลาเดินทางเฉลี่ย (Average Trip Duration):**
+     $$\text{Average Trip Duration} = \frac{\sum \text{total\_trip\_seconds}}{\text{completed\_trips\_count}}$$
+     *คิดจากการที่นักศึกษากดขึ้นรถจนกระทั่งรถถึงจุดหมายปลายทาง (ทั้งกรณีกดเองหรือระบบตรวจจับรัศมี 15 เมตรอัตโนมัติ)*
+   - **ประสิทธิภาพการเดินรถ (Fleet Operational Efficiency):**
+     $$\text{Efficiency Score} = \min\left(100\%, \; 80\% + \frac{\text{On-Time Departures}}{\text{Total Trips}} \times 20\%\right)$$
+
+2. **เทคนิคการดึงข้อมูลแบบช่วงเวลาโดยใช้ `FieldPath.documentId` Range Query (Firestore Quota Optimization):**
+   - เนื่องจากชื่อเอกสารสถิติถูกจัดเก็บในรูปแบบ `daily_stats_YYYY-MM-DD` ซึ่งเรียงลำดับตามตัวอักษร (Lexicographical Order) ได้อย่างสมบูรณ์
+   - เมื่อผู้ดูแลระบบเลือกดูสัปดาห์นี้หรือเดือนนี้ ระบบจะไม่ดึงเอกสารทั้งหมดมาฟิลเตอร์ในเครื่อง แต่จะใช้คำสั่ง Range Query ตรงไปยัง Firestore:
+     ```dart
+     firestore.collection('analytics')
+       .where(FieldPath.documentId, isGreaterThanOrEqualTo: 'daily_stats_$startDate')
+       .where(FieldPath.documentId, isLessThanOrEqualTo: 'daily_stats_$endDate')
+       .get();
+     ```
+   - วิธีนี้ช่วยลดจำนวนการอ่านเอกสาร (Document Reads) และไม่ต้องสร้าง Composite Index เพิ่มเติม ทำให้การแสดงผลสถิติรวดเร็วทันที
+
+> 💡 **สรุปแบบเข้าใจง่าย (สำหรับบุคคลทั่วไป / ไม่ใช่สายไอที):**  
+> เปรียบเหมือน **"ศูนย์ควบคุมสถิติและจับเวลารถรับส่งอัจฉริยะ"**
+> - **จับเวลารอคอยจริง:** แอปจะจับเวลาตั้งแต่ตอนที่นักศึกษากดยืนรอรถ จนกระทั่งรถมารับและก้าวขึ้นรถ เพื่อให้ผู้บริหารรู้ว่านักศึกษาต้องยืนรอเฉลี่ยกี่นาที
+> - **จับเวลาการเดินทางจริง:** แอปจะจับเวลาตั้งแต่รถเริ่มออกเดินทางจนถึงจุดหมายปลายทาง เพื่อวัดความคล่องตัวในการเดินทางในแต่ละช่วงเวลา
+> - **เลือกดูสถิติย้อนหลังได้ 3 ระดับ:** สามารถกดสลับดูข้อมูลของ **"วันนี้"**, **"สัปดาห์นี้"**, หรือ **"เดือนนี้"** ได้ทันทีในปุ่มเดียว ทำให้มองเห็นภาพรวมการใช้งานรถรับส่งของทั้งมหาวิทยาลัยได้อย่างแม่นยำ
 
 ---
 

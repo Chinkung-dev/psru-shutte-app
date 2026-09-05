@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../widgets/app_loading_view.dart';
 import 'student_chat_screen.dart';
 
 class StudentChatListScreen extends StatefulWidget {
@@ -300,7 +301,7 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Image.asset(
-                'lib/screens/driver/logo.png',
+                'assets/images/LOGO02.png',
                 height: 38,
                 fit: BoxFit.contain,
                 errorBuilder: (context, error, stackTrace) => const Row(
@@ -416,8 +417,9 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
   // ส่วนรายการห้องแชทรถแต่ละคัน
   Widget _buildShuttleList() {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF176a21)),
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 60.0),
+        child: AppLoadingView(message: 'กำลังโหลดรายการห้องแชท...'),
       );
     }
 

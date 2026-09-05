@@ -4,6 +4,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'add_driver_dialog.dart';
 import 'edit_driver_dialog.dart';
 import 'admin_profile_dialog.dart';
+import '../../widgets/app_loading_view.dart';
 
 class AdminDriversTab extends StatefulWidget {
   const AdminDriversTab({super.key});
@@ -464,11 +465,9 @@ class _DriversTableCardState extends State<DriversTableCard> {
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Padding(
-                        padding: EdgeInsets.all(64.0),
-                        child: Center(
-                          child: CircularProgressIndicator(
-                            color: Color(0xFF176a21),
-                          ),
+                        padding: EdgeInsets.symmetric(vertical: 40.0),
+                        child: AppLoadingView(
+                          message: 'กำลังโหลดข้อมูลคนขับรถ...',
                         ),
                       );
                     }

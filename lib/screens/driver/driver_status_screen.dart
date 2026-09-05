@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../../widgets/top_toast.dart';
+import '../../widgets/app_loading_view.dart';
 
 class DriverStatusScreen extends StatefulWidget {
   final String? shuttleDocId;
@@ -188,8 +189,8 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
           _buildHeader(),
           Expanded(
             child: _isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Color(0xFF176a21)),
+                ? const AppLoadingView(
+                    message: 'กำลังโหลดข้อมูลสถานะรถรับส่ง...',
                   )
                 : Center(
                     child: ConstrainedBox(
@@ -343,7 +344,7 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Image.asset(
-                'lib/screens/driver/logo.png',
+                'assets/images/LOGO02.png',
                 height: 38,
                 fit: BoxFit.contain,
                 errorBuilder: (context, error, stackTrace) => const Row(

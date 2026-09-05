@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
 import 'package:latlong2/latlong.dart' hide Path;
+import '../../widgets/app_loading_view.dart';
 import 'student_chat_screen.dart';
 
 class StudentLiveStatusScreen extends StatefulWidget {
@@ -246,11 +247,9 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: Color(0xFFF5F7F8),
-        body: Center(
-          child: CircularProgressIndicator(color: Color(0xFF176a21)),
-        ),
+      return const AppLoadingView(
+        isScaffold: true,
+        message: 'กำลังโหลดสถานะรถรับส่งสด...',
       );
     }
 
@@ -367,7 +366,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Image.asset(
-                'lib/screens/driver/logo.png',
+                'assets/images/LOGO02.png',
                 height: 38,
                 fit: BoxFit.contain,
                 errorBuilder: (context, error, stackTrace) => const Row(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../widgets/app_loading_view.dart';
 
 class DriverEditProfileScreen extends StatefulWidget {
   const DriverEditProfileScreen({super.key});
@@ -300,7 +301,9 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
           ),
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF176a21)))
+                ? const AppLoadingView(
+                    message: 'กำลังโหลดข้อมูลโปรไฟล์คนขับ...',
+                  )
                 : Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 800),

@@ -170,7 +170,7 @@ class _StudentOnboardingScreenState extends State<StudentOnboardingScreen>
                   padding: const EdgeInsets.only(top: 16.0, bottom: 12.0),
                   child: Center(
                     child: Image.asset(
-                      'lib/screens/driver/logo.png',
+                      'assets/images/LOGO02.png',
                       height: 50,
                       fit: BoxFit.contain,
                       errorBuilder: (context, error, stackTrace) {

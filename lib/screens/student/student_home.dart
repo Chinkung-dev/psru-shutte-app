@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import '../../widgets/top_toast.dart';
+import '../../widgets/app_loading_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'; // สำหรับเช็ค kIsWeb
 import 'package:firebase_auth/firebase_auth.dart';
@@ -52,6 +53,8 @@ class _StudentHomeState extends State<StudentHome>
   double? pickupEtaSeconds; // เวลา ETA จากรถมายังจุดขึ้นรถตอนเรียกรถ
   DateTime? requestStartTime; // เวลาที่เริ่มส่งคำขอเรียกรถ
   bool _hasRecordedWaitAnalytics = false; // ป้องกันการบันทึกสถิติเวลารอซ้ำ
+  DateTime? boardStartTime; // เวลาที่นักศึกษากดยืนยันขึ้นรถ
+  bool _hasRecordedTripAnalytics = false; // ป้องกันการบันทึกสถิติเวลาเดินทางซ้ำ
   int? remainingStops; // เก็บจำนวนป้ายที่เหลือก่อนถึงจุดหมาย
   String? targetedShuttleId; // เก็บ ID ของรถคันที่ใกล้ที่สุดเพื่อส่งคำขอเจาะจง
   LatLng? _myLocation; // ตำแหน่งปัจจุบันของนักศึกษา
@@ -62,9 +65,16 @@ class _StudentHomeState extends State<StudentHome>
   final MapController _mapController = MapController();
 
   final LatLng _psruCenter = const LatLng(16.83017, 100.21046);
+  // ขอบเขตพื้นที่ ม.ราชภัฏพิบูลสงคราม (ทะเลแก้ว)
   final LatLngBounds _psruBounds = LatLngBounds(
-    const LatLng(16.81500, 100.19000),
-    const LatLng(16.84500, 100.23000),
+    const LatLng(16.82300, 100.20300),
+    const LatLng(16.83800, 100.21800),
+  );
+
+  // ขอบเขตล็อกมุมกล้องให้อยู่เฉพาะใจกลางมหาวิทยาลัย ไม่ให้เลื่อนหลุดออกนอก ม.
+  final LatLngBounds _psruCameraBounds = LatLngBounds(
+    const LatLng(16.82700, 100.20650),
+    const LatLng(16.83450, 100.21450),
   );
 
   List<Map<String, dynamic>> activeShuttles = []; // เก็บรายการรถที่กำลังออนไลน์
@@ -238,7 +248,12 @@ class _StudentHomeState extends State<StudentHome>
 
         if ((!_hasInitialPositionZoomed || isFromUserAction) && _isMapReady) {
           _hasInitialPositionZoomed = true;
-          _mapController.move(loc, 17.0);
+          if (_psruBounds.contains(loc)) {
+            _mapController.move(loc, 17.0);
+          } else {
+            // หากอยู่นอกพื้นที่มหาวิทยาลัย ให้แสดงแผนที่ที่จุดกึ่งกลางมหาวิทยาลัย
+            _mapController.move(_psruCenter, 16.2);
+          }
           Future.delayed(const Duration(milliseconds: 1500), () {
             if (mounted) _checkAndShowTutorial();
           });
@@ -1706,6 +1721,47 @@ class _StudentHomeState extends State<StudentHome>
     }
   }
 
+  // บันทึกสถิติเวลาที่ใช้เดินทางบนรถจนถึงจุดหมาย
+  void _recordTripTimeAnalytics() {
+    if (_hasRecordedTripAnalytics) return;
+    _hasRecordedTripAnalytics = true;
+
+    try {
+      int tripSec = 0;
+      if (boardStartTime != null) {
+        final int actualTrip =
+            DateTime.now().difference(boardStartTime!).inSeconds;
+        // หากเดินทางจริงตั้งแต่ 30 วินาทีขึ้นไป และไม่เกิน 1 ชั่วโมง (3600 วิ) ให้ใช้เวลาจริง
+        if (actualTrip >= 30 && actualTrip <= 3600) {
+          tripSec = actualTrip;
+        } else if (currentEtaSeconds > 0) {
+          tripSec = currentEtaSeconds.round();
+        } else {
+          tripSec = 180; // ค่ามาตรฐานเริ่มต้น 3 นาที
+        }
+      } else if (currentEtaSeconds > 0) {
+        tripSec = currentEtaSeconds.round();
+      } else {
+        tripSec = 180; // ค่ามาตรฐานเริ่มต้น 3 นาที
+      }
+
+      final now = DateTime.now();
+      final dateStr =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+      FirebaseFirestore.instance
+          .collection('analytics')
+          .doc('daily_stats_$dateStr')
+          .set({
+            'total_trip_seconds': FieldValue.increment(tripSec),
+            'completed_trips_count': FieldValue.increment(1),
+            'last_updated': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+    } catch (e) {
+      print("Error updating trip analytics on arrive: $e");
+    }
+  }
+
   // ฟังก์ชันเมื่อนักศึกษากด "ขึ้นรถเรียบร้อยแล้ว"
   Future<void> _boardShuttle() async {
     if (activeRequestId != null) {
@@ -1724,6 +1780,8 @@ class _StudentHomeState extends State<StudentHome>
     if (mounted) {
       setState(() {
         isOnBoard = true;
+        boardStartTime = DateTime.now();
+        _hasRecordedTripAnalytics = false;
       });
       _updateRouteAndETA(); // อัปเดตเส้นทางไปยังจุดลงรถและคำนวณ ETA
     }
@@ -1756,13 +1814,15 @@ class _StudentHomeState extends State<StudentHome>
         requestStartTime = null;
         pickupEtaSeconds = null;
         _hasRecordedWaitAnalytics = false;
+        boardStartTime = null;
+        _hasRecordedTripAnalytics = false;
       });
 
       // เลื่อนกล้องกลับมาที่ตำแหน่งของนักศึกษาเมื่อลงรถเสร็จสิ้น
-      if (_myLocation != null) {
+      if (_myLocation != null && _psruBounds.contains(_myLocation!)) {
         _mapController.move(_myLocation!, 17.0);
       } else {
-        _mapController.move(_psruCenter, 15.5);
+        _mapController.move(_psruCenter, 16.2);
       }
     }
   }
@@ -1924,6 +1984,9 @@ class _StudentHomeState extends State<StudentHome>
       }
     }
 
+    // บันทึกสถิติเวลาเดินทางบนรถก่อนปิดงาน
+    _recordTripTimeAnalytics();
+
     // 1. ลบคำขอเรียกรถออกจาก Firestore ทันที เพื่อคืนคิวให้ระบบ
     if (activeRequestId != null) {
       try {
@@ -1941,6 +2004,8 @@ class _StudentHomeState extends State<StudentHome>
     if (mounted) {
       setState(() {
         isOnBoard = false;
+        boardStartTime = null;
+        _hasRecordedTripAnalytics = false;
       });
       // 3. เด้ง Popup ให้คะแนน
       _showRatingDialog();
@@ -2080,6 +2145,8 @@ class _StudentHomeState extends State<StudentHome>
                     if (!isOnBoard) {
                       setState(() {
                         isOnBoard = true;
+                        boardStartTime ??= DateTime.now();
+                        _hasRecordedTripAnalytics = false;
                       });
                       _updateRouteAndETA(); // อัปเดตเส้นทาง
                     }
@@ -2339,17 +2406,31 @@ class _StudentHomeState extends State<StudentHome>
           child: FlutterMap(
             mapController: _mapController,
             options: MapOptions(
-              initialCenter: _myLocation ?? _psruCenter,
-              initialZoom: _myLocation != null ? 17.0 : 15.5,
-              minZoom: 14.5,
-              maxZoom: 18.0,
+              initialCenter:
+                  (_myLocation != null && _psruBounds.contains(_myLocation!))
+                      ? _myLocation!
+                      : _psruCenter,
+              initialZoom:
+                  (_myLocation != null && _psruBounds.contains(_myLocation!))
+                      ? 17.0
+                      : 16.2,
+              minZoom: 15.8,
+              maxZoom: 18.5,
               cameraConstraint:
-                  CameraConstraint.containCenter(bounds: _psruBounds),
+                  CameraConstraint.containCenter(bounds: _psruCameraBounds),
               onMapReady: () {
                 _isMapReady = true;
-                if (_myLocation != null && !_hasInitialPositionZoomed) {
+                if (_myLocation != null &&
+                    _psruBounds.contains(_myLocation!) &&
+                    !_hasInitialPositionZoomed) {
                   _hasInitialPositionZoomed = true;
                   _mapController.move(_myLocation!, 17.0);
+                  Future.delayed(const Duration(milliseconds: 1500), () {
+                    if (mounted) _checkAndShowTutorial();
+                  });
+                } else if (!_hasInitialPositionZoomed) {
+                  _hasInitialPositionZoomed = true;
+                  _mapController.move(_psruCenter, 16.2);
                   Future.delayed(const Duration(milliseconds: 1500), () {
                     if (mounted) _checkAndShowTutorial();
                   });
@@ -2607,19 +2688,10 @@ class _StudentHomeState extends State<StudentHome>
         ),
 
         if (_isLoadingStops)
-          const Center(
-            child: Card(
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(width: 16),
-                    Text("กำลังโหลดป้ายรถ..."),
-                  ],
-                ),
-              ),
+          const Positioned.fill(
+            child: ColoredBox(
+              color: Color(0x88F2F6F3),
+              child: AppLoadingView(message: 'กำลังโหลดข้อมูลจุดจอดรถ...'),
             ),
           ),
 
@@ -2668,7 +2740,7 @@ class _StudentHomeState extends State<StudentHome>
                       children: [
                         // ฝั่งซ้าย: โลโก้
                         Image.asset(
-                          'lib/screens/driver/logo.png',
+                          'assets/images/LOGO02.png',
                           height: 38,
                           fit: BoxFit.contain,
                           errorBuilder: (context, error, stackTrace) {
@@ -2866,7 +2938,16 @@ class _StudentHomeState extends State<StudentHome>
               } else if (selectedStopLatLng != null) {
                 _mapController.move(selectedStopLatLng!, 17.5);
               } else if (_myLocation != null) {
-                _mapController.move(_myLocation!, 17.0);
+                if (_psruBounds.contains(_myLocation!)) {
+                  _mapController.move(_myLocation!, 17.0);
+                } else {
+                  _mapController.move(_psruCenter, 16.2);
+                  TopToast.show(
+                    context,
+                    'ตำแหน่งของคุณอยู่นอกพื้นที่มหาวิทยาลัย',
+                    isError: false,
+                  );
+                }
               } else {
                 _zoomToUserLocation(forceMove: true);
               }
@@ -3014,8 +3095,10 @@ class _StudentHomeState extends State<StudentHome>
               highlightedPath.clear();
               _isAutoFollow = true;
             });
-            if (_myLocation != null) {
+            if (_myLocation != null && _psruBounds.contains(_myLocation!)) {
               _mapController.move(_myLocation!, 17.0);
+            } else {
+              _mapController.move(_psruCenter, 16.2);
             }
           }
         }
@@ -3034,8 +3117,10 @@ class _StudentHomeState extends State<StudentHome>
             highlightedPath.clear();
             _isAutoFollow = true;
           });
-          if (_myLocation != null) {
+          if (_myLocation != null && _psruBounds.contains(_myLocation!)) {
             _mapController.move(_myLocation!, 17.0);
+          } else {
+            _mapController.move(_psruCenter, 16.2);
           }
         }
         return true;

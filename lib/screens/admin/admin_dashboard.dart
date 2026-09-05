@@ -457,7 +457,7 @@ class AdminSidebar extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // ส่วนหัว Sidebar แสดงโลโก้แบบเดิม
+          // ส่วนหัว Sidebar แสดงโลโก้
           Padding(
             padding: const EdgeInsets.only(
               top: 24.0,
@@ -468,9 +468,30 @@ class AdminSidebar extends StatelessWidget {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Image.asset(
-                'lib/screens/driver/logo.png',
-                width: 140,
+                'assets/images/LOGO02.png',
+                width: 175,
                 fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.directions_bus_rounded,
+                        color: Color(0xFF176a21),
+                        size: 26,
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'PSRU Shuttle',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF176a21),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -707,7 +728,6 @@ class AdminSidebar extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
-        color: isActive ? const Color(0xFF176a21) : Colors.transparent,
         borderRadius: BorderRadius.circular(18),
         boxShadow: isActive
             ? [
@@ -719,34 +739,39 @@ class AdminSidebar extends StatelessWidget {
               ]
             : null,
       ),
-      child: ListTile(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-        leading: Icon(
-          icon,
-          color: isActive ? Colors.white : const Color(0xFF5A605B),
-          size: 22,
-        ),
-        title: Text(
-          title,
-          style: TextStyle(
-            color: isActive ? Colors.white : const Color(0xFF2C2F30),
-            fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-            fontSize: 14,
+      child: Material(
+        color: isActive ? const Color(0xFF176a21) : Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
           ),
-        ),
-        subtitle: Text(
-          subtitle,
-          style: TextStyle(
-            color: isActive
-                ? Colors.white.withOpacity(0.8)
-                : const Color(0xFF8A938C),
-            fontSize: 11,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+          leading: Icon(
+            icon,
+            color: isActive ? Colors.white : const Color(0xFF5A605B),
+            size: 22,
           ),
+          title: Text(
+            title,
+            style: TextStyle(
+              color: isActive ? Colors.white : const Color(0xFF2C2F30),
+              fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
+          subtitle: Text(
+            subtitle,
+            style: TextStyle(
+              color: isActive
+                  ? Colors.white.withOpacity(0.8)
+                  : const Color(0xFF8A938C),
+              fontSize: 11,
+            ),
+          ),
+          onTap: () => onItemSelected(index),
         ),
-        onTap: () => onItemSelected(index),
       ),
     );
   }
@@ -1592,6 +1617,8 @@ class _RightColumnContentState extends State<RightColumnContent> {
   String _peakTimeText = '-';
   int _totalCompletedTrips = 0;
   int _totalRideRequests = 0;
+  int? _hoveredIndex;
+  Offset? _hoveredOffset;
 
   @override
   void initState() {
@@ -1754,24 +1781,120 @@ class _RightColumnContentState extends State<RightColumnContent> {
                 ],
               ),
               const SizedBox(height: 28),
-              SizedBox(
-                height: 180,
-                width: double.infinity,
-                child: CustomPaint(
-                  painter: ChartPainter(values: _hourlyCounts),
-                ),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  return MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    onHover: (event) {
+                      final width = constraints.maxWidth;
+                      final dx = event.localPosition.dx.clamp(0.0, width);
+                      final double step = width / 12.0;
+                      final int index = (dx / step).round().clamp(0, 12);
+
+                      final double x = width * (index / 12.0);
+                      double maxV = _hourlyCounts.reduce((a, b) => a > b ? a : b);
+                      if (maxV == 0) maxV = 1.0;
+                      final double normY = _hourlyCounts[index] / maxV;
+                      final double y = 180.0 * 0.85 - (180.0 * 0.65 * normY);
+
+                      setState(() {
+                        _hoveredIndex = index;
+                        _hoveredOffset = Offset(x, y);
+                      });
+                    },
+                    onExit: (_) {
+                      setState(() {
+                        _hoveredIndex = null;
+                        _hoveredOffset = null;
+                      });
+                    },
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        SizedBox(
+                          height: 180,
+                          width: double.infinity,
+                          child: CustomPaint(
+                            painter: ChartPainter(
+                              values: _hourlyCounts,
+                              hoveredIndex: _hoveredIndex,
+                            ),
+                          ),
+                        ),
+                        if (_hoveredIndex != null && _hoveredOffset != null)
+                          Positioned(
+                            left: (_hoveredOffset!.dx - 55).clamp(
+                              8.0,
+                              constraints.maxWidth - 120.0,
+                            ),
+                            top: (_hoveredOffset!.dy - 65).clamp(0.0, 115.0),
+                            child: IgnorePointer(
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 120),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1E2923),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.12),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.2),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'เวลา ${(7 + _hoveredIndex!).toString().padLeft(2, '0')}:00 น.',
+                                      style: const TextStyle(
+                                        color: Color(0xFF9DF197),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${_hourlyCounts[_hoveredIndex!].toInt()} ครั้ง',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 14),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: List.generate(13, (index) {
                   final String h = (7 + index).toString().padLeft(2, '0');
+                  final bool isHovered = _hoveredIndex == index;
                   return Text(
                     '$h:00',
-                    style: const TextStyle(
-                      color: Color(0xFF718076),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
+                    style: TextStyle(
+                      color: isHovered
+                          ? const Color(0xFF176a21)
+                          : const Color(0xFF718076),
+                      fontSize: isHovered ? 10.5 : 10,
+                      fontWeight:
+                          isHovered ? FontWeight.bold : FontWeight.w500,
                     ),
                   );
                 }),
@@ -1906,8 +2029,12 @@ class _RightColumnContentState extends State<RightColumnContent> {
 
 class ChartPainter extends CustomPainter {
   final List<double> values;
-  ChartPainter({List<double>? values})
-      : values = values ?? List.filled(13, 0.0);
+  final int? hoveredIndex;
+
+  ChartPainter({
+    List<double>? values,
+    this.hoveredIndex,
+  }) : values = values ?? List.filled(13, 0.0);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1965,20 +2092,45 @@ class ChartPainter extends CustomPainter {
     canvas.drawPath(fillPath, fillPaint);
     canvas.drawPath(path, paint);
 
+    // เส้นไกด์ไลน์แนวดิ่งเมื่อมีการ Hover จุดใดจุดหนึ่ง
+    if (hoveredIndex != null &&
+        hoveredIndex! >= 0 &&
+        hoveredIndex! < points.length) {
+      final hPt = points[hoveredIndex!];
+      final guidePaint = Paint()
+        ..color = const Color(0xFF176a21).withOpacity(0.25)
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke;
+      canvas.drawLine(
+        Offset(hPt.dx, 0),
+        Offset(hPt.dx, size.height),
+        guidePaint,
+      );
+    }
+
     final dotPaint = Paint()..color = const Color(0xFF176a21);
     final dotBgPaint = Paint()..color = Colors.white;
 
-    void drawDot(Offset offset) {
-      canvas.drawCircle(offset, 4.0, dotBgPaint);
-      canvas.drawCircle(offset, 2.5, dotPaint);
+    void drawDot(Offset offset, bool isHovered) {
+      if (isHovered) {
+        final glowPaint = Paint()
+          ..color = const Color(0xFF176a21).withOpacity(0.2)
+          ..style = PaintingStyle.fill;
+        canvas.drawCircle(offset, 10.0, glowPaint);
+        canvas.drawCircle(offset, 6.0, dotBgPaint);
+        canvas.drawCircle(offset, 3.8, dotPaint);
+      } else {
+        canvas.drawCircle(offset, 4.0, dotBgPaint);
+        canvas.drawCircle(offset, 2.5, dotPaint);
+      }
     }
 
-    for (var pt in points) {
-      drawDot(pt);
+    for (int i = 0; i < points.length; i++) {
+      drawDot(points[i], i == hoveredIndex);
     }
   }
 
   @override
   bool shouldRepaint(covariant ChartPainter oldDelegate) =>
-      oldDelegate.values != values;
+      oldDelegate.values != values || oldDelegate.hoveredIndex != hoveredIndex;
 }

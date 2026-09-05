@@ -567,20 +567,20 @@ class _LoginScreenState extends State<LoginScreen> {
                     children: [
                       // ส่วนหัวแบรนด์ (Logo + ชื่อแอป + คำโปรย)
                       Container(
-                        padding: const EdgeInsets.all(4),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         decoration: BoxDecoration(
-                          shape: BoxShape.circle,
+                          borderRadius: BorderRadius.circular(20),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF176a21).withOpacity(0.12),
+                              color: const Color(0xFF176a21).withOpacity(0.08),
                               blurRadius: 20,
-                              offset: const Offset(0, 8),
+                              offset: const Offset(0, 6),
                             ),
                           ],
                         ),
                         child: Image.asset(
-                          'lib/screens/driver/logo.png',
-                          height: 80,
+                          'assets/images/LOGO02.png',
+                          height: 68,
                           fit: BoxFit.contain,
                           errorBuilder: (context, error, stackTrace) {
                             return const Column(

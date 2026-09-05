@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../../widgets/app_loading_view.dart';
 
 class DriverChatScreen extends StatefulWidget {
   final String? shuttleDocId;
@@ -355,8 +356,8 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
       stream: _messagesStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(color: Color(0xFF176a21)),
+          return const AppLoadingView(
+            message: 'กำลังโหลดข้อความสนทนา...',
           );
         }
         if (snapshot.hasError) {

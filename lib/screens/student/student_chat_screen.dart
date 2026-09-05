@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:typed_data';
+import '../../widgets/app_loading_view.dart';
 
 class StudentChatScreen extends StatefulWidget {
   final String? shuttleId;
@@ -493,7 +494,9 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
       stream: _messagesStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: Color(0xFF176a21)));
+          return const AppLoadingView(
+            message: 'กำลังโหลดข้อความสนทนา...',
+          );
         }
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const Center(

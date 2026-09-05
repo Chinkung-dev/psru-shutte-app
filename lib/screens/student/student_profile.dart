@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart'; // เพิ่ม url_launcher
+import '../../widgets/app_loading_view.dart';
 import 'favorite_stops_screen.dart';
 import 'student_edit_profile_screen.dart';
 
@@ -63,8 +64,9 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF176a21)),
+      return const AppLoadingView(
+        isScaffold: true,
+        message: 'กำลังโหลดข้อมูลโปรไฟล์นักศึกษา...',
       );
     }
 
@@ -360,7 +362,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Image.asset(
-                'lib/screens/driver/logo.png',
+                'assets/images/LOGO02.png',
                 height: 38,
                 fit: BoxFit.contain,
                 errorBuilder: (context, error, stackTrace) => const Row(

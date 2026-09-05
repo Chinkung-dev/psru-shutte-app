@@ -4,6 +4,7 @@ import 'edit_student_dialog.dart';
 import 'add_student_dialog.dart';
 import 'admin_profile_dialog.dart';
 import '../../widgets/top_toast.dart';
+import '../../widgets/app_loading_view.dart';
 
 class AdminStudentsTab extends StatefulWidget {
   const AdminStudentsTab({super.key});
@@ -407,11 +408,9 @@ class _StudentsTableCardState extends State<StudentsTableCard> {
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Padding(
-                    padding: EdgeInsets.all(64.0),
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFF176a21),
-                      ),
+                    padding: EdgeInsets.symmetric(vertical: 40.0),
+                    child: AppLoadingView(
+                      message: 'กำลังโหลดข้อมูลนักศึกษา...',
                     ),
                   );
                 }

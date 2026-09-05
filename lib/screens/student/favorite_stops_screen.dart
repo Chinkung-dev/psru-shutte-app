@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../widgets/app_loading_view.dart';
 
 class FavoriteStopsScreen extends StatefulWidget {
   const FavoriteStopsScreen({super.key});
@@ -102,10 +103,8 @@ class _FavoriteStopsScreenState extends State<FavoriteStopsScreen> {
         ),
       ),
       body: isLoading
-          ? const Center(
-              child: CircularProgressIndicator(
-                color: Color(0xFF176a21),
-              ),
+          ? const AppLoadingView(
+              message: 'กำลังโหลดจุดจอดที่ชอบ...',
             )
           : favoriteStops.isEmpty
               ? _buildEmptyState()

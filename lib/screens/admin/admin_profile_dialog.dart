@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import '../../widgets/top_toast.dart';
+import '../../widgets/app_loading_view.dart';
 
 class AdminProfileDialog extends StatefulWidget {
   const AdminProfileDialog({super.key});
@@ -148,11 +149,9 @@ class _AdminProfileDialogState extends State<AdminProfileDialog> {
               ),
               _isLoading
                   ? const Padding(
-                      padding: EdgeInsets.all(48.0),
-                      child: Center(
-                        child: CircularProgressIndicator(
-                          color: Color(0xFF176a21),
-                        ),
+                      padding: EdgeInsets.all(32.0),
+                      child: AppLoadingView(
+                        message: 'กำลังโหลดข้อมูลผู้ดูแลระบบ...',
                       ),
                     )
                   : Flexible(

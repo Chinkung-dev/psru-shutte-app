@@ -65,10 +65,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
 
   final Map<String, List<String>> _groupedStops = {
     '7-Eleven PSRU และตึก IT': ['7-Eleven PSRU', 'ตึก IT '],
-    'คณะสังคมศาสตร์ และคณะพยาบาลศาสตร์': [
-      'คณะสังคมศาสตร์',
-      'คณะพยาบาลศาสตร์',
-    ],
+    'คณะสังคมศาสตร์ และคณะพยาบาลศาสตร์': ['คณะสังคมศาสตร์', 'คณะพยาบาลศาสตร์'],
   };
 
   List<Map<String, dynamic>> get _visualStops {
@@ -135,30 +132,33 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
       vsync: this,
       duration: const Duration(milliseconds: 3000),
     );
-    _markerAnimation = CurvedAnimation(
-      parent: _markerAnimationController,
-      curve: Curves.easeInOut,
-    )..addListener(() {
-        if (mounted) {
-          setState(() {
-            for (var id in _targetShuttleLocations.keys) {
-              final oldLoc = _oldShuttleLocations[id];
-              final targetLoc = _targetShuttleLocations[id];
-              if (oldLoc != null && targetLoc != null) {
-                final lat = oldLoc.latitude +
-                    (targetLoc.latitude - oldLoc.latitude) *
-                        _markerAnimation.value;
-                final lng = oldLoc.longitude +
-                    (targetLoc.longitude - oldLoc.longitude) *
-                        _markerAnimation.value;
-                _currentShuttleLocations[id] = LatLng(lat, lng);
-              } else if (targetLoc != null) {
-                _currentShuttleLocations[id] = targetLoc;
+    _markerAnimation =
+        CurvedAnimation(
+          parent: _markerAnimationController,
+          curve: Curves.easeInOut,
+        )..addListener(() {
+          if (mounted) {
+            setState(() {
+              for (var id in _targetShuttleLocations.keys) {
+                final oldLoc = _oldShuttleLocations[id];
+                final targetLoc = _targetShuttleLocations[id];
+                if (oldLoc != null && targetLoc != null) {
+                  final lat =
+                      oldLoc.latitude +
+                      (targetLoc.latitude - oldLoc.latitude) *
+                          _markerAnimation.value;
+                  final lng =
+                      oldLoc.longitude +
+                      (targetLoc.longitude - oldLoc.longitude) *
+                          _markerAnimation.value;
+                  _currentShuttleLocations[id] = LatLng(lat, lng);
+                } else if (targetLoc != null) {
+                  _currentShuttleLocations[id] = targetLoc;
+                }
               }
-            }
-          });
-        }
-      });
+            });
+          }
+        });
   }
 
   void _listenToRideRequests() {
@@ -169,35 +169,35 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
         .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
         .snapshots()
         .listen((snapshot) {
-      if (!mounted) return;
-      int total = snapshot.docs.length;
-      int onTimeCount = 0;
+          if (!mounted) return;
+          int total = snapshot.docs.length;
+          int onTimeCount = 0;
 
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final Timestamp? startTs = data['timestamp'] as Timestamp?;
-        final Timestamp? ackTs = data['acknowledged_at'] as Timestamp?;
+          for (var doc in snapshot.docs) {
+            final data = doc.data();
+            final Timestamp? startTs = data['timestamp'] as Timestamp?;
+            final Timestamp? ackTs = data['acknowledged_at'] as Timestamp?;
 
-        if (startTs != null && ackTs != null) {
-          final start = startTs.toDate();
-          final ack = ackTs.toDate();
-          if (ack.difference(start).inMinutes <= 5) {
-            onTimeCount++;
+            if (startTs != null && ackTs != null) {
+              final start = startTs.toDate();
+              final ack = ackTs.toDate();
+              if (ack.difference(start).inMinutes <= 5) {
+                onTimeCount++;
+              }
+            } else if (data['status'] == 'acknowledged' ||
+                data['status'] == 'on_board' ||
+                data['status'] == 'completed') {
+              onTimeCount++;
+            }
           }
-        } else if (data['status'] == 'acknowledged' ||
-            data['status'] == 'on_board' ||
-            data['status'] == 'completed') {
-          onTimeCount++;
-        }
-      }
 
-      double rate = total > 0 ? (onTimeCount / total) * 100.0 : 100.0;
+          double rate = total > 0 ? (onTimeCount / total) * 100.0 : 100.0;
 
-      setState(() {
-        totalPassengersToday = total;
-        onTimePercentage = rate;
-      });
-    });
+          setState(() {
+            totalPassengersToday = total;
+            onTimePercentage = rate;
+          });
+        });
   }
 
   @override
@@ -210,8 +210,9 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
 
   Future<void> _fetchStopsFromFirebase() async {
     try {
-      final snapshot =
-          await FirebaseFirestore.instance.collection('stops').get();
+      final snapshot = await FirebaseFirestore.instance
+          .collection('stops')
+          .get();
       List<Map<String, dynamic>> loadedStops = [];
       for (var doc in snapshot.docs) {
         final data = doc.data();
@@ -237,77 +238,85 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
         .ref('shuttles')
         .onValue
         .listen((event) {
-      if (mounted && event.snapshot.exists) {
-        bool shouldAnimate = false;
-        final now = DateTime.now();
-        final data = event.snapshot.value as Map<dynamic, dynamic>;
+          if (mounted && event.snapshot.exists) {
+            bool shouldAnimate = false;
+            final now = DateTime.now();
+            final data = event.snapshot.value as Map<dynamic, dynamic>;
 
-        final List<Map<String, dynamic>> newShuttles = [];
+            final List<Map<String, dynamic>> newShuttles = [];
 
-        data.forEach((key, value) {
-          if (value != null && value is Map) {
-            final status = value['status'];
-            if (status == 'online') {
-              final lastUpdatedMillis = value['last_updated'];
-              bool isRecentlyUpdated = false;
-              if (lastUpdatedMillis != null) {
-                final lastUpdated = DateTime.fromMillisecondsSinceEpoch(
-                  (lastUpdatedMillis as num).toInt(),
-                );
-                isRecentlyUpdated = now.difference(lastUpdated).inMinutes <= 4;
+            data.forEach((key, value) {
+              if (value != null && value is Map) {
+                final status = value['status'];
+                if (status == 'online') {
+                  final lastUpdatedMillis = value['last_updated'];
+                  bool isRecentlyUpdated = false;
+                  if (lastUpdatedMillis != null) {
+                    final lastUpdated = DateTime.fromMillisecondsSinceEpoch(
+                      (lastUpdatedMillis as num).toInt(),
+                    );
+                    isRecentlyUpdated =
+                        now.difference(lastUpdated).inMinutes <= 4;
+                  }
+
+                  if (isRecentlyUpdated) {
+                    newShuttles.add({
+                      'id': key.toString(),
+                      'number': value.containsKey('number')
+                          ? value['number']
+                          : '',
+                      'name': value.containsKey('name')
+                          ? value['name']
+                          : 'Shuttle',
+                      'lat': (value['lat'] as num).toDouble(),
+                      'lng': (value['lng'] as num).toDouble(),
+                      'driver_name': value['driver_name'] ?? 'คนขับประจำรถ',
+                      'driver_avatar': value['driver_avatar'] ?? '',
+                      'capacity_percent': value['capacity_percent'] ?? 0,
+                      'passenger_status': value.containsKey('passenger_status')
+                          ? value['passenger_status']
+                          : 'available',
+                    });
+                  }
+                }
               }
+            });
 
-              if (isRecentlyUpdated) {
-                newShuttles.add({
-                  'id': key.toString(),
-                  'number': value.containsKey('number') ? value['number'] : '',
-                  'name': value.containsKey('name') ? value['name'] : 'Shuttle',
-                  'lat': (value['lat'] as num).toDouble(),
-                  'lng': (value['lng'] as num).toDouble(),
-                  'driver_name': value['driver_name'] ?? 'คนขับประจำรถ',
-                  'driver_avatar': value['driver_avatar'] ?? '',
-                  'capacity_percent': value['capacity_percent'] ?? 0,
-                  'passenger_status': value.containsKey('passenger_status')
-                      ? value['passenger_status']
-                      : 'available',
-                });
+            for (var shuttle in newShuttles) {
+              final String id = shuttle['id'];
+              final LatLng newLoc = LatLng(shuttle['lat'], shuttle['lng']);
+              final currentLoc = _currentShuttleLocations[id];
+
+              if (currentLoc != null && currentLoc != newLoc) {
+                _oldShuttleLocations[id] = currentLoc;
+                _targetShuttleLocations[id] = newLoc;
+                shouldAnimate = true;
+              } else if (currentLoc == null) {
+                _currentShuttleLocations[id] = newLoc;
+                _targetShuttleLocations[id] = newLoc;
               }
+            }
+
+            final activeIds = newShuttles.map((s) => s['id'] as String).toSet();
+            _currentShuttleLocations.removeWhere(
+              (id, loc) => !activeIds.contains(id),
+            );
+            _oldShuttleLocations.removeWhere(
+              (id, loc) => !activeIds.contains(id),
+            );
+            _targetShuttleLocations.removeWhere(
+              (id, loc) => !activeIds.contains(id),
+            );
+
+            setState(() {
+              activeShuttles = newShuttles;
+            });
+
+            if (shouldAnimate) {
+              _markerAnimationController.forward(from: 0.0);
             }
           }
         });
-
-        for (var shuttle in newShuttles) {
-          final String id = shuttle['id'];
-          final LatLng newLoc = LatLng(shuttle['lat'], shuttle['lng']);
-          final currentLoc = _currentShuttleLocations[id];
-
-          if (currentLoc != null && currentLoc != newLoc) {
-            _oldShuttleLocations[id] = currentLoc;
-            _targetShuttleLocations[id] = newLoc;
-            shouldAnimate = true;
-          } else if (currentLoc == null) {
-            _currentShuttleLocations[id] = newLoc;
-            _targetShuttleLocations[id] = newLoc;
-          }
-        }
-
-        final activeIds = newShuttles.map((s) => s['id'] as String).toSet();
-        _currentShuttleLocations
-            .removeWhere((id, loc) => !activeIds.contains(id));
-        _oldShuttleLocations
-            .removeWhere((id, loc) => !activeIds.contains(id));
-        _targetShuttleLocations
-            .removeWhere((id, loc) => !activeIds.contains(id));
-
-        setState(() {
-          activeShuttles = newShuttles;
-        });
-
-        if (shouldAnimate) {
-          _markerAnimationController.forward(from: 0.0);
-        }
-      }
-    });
   }
 
   Widget _buildStopMarker({required String name, bool isGroup = false}) {
@@ -327,7 +336,9 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
             color: Colors.white,
             shape: BoxShape.circle,
             border: Border.all(
-              color: isGroup ? const Color(0xFF176a21) : const Color(0xFF66BB6A),
+              color: isGroup
+                  ? const Color(0xFF176a21)
+                  : const Color(0xFF66BB6A),
               width: 2,
             ),
             boxShadow: [
@@ -465,7 +476,8 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
           ),
         ),
         interactionOptions: InteractionOptions(
-          flags: InteractiveFlag.pinchZoom |
+          flags:
+              InteractiveFlag.pinchZoom |
               InteractiveFlag.drag |
               InteractiveFlag.doubleTapZoom |
               InteractiveFlag.scrollWheelZoom,
@@ -489,21 +501,24 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
         ),
         MarkerLayer(
           markers: [
-            ..._visualStops.map((stop) => Marker(
-                  key: ValueKey('stop_${stop['id'] ?? stop['name']}'),
-                  point: LatLng(stop['lat'], stop['lng']),
-                  width: 160,
-                  height: 65,
-                  child: RepaintBoundary(
-                    child: _buildStopMarker(
-                      name: stop['name'] ?? '',
-                      isGroup: stop['isGroup'] == true,
-                    ),
+            ..._visualStops.map(
+              (stop) => Marker(
+                key: ValueKey('stop_${stop['id'] ?? stop['name']}'),
+                point: LatLng(stop['lat'], stop['lng']),
+                width: 160,
+                height: 65,
+                child: RepaintBoundary(
+                  child: _buildStopMarker(
+                    name: stop['name'] ?? '',
+                    isGroup: stop['isGroup'] == true,
                   ),
-                )),
+                ),
+              ),
+            ),
             ...activeShuttles.map((shuttle) {
               final id = shuttle['id'];
-              final loc = _currentShuttleLocations[id] ??
+              final loc =
+                  _currentShuttleLocations[id] ??
                   LatLng(shuttle['lat'], shuttle['lng']);
               return Marker(
                 point: loc,
@@ -515,9 +530,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
                       _selectedShuttleId = id;
                     });
                   },
-                  child: RepaintBoundary(
-                    child: _buildShuttleMarker(shuttle),
-                  ),
+                  child: RepaintBoundary(child: _buildShuttleMarker(shuttle)),
                 ),
               );
             }),
@@ -670,7 +683,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
                               ),
                               const SizedBox(width: 8),
                               const Text(
-                                'สถานะกองรถ (Fleet)',
+                                'สถานะรถ (Fleet)',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13,
@@ -716,9 +729,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
                           }
 
                           return Container(
-                            width: isCompact
-                                ? constraints.maxWidth - 40
-                                : 320,
+                            width: isCompact ? constraints.maxWidth - 40 : 320,
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(28),
@@ -727,8 +738,9 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFF176a21)
-                                      .withOpacity(0.12),
+                                  color: const Color(
+                                    0xFF176a21,
+                                  ).withOpacity(0.12),
                                   blurRadius: 24,
                                   offset: const Offset(0, 10),
                                 ),
@@ -813,8 +825,9 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
                                       color: const Color(0xFFF2F6F3),
                                       borderRadius: BorderRadius.circular(18),
                                       border: Border.all(
-                                        color: const Color(0xFF176a21)
-                                            .withOpacity(0.08),
+                                        color: const Color(
+                                          0xFF176a21,
+                                        ).withOpacity(0.08),
                                       ),
                                     ),
                                     child: Row(
@@ -935,8 +948,9 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
                             Expanded(
                               child: _buildBottomStat(
                                 Icons.groups_rounded,
-                                NumberFormat('#,##0')
-                                    .format(totalPassengersToday),
+                                NumberFormat(
+                                  '#,##0',
+                                ).format(totalPassengersToday),
                                 'ผู้โดยสารสะสม',
                               ),
                             ),
@@ -944,7 +958,9 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
                               width: 1,
                               height: 32,
                               color: const Color(0xFFEFF2F0),
-                              margin: const EdgeInsets.symmetric(horizontal: 12),
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
                             ),
                             Expanded(
                               child: _buildBottomStat(
@@ -981,12 +997,9 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
                           );
                         }),
                         const SizedBox(height: 12),
-                        _buildMapControlButton(
-                          Icons.my_location_rounded,
-                          () {
-                            _animatedMapMove(_psruCenter, 15.5);
-                          },
-                        ),
+                        _buildMapControlButton(Icons.my_location_rounded, () {
+                          _animatedMapMove(_psruCenter, 15.5);
+                        }),
                       ],
                     ),
                   ),
@@ -1006,7 +1019,9 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
           width: 8,
           height: 8,
           decoration: BoxDecoration(
-            color: isPrimary ? const Color(0xFF176a21) : const Color(0xFF757575),
+            color: isPrimary
+                ? const Color(0xFF176a21)
+                : const Color(0xFF757575),
             shape: BoxShape.circle,
           ),
         ),

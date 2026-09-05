@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -38,14 +37,8 @@ class _SplashScreenState extends State<SplashScreen>
       curve: Curves.easeOut,
     );
 
-    _scaleAnimation = Tween<double>(
-      begin: 0.88,
-      end: 1.0,
-    ).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeOutCubic,
-      ),
+    _scaleAnimation = Tween<double>(begin: 0.88, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
     );
 
     _animationController.forward();
@@ -191,14 +184,14 @@ class _SplashScreenState extends State<SplashScreen>
     final screenWidth = MediaQuery.of(context).size.width;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF2F6F3), // สีพื้นหลังเทาอมมิ้นต์เดียวกับหน้า Login
+      backgroundColor: const Color(
+        0xFFF2F6F3,
+      ), // สีพื้นหลังเทาอมมิ้นต์เดียวกับหน้า Login
       body: Stack(
         children: [
           // 1. พื้นหลังลวดลาย Dot Grid Pattern และเส้นทางเดินรถ Transit Route จำลอง
           const Positioned.fill(
-            child: CustomPaint(
-              painter: _SplashBackgroundPainter(),
-            ),
+            child: CustomPaint(painter: _SplashBackgroundPainter()),
           ),
 
           // 2. พื้นหลัง Ambient Gradient Orbs ตกแต่ง 4 มุม
@@ -297,7 +290,7 @@ class _SplashScreenState extends State<SplashScreen>
               child: _buildDecorativeSideBadge(
                 icon: Icons.access_time_filled_rounded,
                 title: 'Operating Hours',
-                subtitle: 'ให้บริการจันทร์ - ศุกร์',
+                subtitle: 'ให้บริการจันทร์ - อาทิตย์',
               ),
             ),
             Positioned(
@@ -340,7 +333,9 @@ class _SplashScreenState extends State<SplashScreen>
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFF176A21).withOpacity(0.09),
+                                  color: const Color(
+                                    0xFF176A21,
+                                  ).withOpacity(0.09),
                                   blurRadius: 30,
                                   offset: const Offset(0, 12),
                                 ),
@@ -378,29 +373,37 @@ class _SplashScreenState extends State<SplashScreen>
                                       children: [
                                         // โลโก้แอปพร้อมกรอบแสงเรือง
                                         Container(
-                                          padding: const EdgeInsets.all(12),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 20,
+                                            vertical: 14,
+                                          ),
                                           decoration: BoxDecoration(
                                             color: const Color(0xFFF2F6F3),
-                                            shape: BoxShape.circle,
+                                            borderRadius:
+                                                BorderRadius.circular(24),
                                             boxShadow: [
                                               BoxShadow(
-                                                color: const Color(0xFF176a21).withOpacity(0.10),
+                                                color: const Color(
+                                                  0xFF176a21,
+                                                ).withOpacity(0.08),
                                                 blurRadius: 20,
                                                 offset: const Offset(0, 6),
                                               ),
                                             ],
                                           ),
                                           child: Image.asset(
-                                            'lib/screens/driver/logo.png',
-                                            height: 84,
+                                            'assets/images/LOGO01.png',
+                                            height: 105,
                                             fit: BoxFit.contain,
-                                            errorBuilder: (context, error, stackTrace) {
-                                              return const Icon(
-                                                Icons.directions_bus_rounded,
-                                                size: 64,
-                                                color: Color(0xFF176a21),
-                                              );
-                                            },
+                                            errorBuilder:
+                                                (context, error, stackTrace) {
+                                                  return const Icon(
+                                                    Icons
+                                                        .directions_bus_rounded,
+                                                    size: 64,
+                                                    color: Color(0xFF176a21),
+                                                  );
+                                                },
                                           ),
                                         ),
                                         const SizedBox(height: 18),
@@ -435,17 +438,26 @@ class _SplashScreenState extends State<SplashScreen>
                                           width: 180,
                                           height: 5,
                                           decoration: BoxDecoration(
-                                            color: const Color(0xFF176a21).withOpacity(0.12),
-                                            borderRadius: BorderRadius.circular(10),
+                                            color: const Color(
+                                              0xFF176a21,
+                                            ).withOpacity(0.12),
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
                                           ),
                                           child: ClipRRect(
-                                            borderRadius: BorderRadius.circular(10),
-                                            child: const LinearProgressIndicator(
-                                              valueColor: AlwaysStoppedAnimation<Color>(
-                                                Color(0xFF176a21),
-                                              ),
-                                              backgroundColor: Colors.transparent,
+                                            borderRadius: BorderRadius.circular(
+                                              10,
                                             ),
+                                            child:
+                                                const LinearProgressIndicator(
+                                                  valueColor:
+                                                      AlwaysStoppedAnimation<
+                                                        Color
+                                                      >(Color(0xFF176a21)),
+                                                  backgroundColor:
+                                                      Colors.transparent,
+                                                ),
                                           ),
                                         ),
                                         const SizedBox(height: 18),
@@ -458,9 +470,13 @@ class _SplashScreenState extends State<SplashScreen>
                                           ),
                                           decoration: BoxDecoration(
                                             color: const Color(0xFFF2F6F3),
-                                            borderRadius: BorderRadius.circular(20),
+                                            borderRadius: BorderRadius.circular(
+                                              20,
+                                            ),
                                             border: Border.all(
-                                              color: const Color(0xFF176a21).withOpacity(0.15),
+                                              color: const Color(
+                                                0xFF176a21,
+                                              ).withOpacity(0.15),
                                               width: 1,
                                             ),
                                           ),
@@ -529,10 +545,7 @@ class _SplashScreenState extends State<SplashScreen>
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.85),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white,
-          width: 1.5,
-        ),
+        border: Border.all(color: Colors.white, width: 1.5),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF176A21).withOpacity(0.08),
