@@ -24,13 +24,13 @@
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="psru_shuttle_app">
+  <meta name="apple-mobile-web-app-title" content="PSRU S² Tracker">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>PSRU Shuttle App</title>
+  <title>PSRU S² Tracker</title>
   <link rel="manifest" href="manifest.json">
 
   <style>
@@ -63,26 +63,24 @@
       transition: opacity 0.4s ease-out;
     }
     .loading-card {
-      background-color: #ffffff;
-      border-radius: 28px;
+      background-color: transparent;
+      border-radius: 0;
       width: 90%;
-      max-width: 400px;
+      max-width: 440px;
       padding: 0;
-      box-shadow: 0 12px 30px rgba(23, 106, 33, 0.09), 0 2px 10px rgba(0, 0, 0, 0.03);
+      box-shadow: none;
       display: flex;
       flex-direction: column;
       align-items: center;
-      overflow: hidden;
-      border: 1px solid rgba(0, 0, 0, 0.04);
+      overflow: visible;
+      border: none;
       animation: floatUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
     .loading-card-top-accent {
-      width: 100%;
-      height: 5px;
-      background: linear-gradient(90deg, #176a21, #66BB6A, #9DF197);
+      display: none;
     }
     .loading-card-body {
-      padding: 32px 28px 36px 28px;
+      padding: 10px 20px 20px 20px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -90,20 +88,20 @@
       box-sizing: border-box;
     }
     .loading-logo-box {
-      width: 80px;
-      height: 80px;
-      background-color: #F2F6F3;
-      border-radius: 50%;
+      width: 124px;
+      height: 124px;
+      background-color: transparent;
+      border-radius: 0;
       display: flex;
       justify-content: center;
       align-items: center;
-      box-shadow: 0 8px 20px rgba(23, 106, 33, 0.10);
-      margin-bottom: 18px;
+      box-shadow: none;
+      margin-bottom: 20px;
       animation: pulseLogo 2s ease-in-out infinite;
     }
     .loading-logo-box img {
-      width: 52px;
-      height: 52px;
+      width: 116px;
+      height: 116px;
       object-fit: contain;
     }
     .loading-title {
@@ -142,13 +140,14 @@
     .loading-pill {
       display: inline-flex;
       align-items: center;
-      padding: 6px 14px;
-      background-color: #F2F6F3;
+      padding: 6px 16px;
+      background-color: rgba(255, 255, 255, 0.85);
       border-radius: 20px;
       border: 1px solid rgba(23, 106, 33, 0.15);
       font-size: 12px;
       font-weight: 600;
       color: #2C2F30;
+      box-shadow: 0 4px 12px rgba(23, 106, 33, 0.06);
     }
     .loading-pill-dot {
       width: 7px;
@@ -169,8 +168,8 @@
       to { transform: translateY(0); opacity: 1; }
     }
     @keyframes pulseLogo {
-      0%, 100% { transform: scale(1); box-shadow: 0 8px 20px rgba(23, 106, 33, 0.10); }
-      50% { transform: scale(1.05); box-shadow: 0 12px 25px rgba(23, 106, 33, 0.20); }
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.06); }
     }
     @keyframes indeterminate {
       0% { left: -45%; width: 45%; }
@@ -187,12 +186,11 @@
   <!-- Web Preloader หน้าจอโหลดเดียวตอนเปิดแอป -->
   <div id="flutter-preloader" class="loading-container">
     <div class="loading-card">
-      <div class="loading-card-top-accent"></div>
       <div class="loading-card-body">
         <div class="loading-logo-box">
-          <img src="icons/Icon-192.png" alt="PSRU Shuttle" onerror="this.src='favicon.png'">
+          <img src="LOGO01.png" alt="PSRU S² Tracker" onerror="this.src='icons/Icon-192.png'">
         </div>
-        <h1 class="loading-title">PSRU Shuttle</h1>
+        <h1 class="loading-title">PSRU S² Tracker</h1>
         <p class="loading-subtitle">ระบบติดตามและเรียกรถรับส่งภายในมหาวิทยาลัย</p>
         <div class="loading-bar">
           <div class="loading-bar-inner"></div>

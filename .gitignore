@@ -47,3 +47,4 @@ app.*.map.json
 
 # Firebase cache
 .firebase/
+node_modules/

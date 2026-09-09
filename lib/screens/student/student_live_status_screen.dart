@@ -67,8 +67,6 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
 
     // 1. ดึงข้อมูลจาก Realtime Database (RTDB) เป็นหลัก เพราะพิกัดและสถานะออนไลน์จริงจะอัปเดตที่ RTDB
     _rtdbShuttles.forEach((rtdbKey, rtdbDoc) {
-      if (rtdbDoc is! Map) return;
-
       // ค้นหา Firestore doc ที่สอดคล้องกัน (ลองค้นหาด้วย ID, เลขคันรถ, หรือชื่อรถ)
       Map<String, dynamic>? matchingFsDoc;
       final String rtdbNumStr = (rtdbDoc['number'] ?? '').toString();

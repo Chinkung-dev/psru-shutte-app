@@ -63,6 +63,8 @@ void main() async {
             final String role = (data['role'] as String?) ?? 'student';
             if (role == 'driver') {
               initialRoute = '/driverHome';
+            } else if (role == 'admin') {
+              initialRoute = '/adminDashboard';
             } else {
               final bool hasSeenOnboarding = data['hasSeenOnboarding'] == true;
               if (hasSeenOnboarding) {

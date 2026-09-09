@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -35,11 +36,15 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
   String? _currentRoomId;
   final ImagePicker _picker = ImagePicker();
   bool _isUploadingImage = false;
+  Timer? _dayCheckTimer;
 
   @override
   void initState() {
     super.initState();
     _initChatStream();
+    _dayCheckTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      _checkAndRefreshRoomIfNeeded();
+    });
   }
 
   @override
@@ -68,6 +73,23 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
     return 'shuttle_01';
   }
 
+  bool _checkAndRefreshRoomIfNeeded() {
+    final String baseRoom = _getCanonicalRoomId();
+    final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
+    final String targetRoom = '${baseRoom}_$todayDate';
+    if (_currentRoomId != targetRoom) {
+      if (mounted) {
+        setState(() {
+          _initChatStream();
+        });
+      } else {
+        _initChatStream();
+      }
+      return true;
+    }
+    return false;
+  }
+
   void _initChatStream() {
     final String baseRoom = _getCanonicalRoomId();
     final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
@@ -91,6 +113,7 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
 
   @override
   void dispose() {
+    _dayCheckTimer?.cancel();
     _updateLastReadTime();
     _messageController.dispose();
     super.dispose();
@@ -100,12 +123,13 @@ class _StudentChatScreenState extends State<StudentChatScreen> {
   Future<void> _sendMessage({String? imageUrl}) async {
     if (_messageController.text.trim().isEmpty && imageUrl == null) return;
 
+    _checkAndRefreshRoomIfNeeded();
+
     final String text = _messageController.text.trim();
     _messageController.clear(); // ล้างช่องพิมพ์ทันที
 
-    final String baseRoom = _getCanonicalRoomId();
-    final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
-    final String targetRoom = '${baseRoom}_$todayDate';
+    final String targetRoom = _currentRoomId ??
+        '${_getCanonicalRoomId()}_${DateFormat('yyyy_MM_dd').format(DateTime.now())}';
 
     try {
       Map<String, dynamic> messageData = {

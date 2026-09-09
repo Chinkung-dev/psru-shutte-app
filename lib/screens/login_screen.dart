@@ -252,6 +252,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
         if (role == 'driver') {
           Navigator.pushReplacementNamed(context, '/driverHome');
+        } else if (role == 'admin') {
+          Navigator.pushReplacementNamed(context, '/adminDashboard');
         } else {
           final bool hasSeenOnboarding =
               data != null &&

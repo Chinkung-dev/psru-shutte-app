@@ -42,8 +42,11 @@ class _StudentOnboardingScreenState extends State<StudentOnboardingScreen>
 
   Future<void> _fetchUserData() async {
     try {
-      final countQuery = await FirebaseFirestore.instance.collection('users').count().get();
-      
+      final countQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .count()
+          .get();
+
       // ดึงตัวอย่างผู้ใช้มา 2 คนเพื่อเอารูปโปรไฟล์
       final sampleUsersQuery = await FirebaseFirestore.instance
           .collection('users')
@@ -184,7 +187,7 @@ class _StudentOnboardingScreenState extends State<StudentOnboardingScreen>
                             ),
                             SizedBox(width: 8),
                             Text(
-                              'PSRU Shuttle',
+                              'PSRU S² Tracker',
                               style: TextStyle(
                                 fontFamily: 'Manrope',
                                 fontSize: 26,
@@ -248,19 +251,31 @@ class _StudentOnboardingScreenState extends State<StudentOnboardingScreen>
                                 animation: _imageFloatAnimation,
                                 builder: (context, child) {
                                   return Transform.translate(
-                                    offset: Offset(0, _imageFloatAnimation.value),
+                                    offset: Offset(
+                                      0,
+                                      _imageFloatAnimation.value,
+                                    ),
                                     child: child,
                                   );
                                 },
                                 child: Container(
                                   width: 300,
                                   height: 256,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 28,
+                                    vertical: 24,
+                                  ),
                                   decoration: BoxDecoration(
+                                    color: Colors.white,
                                     borderRadius: BorderRadius.circular(24),
+                                    border: Border.all(
+                                      color: Colors.black.withOpacity(0.04),
+                                      width: 1,
+                                    ),
                                     boxShadow: [
                                       BoxShadow(
                                         color: const Color(
-                                          0xFF2C2F30,
+                                          0xFF176A21,
                                         ).withOpacity(0.12),
                                         blurRadius: 30,
                                         offset: const Offset(0, 15),
@@ -268,21 +283,22 @@ class _StudentOnboardingScreenState extends State<StudentOnboardingScreen>
                                     ],
                                   ),
                                   child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(24),
+                                    borderRadius: BorderRadius.circular(20),
                                     child: Image.asset(
-                                      'lib/screens/driver/screen.png',
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        return Container(
-                                          color: const Color(0xFFEFF1F2),
-                                          alignment: Alignment.center,
-                                          child: const Icon(
-                                            Icons.directions_bus_rounded,
-                                            size: 80,
-                                            color: Color(0xFF176a21),
-                                          ),
-                                        );
-                                      },
+                                      'assets/images/LOGO01.png',
+                                      fit: BoxFit.contain,
+                                      errorBuilder:
+                                          (context, error, stackTrace) {
+                                            return Container(
+                                              color: const Color(0xFFEFF1F2),
+                                              alignment: Alignment.center,
+                                              child: const Icon(
+                                                Icons.directions_bus_rounded,
+                                                size: 80,
+                                                color: Color(0xFF176a21),
+                                              ),
+                                            );
+                                          },
                                     ),
                                   ),
                                 ),
@@ -296,7 +312,10 @@ class _StudentOnboardingScreenState extends State<StudentOnboardingScreen>
                                   animation: _cardFloatAnimation,
                                   builder: (context, child) {
                                     return Transform.translate(
-                                      offset: Offset(0, _cardFloatAnimation.value),
+                                      offset: Offset(
+                                        0,
+                                        _cardFloatAnimation.value,
+                                      ),
                                       child: child,
                                     );
                                   },
@@ -316,9 +335,13 @@ class _StudentOnboardingScreenState extends State<StudentOnboardingScreen>
                                           color: const Color(
                                             0xFFF5F6F7,
                                           ).withOpacity(0.75),
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
                                           border: Border.all(
-                                            color: Colors.white.withOpacity(0.6),
+                                            color: Colors.white.withOpacity(
+                                              0.6,
+                                            ),
                                             width: 1.5,
                                           ),
                                           boxShadow: [
@@ -382,7 +405,7 @@ class _StudentOnboardingScreenState extends State<StudentOnboardingScreen>
 
                           // Typography Section
                           const Text(
-                            'ยินดีต้อนรับสู่\nPSRU Shuttle',
+                            'ยินดีต้อนรับสู่\nPSRU S² Tracker',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontFamily: 'Manrope',
@@ -419,14 +442,17 @@ class _StudentOnboardingScreenState extends State<StudentOnboardingScreen>
                     children: [
                       // Kinetic Gradient Button (primary to primary_container)
                       Container(
-                        width: 320, // ปรับให้ขนาดพอดีตามรูปที่วาดมา ไม่กว้างเต็มจอ
+                        width:
+                            320, // ปรับให้ขนาดพอดีตามรูปที่วาดมา ไม่กว้างเต็มจอ
                         height: 58,
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
                             colors: [
                               Color(0xFF176a21), // Primary Green
                               Color(0xFF389742), // Emerald Green
-                              Color(0xFF67B26F), // Bright Secondary Gradient (#67B26F)
+                              Color(
+                                0xFF67B26F,
+                              ), // Bright Secondary Gradient (#67B26F)
                             ],
                             begin: Alignment.centerLeft,
                             end: Alignment.centerRight,

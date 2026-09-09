@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import '../../widgets/top_toast.dart';
+import '../../services/shuttle_access.dart';
 
 class AddDriverDialog extends StatefulWidget {
   const AddDriverDialog({super.key});
@@ -128,8 +129,10 @@ class _AddDriverDialogState extends State<AddDriverDialog> {
 
     setState(() => _isLoading = true);
 
+    FirebaseApp? tempApp;
     try {
-      FirebaseApp tempApp = await Firebase.initializeApp(
+      await ShuttleAccess.requireAdmin();
+      tempApp = await Firebase.initializeApp(
         name: 'tempApp_${DateTime.now().millisecondsSinceEpoch}',
         options: Firebase.app().options,
       );
@@ -151,6 +154,8 @@ class _AddDriverDialogState extends State<AddDriverDialog> {
         'avatar': 'assets/images/man1.png',
         'shuttleName': _selectedShuttleName,
         'shuttleNumber': _selectedShuttleNumber,
+        'shuttle_name': _selectedShuttleName,
+        'shuttle_number': _selectedShuttleNumber,
         'hasSeenOnboarding': false,
         'created_at': FieldValue.serverTimestamp(),
       };
@@ -175,9 +180,16 @@ class _AddDriverDialogState extends State<AddDriverDialog> {
           'driver_name': name,
           'driver_avatar': 'assets/images/man1.png',
         });
+        final shuttle = shuttleDoc.docs.first;
+        await ShuttleAccess.assignDriver(
+          driverUid: userCredential.user!.uid,
+          documentId: shuttle.id,
+          name: shuttle.data()['name']?.toString() ?? '',
+          number: shuttle.data()['number']?.toString() ?? '',
+        );
+      } else {
+        throw StateError('ไม่พบรถที่เลือก กรุณาตรวจสอบข้อมูลรถ');
       }
-
-      await tempApp.delete();
 
       if (mounted) {
         _showToast('เพิ่มพนักงานขับรถสำเร็จ', isError: false);
@@ -194,6 +206,11 @@ class _AddDriverDialogState extends State<AddDriverDialog> {
     } catch (e) {
       _showToast('เกิดข้อผิดพลาด: $e', isError: true);
     } finally {
+      try {
+        await tempApp?.delete();
+      } catch (e) {
+        debugPrint('ปิดการเชื่อมต่อบัญชีชั่วคราวไม่สำเร็จ: $e');
+      }
       if (mounted) setState(() => _isLoading = false);
     }
   }

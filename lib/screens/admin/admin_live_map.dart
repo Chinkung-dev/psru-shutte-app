@@ -20,10 +20,17 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
   final MapController _mapController = MapController();
   final LatLng _psruCenter = const LatLng(16.83017, 100.21046);
 
+  // ขอบเขตล็อกมุมกล้องให้ครอบคลุมรอบมหาวิทยาลัย ไม่ให้เลื่อนหลุดออกนอกเมือง แต่เลื่อนดูจุดจอดริมขอบได้อิสระ
+  final LatLngBounds _psruCameraBounds = LatLngBounds(
+    const LatLng(16.82000, 100.20000),
+    const LatLng(16.84100, 100.22100),
+  );
+
   List<Map<String, dynamic>> activeShuttles = [];
   List<Map<String, dynamic>> busStops = [];
 
   void _animatedMapMove(LatLng destLocation, double destZoom) {
+    final clampedZoom = destZoom.clamp(15.8, 18.5);
     final latTween = Tween<double>(
       begin: _mapController.camera.center.latitude,
       end: destLocation.latitude,
@@ -34,7 +41,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
     );
     final zoomTween = Tween<double>(
       begin: _mapController.camera.zoom,
-      end: destZoom,
+      end: clampedZoom,
     );
 
     final controller = AnimationController(
@@ -466,15 +473,11 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
       mapController: _mapController,
       options: MapOptions(
         initialCenter: _psruCenter,
-        initialZoom: 15.5,
-        maxZoom: 18.0,
-        minZoom: 14.0,
-        cameraConstraint: CameraConstraint.containCenter(
-          bounds: LatLngBounds(
-            const LatLng(16.81500, 100.19000),
-            const LatLng(16.84500, 100.23000),
-          ),
-        ),
+        initialZoom: 16.2,
+        minZoom: 15.8,
+        maxZoom: 18.5,
+        cameraConstraint:
+            CameraConstraint.containCenter(bounds: _psruCameraBounds),
         interactionOptions: InteractionOptions(
           flags:
               InteractiveFlag.pinchZoom |
@@ -998,7 +1001,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
                         }),
                         const SizedBox(height: 12),
                         _buildMapControlButton(Icons.my_location_rounded, () {
-                          _animatedMapMove(_psruCenter, 15.5);
+                          _animatedMapMove(_psruCenter, 16.2);
                         }),
                       ],
                     ),

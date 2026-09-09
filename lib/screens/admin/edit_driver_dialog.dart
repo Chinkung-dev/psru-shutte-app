@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../widgets/top_toast.dart';
+import '../../services/shuttle_access.dart';
 
 class EditDriverDialog extends StatefulWidget {
   final String docId;
@@ -40,8 +41,8 @@ class _EditDriverDialogState extends State<EditDriverDialog> {
     _employeeIdController.text =
         widget.driverData['employee_id'] ?? widget.driverData['student_id'] ?? '';
     _phoneController.text = widget.driverData['phone'] ?? '';
-    _selectedShuttleName = widget.driverData['shuttleName'];
-    _selectedShuttleNumber = widget.driverData['shuttleNumber'];
+    _selectedShuttleName = widget.driverData['shuttleName'] ?? widget.driverData['shuttle_name'];
+    _selectedShuttleNumber = widget.driverData['shuttleNumber'] ?? widget.driverData['shuttle_number'];
     _originalShuttleName = _selectedShuttleName;
     _originalShuttleNumber = _selectedShuttleNumber;
 
@@ -131,6 +132,8 @@ class _EditDriverDialogState extends State<EditDriverDialog> {
     setState(() => _isLoading = true);
 
     try {
+      await ShuttleAccess.requireAdmin();
+      await ShuttleAccess.revokeDriver(widget.docId);
       await FirebaseFirestore.instance
           .collection('users')
           .doc(widget.docId)
@@ -140,6 +143,8 @@ class _EditDriverDialogState extends State<EditDriverDialog> {
         'phone': phone,
         'shuttleName': _selectedShuttleName,
         'shuttleNumber': _selectedShuttleNumber,
+        'shuttle_name': _selectedShuttleName,
+        'shuttle_number': _selectedShuttleNumber,
       });
 
       if (_originalShuttleName != _selectedShuttleName ||
@@ -196,6 +201,24 @@ class _EditDriverDialogState extends State<EditDriverDialog> {
             });
           }
         }
+      }
+
+      if (_selectedShuttleName != null) {
+        final assignedShuttle = await FirebaseFirestore.instance
+            .collection('shuttles')
+            .where('name', isEqualTo: _selectedShuttleName)
+            .limit(1)
+            .get();
+        if (assignedShuttle.docs.isEmpty) {
+          throw StateError('ไม่พบรถที่เลือก กรุณาตรวจสอบข้อมูลรถ');
+        }
+        final shuttle = assignedShuttle.docs.first;
+        await ShuttleAccess.assignDriver(
+          driverUid: widget.docId,
+          documentId: shuttle.id,
+          name: shuttle.data()['name']?.toString() ?? '',
+          number: shuttle.data()['number']?.toString() ?? '',
+        );
       }
 
       if (mounted) {

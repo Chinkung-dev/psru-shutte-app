@@ -107,6 +107,8 @@ class _SplashScreenState extends State<SplashScreen>
           final String role = (data['role'] as String?) ?? 'student';
           if (role == 'driver') {
             _navigateTo('/driverHome');
+          } else if (role == 'admin') {
+            _navigateTo('/adminDashboard');
           } else {
             final bool hasSeenOnboarding = data['hasSeenOnboarding'] == true;
             if (hasSeenOnboarding) {
@@ -322,192 +324,136 @@ class _SplashScreenState extends State<SplashScreen>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          // การ์ดสีขาวทรง Floating Card ที่เข้าชุดกับหน้า Login
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(28),
-                              border: Border.all(
-                                color: Colors.black.withOpacity(0.04),
-                                width: 1,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(
-                                    0xFF176A21,
-                                  ).withOpacity(0.09),
-                                  blurRadius: 30,
-                                  offset: const Offset(0, 12),
+                          // โลโก้และข้อมูลหน้าโหลดโดยไม่มีกรอบการ์ดสีขาวซ้อน
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24.0,
+                              vertical: 16.0,
+                            ),
+                            child: Column(
+                              children: [
+                                // โลโก้แอป
+                                Image.asset(
+                                  'assets/images/LOGO01.png',
+                                  height: 135,
+                                  fit: BoxFit.contain,
+                                  errorBuilder:
+                                      (context, error, stackTrace) {
+                                        return const Icon(
+                                          Icons
+                                              .directions_bus_rounded,
+                                          size: 64,
+                                          color: Color(0xFF176a21),
+                                        );
+                                      },
                                 ),
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.03),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 2),
+                                const SizedBox(height: 18),
+
+                                // ชื่อแอป
+                                const Text(
+                                  'PSRU S² Tracker',
+                                  style: TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF176a21),
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+
+                                // คำโปรย
+                                const Text(
+                                  'ระบบติดตามและเรียกรถรับส่งภายในมหาวิทยาลัย',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF436B49),
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.3,
+                                  ),
+                                ),
+                                const SizedBox(height: 32),
+
+                                // หลอดดาวน์โหลดโมเดิร์นสีเขียว
+                                Container(
+                                  width: 180,
+                                  height: 5,
+                                  decoration: BoxDecoration(
+                                    color: const Color(
+                                      0xFF176a21,
+                                    ).withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(
+                                      10,
+                                    ),
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(
+                                      10,
+                                    ),
+                                    child:
+                                        const LinearProgressIndicator(
+                                          valueColor:
+                                              AlwaysStoppedAnimation<
+                                                Color
+                                              >(Color(0xFF176a21)),
+                                          backgroundColor:
+                                              Colors.transparent,
+                                        ),
+                                  ),
+                                ),
+                                const SizedBox(height: 18),
+
+                                // กล่องแสดงข้อความสถานะการโหลดแบบ Pill Badge
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.85),
+                                    borderRadius: BorderRadius.circular(
+                                      20,
+                                    ),
+                                    border: Border.all(
+                                      color: const Color(
+                                        0xFF176a21,
+                                      ).withOpacity(0.15),
+                                      width: 1,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(
+                                          0xFF176A21,
+                                        ).withOpacity(0.06),
+                                        blurRadius: 12,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 7,
+                                        height: 7,
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF176a21),
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        _statusText,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Color(0xFF2C2F30),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ],
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(28),
-                              child: Column(
-                                children: [
-                                  // แถบเส้นไล่ระดับสีด้านบนการ์ด (Top Gradient Accent Bar)
-                                  Container(
-                                    height: 5,
-                                    width: double.infinity,
-                                    decoration: const BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [
-                                          Color(0xFF176a21),
-                                          Color(0xFF66BB6A),
-                                          Color(0xFF9DF197),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 32.0,
-                                      vertical: 36.0,
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        // โลโก้แอปพร้อมกรอบแสงเรือง
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 20,
-                                            vertical: 14,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFF2F6F3),
-                                            borderRadius:
-                                                BorderRadius.circular(24),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: const Color(
-                                                  0xFF176a21,
-                                                ).withOpacity(0.08),
-                                                blurRadius: 20,
-                                                offset: const Offset(0, 6),
-                                              ),
-                                            ],
-                                          ),
-                                          child: Image.asset(
-                                            'assets/images/LOGO01.png',
-                                            height: 105,
-                                            fit: BoxFit.contain,
-                                            errorBuilder:
-                                                (context, error, stackTrace) {
-                                                  return const Icon(
-                                                    Icons
-                                                        .directions_bus_rounded,
-                                                    size: 64,
-                                                    color: Color(0xFF176a21),
-                                                  );
-                                                },
-                                          ),
-                                        ),
-                                        const SizedBox(height: 18),
-
-                                        // ชื่อแอป
-                                        const Text(
-                                          'PSRU Shuttle',
-                                          style: TextStyle(
-                                            fontSize: 28,
-                                            fontWeight: FontWeight.w900,
-                                            color: Color(0xFF176a21),
-                                            letterSpacing: 0.5,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 6),
-
-                                        // คำโปรย
-                                        const Text(
-                                          'ระบบติดตามและเรียกรถรับส่งภายในมหาวิทยาลัย',
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: Color(0xFF436B49),
-                                            fontWeight: FontWeight.w600,
-                                            height: 1.3,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 32),
-
-                                        // หลอดดาวน์โหลดโมเดิร์นสีเขียว
-                                        Container(
-                                          width: 180,
-                                          height: 5,
-                                          decoration: BoxDecoration(
-                                            color: const Color(
-                                              0xFF176a21,
-                                            ).withOpacity(0.12),
-                                            borderRadius: BorderRadius.circular(
-                                              10,
-                                            ),
-                                          ),
-                                          child: ClipRRect(
-                                            borderRadius: BorderRadius.circular(
-                                              10,
-                                            ),
-                                            child:
-                                                const LinearProgressIndicator(
-                                                  valueColor:
-                                                      AlwaysStoppedAnimation<
-                                                        Color
-                                                      >(Color(0xFF176a21)),
-                                                  backgroundColor:
-                                                      Colors.transparent,
-                                                ),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 18),
-
-                                        // กล่องแสดงข้อความสถานะการโหลดแบบ Pill Badge
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 14,
-                                            vertical: 6,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFF2F6F3),
-                                            borderRadius: BorderRadius.circular(
-                                              20,
-                                            ),
-                                            border: Border.all(
-                                              color: const Color(
-                                                0xFF176a21,
-                                              ).withOpacity(0.15),
-                                              width: 1,
-                                            ),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Container(
-                                                width: 7,
-                                                height: 7,
-                                                decoration: const BoxDecoration(
-                                                  color: Color(0xFF176a21),
-                                                  shape: BoxShape.circle,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Text(
-                                                _statusText,
-                                                style: const TextStyle(
-                                                  fontSize: 12,
-                                                  color: Color(0xFF2C2F30),
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
                             ),
                           ),
                           const SizedBox(height: 20),

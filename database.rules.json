@@ -2,9 +2,37 @@
   "rules": {
     ".read": false,
     ".write": false,
+    "access": {
+      "admins": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid"
+        }
+      }
+    },
+    "shuttle_drivers": {
+      ".read": "auth != null && root.child('access/admins').child(auth.uid).val() === true",
+      ".write": "auth != null && root.child('access/admins').child(auth.uid).val() === true",
+      "$shuttleId": {
+        ".validate": "newData.isString() && newData.val().length > 0"
+      }
+    },
     "shuttles": {
       ".read": "auth != null",
-      ".write": "auth != null"
+      "$shuttleId": {
+        ".write": "auth != null && (root.child('access/admins').child(auth.uid).val() === true || (root.child('shuttle_drivers').child($shuttleId).val() === auth.uid && newData.exists() && newData.child('driver_uid').val() === auth.uid))",
+        "driver_uid": {
+          ".validate": "newData.isString() && newData.val().length > 0"
+        },
+        "lat": {
+          ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
+        },
+        "lng": {
+          ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
+        },
+        "status": {
+          ".validate": "newData.val() === 'online' || newData.val() === 'offline'"
+        }
+      }
     }
   }
 }

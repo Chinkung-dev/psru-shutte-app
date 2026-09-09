@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -25,6 +26,7 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
       FirebaseAuth.instance.currentUser?.uid ?? 'unknown_driver';
   Stream<QuerySnapshot>? _messagesStream;
   String? _currentRoomId;
+  Timer? _dayCheckTimer;
 
   // ข้อความด่วนสำหรับคนขับรถ (Quick Responses)
   final List<String> _quickResponses = [
@@ -39,6 +41,9 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
   void initState() {
     super.initState();
     _initChatStream();
+    _dayCheckTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      _checkAndRefreshRoomIfNeeded();
+    });
   }
 
   @override
@@ -67,6 +72,23 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
     return 'shuttle_01';
   }
 
+  bool _checkAndRefreshRoomIfNeeded() {
+    final String baseRoom = _getCanonicalRoomId();
+    final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
+    final String targetRoom = '${baseRoom}_$todayDate';
+    if (_currentRoomId != targetRoom) {
+      if (mounted) {
+        setState(() {
+          _initChatStream();
+        });
+      } else {
+        _initChatStream();
+      }
+      return true;
+    }
+    return false;
+  }
+
   void _initChatStream() {
     final String baseRoom = _getCanonicalRoomId();
     final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
@@ -89,9 +111,10 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
       _messageController.clear();
     }
 
-    final String baseRoom = _getCanonicalRoomId();
-    final String todayDate = DateFormat('yyyy_MM_dd').format(DateTime.now());
-    final String targetRoom = '${baseRoom}_$todayDate';
+    _checkAndRefreshRoomIfNeeded();
+
+    final String targetRoom = _currentRoomId ??
+        '${_getCanonicalRoomId()}_${DateFormat('yyyy_MM_dd').format(DateTime.now())}';
 
     try {
       await FirebaseFirestore.instance
@@ -122,6 +145,7 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
 
   @override
   void dispose() {
+    _dayCheckTimer?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();

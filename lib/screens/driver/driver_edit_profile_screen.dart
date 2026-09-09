@@ -57,8 +57,8 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
           _nameController.text = data['name']?.toString() ?? '';
           _driverIdController.text = data['student_id']?.toString() ?? '';
           _phoneController.text = data['phone']?.toString() ?? '';
-          _selectedShuttleName = data['shuttle_name']?.toString();
-          _selectedShuttleNumber = data['shuttle_number']?.toString();
+          _selectedShuttleName = (data['shuttle_name'] ?? data['shuttleName'])?.toString();
+          _selectedShuttleNumber = (data['shuttle_number'] ?? data['shuttleNumber'])?.toString();
 
           final String currentAvatar = data['avatar']?.toString() ?? 'assets/images/man1.png';
           final int index = _avatarList.indexOf(currentAvatar);
@@ -95,8 +95,8 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
           continue; // ไม่นับรถของตัวเองเป็นรถที่ถูกจองแล้ว
         }
         final data = doc.data();
-        final sName = (data['shuttle_name'] ?? '').toString().trim();
-        final sNum = (data['shuttle_number'] ?? '').toString().trim();
+        final sName = (data['shuttle_name'] ?? data['shuttleName'] ?? '').toString().trim();
+        final sNum = (data['shuttle_number'] ?? data['shuttleNumber'] ?? '').toString().trim();
         if (sName.isNotEmpty) usedShuttleNames.add(sName);
         if (sNum.isNotEmpty) usedShuttleNumbers.add(sNum);
       }
@@ -187,12 +187,52 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
         for (var doc in checkExisting.docs) {
           if (doc.id == user.uid) continue;
           final data = doc.data();
-          final existingName = (data['shuttle_name'] ?? '').toString().trim();
-          final existingNumber = (data['shuttle_number'] ?? '').toString().trim();
+          final existingName = (data['shuttle_name'] ?? data['shuttleName'] ?? '').toString().trim();
+          final existingNumber = (data['shuttle_number'] ?? data['shuttleNumber'] ?? '').toString().trim();
           if (existingName == _selectedShuttleName || existingNumber == _selectedShuttleNumber) {
             _showSnackBar('ชื่อรถหรือหมายเลขรถนี้ถูกเลือกโดยคนขับท่านอื่นแล้ว กรุณาเลือกคันใหม่', Colors.orange);
             await _fetchShuttles();
             return;
+          }
+        }
+
+        // ปรับความสัมพันธ์ใน Firestore collection 'shuttles'
+        // 1. ถอดคนขับออกจากรถคันเดิม
+        final oldShuttlesQuery = await FirebaseFirestore.instance
+            .collection('shuttles')
+            .where('driver_uid', isEqualTo: user.uid)
+            .get();
+
+        for (var oldDoc in oldShuttlesQuery.docs) {
+          if (oldDoc.data()['name'] != _selectedShuttleName) {
+            await FirebaseFirestore.instance
+                .collection('shuttles')
+                .doc(oldDoc.id)
+                .update({
+              'driver_uid': FieldValue.delete(),
+              'driver_name': FieldValue.delete(),
+              'driver_avatar': FieldValue.delete(),
+            });
+          }
+        }
+
+        // 2. ผูกคนขับเข้ากับรถคันใหม่
+        if (_selectedShuttleName != null) {
+          final newShuttleQuery = await FirebaseFirestore.instance
+              .collection('shuttles')
+              .where('name', isEqualTo: _selectedShuttleName)
+              .limit(1)
+              .get();
+
+          if (newShuttleQuery.docs.isNotEmpty) {
+            await FirebaseFirestore.instance
+                .collection('shuttles')
+                .doc(newShuttleQuery.docs.first.id)
+                .update({
+              'driver_uid': user.uid,
+              'driver_name': name,
+              'driver_avatar': _avatarList[_selectedAvatarIndex],
+            });
           }
         }
 
@@ -202,6 +242,8 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
           'phone': phone,
           'shuttle_name': _selectedShuttleName,
           'shuttle_number': _selectedShuttleNumber,
+          'shuttleName': _selectedShuttleName,
+          'shuttleNumber': _selectedShuttleNumber,
           'avatar': _avatarList[_selectedAvatarIndex],
           'updated_at': FieldValue.serverTimestamp(),
         });

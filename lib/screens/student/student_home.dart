@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import '../../widgets/top_toast.dart';
 import '../../widgets/app_loading_view.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +11,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import '../../route_data.dart';
+import '../../services/stop_five_bypass.dart';
 import 'student_profile.dart';
 import 'student_chat_list_screen.dart'; // Import หน้ารวมห้องแชท
 import 'student_live_status_screen.dart'; // Import หน้า Live Status
@@ -20,7 +20,6 @@ import 'package:geolocator/geolocator.dart'; // เพิ่มเพื่อ�
 import 'package:audioplayers/audioplayers.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/services.dart';
-import 'student_chat_screen.dart';
 
 class StudentHome extends StatefulWidget {
   const StudentHome({super.key});
@@ -63,18 +62,19 @@ class _StudentHomeState extends State<StudentHome>
   bool _isForceLoggingOut = false; // ตัวแปรป้องกันการเปิด Dialog แจ้งเตือนซ้ำ
 
   final MapController _mapController = MapController();
+  final StopFiveBypass _stopFiveBypass = StopFiveBypass();
 
   final LatLng _psruCenter = const LatLng(16.83017, 100.21046);
-  // ขอบเขตพื้นที่ ม.ราชภัฏพิบูลสงคราม (ทะเลแก้ว)
+  // ขอบเขตพื้นที่ ม.ราชภัฏพิบูลสงคราม (ทะเลแก้ว) ครอบคลุมทุกอาคารและจุดจอดรอบมหาวิทยาลัย
   final LatLngBounds _psruBounds = LatLngBounds(
-    const LatLng(16.82300, 100.20300),
-    const LatLng(16.83800, 100.21800),
+    const LatLng(16.82200, 100.20200),
+    const LatLng(16.83900, 100.21900),
   );
 
-  // ขอบเขตล็อกมุมกล้องให้อยู่เฉพาะใจกลางมหาวิทยาลัย ไม่ให้เลื่อนหลุดออกนอก ม.
+  // ขอบเขตล็อกมุมกล้องให้ครอบคลุมรอบมหาวิทยาลัย ไม่ให้เลื่อนหลุดออกนอกเมือง แต่เลื่อนดูจุดจอดริมขอบได้อิสระ
   final LatLngBounds _psruCameraBounds = LatLngBounds(
-    const LatLng(16.82700, 100.20650),
-    const LatLng(16.83450, 100.21450),
+    const LatLng(16.82000, 100.20000),
+    const LatLng(16.84100, 100.22100),
   );
 
   List<Map<String, dynamic>> activeShuttles = []; // เก็บรายการรถที่กำลังออนไลน์
@@ -176,6 +176,7 @@ class _StudentHomeState extends State<StudentHome>
     _listenToShuttles(); // เริ่มฟังตำแหน่งรถ
     _listenToAllChatMessages(); // เริ่มดักฟังข้อความแชทใหม่จากคนขับรถทุกคันแบบ Real-time
     _zoomToUserLocation(); // ดึงตำแหน่งผู้ใช้และซูมแผนที่
+    _restoreActiveRequest(); // กู้คืนคำขอเรียกรถที่ยังค้างอยู่
 
     // Setup animation controller for smooth marker movement (ตั้งเป็น 3200ms เพื่อให้สอดคล้องกับฝั่งคนขับที่ส่งข้อมูลทุก 3 วินาที ทำให้รถไหลลื่นตลอดเวลา)
     _markerAnimationController = AnimationController(
@@ -855,6 +856,11 @@ class _StudentHomeState extends State<StudentHome>
         }
 
         final activeIds = newShuttles.map((s) => s['id'] as String).toSet();
+        _stopFiveBypass.retainApproachingVehicles(
+          newShuttles
+              .where((s) => s['last_passed_stop'] == 4)
+              .map((s) => s['id'] as String),
+        );
         if (activeIds.length != activeShuttles.length) {
           hasMeaningfulChange = true;
         }
@@ -1337,6 +1343,7 @@ class _StudentHomeState extends State<StudentHome>
       List<Map<String, dynamic>> loadedStops = [];
       for (var doc in snapshot.docs) {
         final data = doc.data();
+        if (data['is_active'] == false) continue;
         loadedStops.add({
           'id': doc.id, // ใช้สำหรับ Key ของ Marker
           'name': data['name'],
@@ -1355,10 +1362,179 @@ class _StudentHomeState extends State<StudentHome>
           busStops = loadedStops;
           _isLoadingStops = false;
         });
+
+        // หากมีการกู้คืนคำขอเรียกรถไว้ก่อนหน้า ให้แมปพิกัดป้ายทันทีเมื่อโหลดป้ายเสร็จ
+        if (selectedStopName != null && selectedStopLatLng == null) {
+          final sMap = busStops.firstWhere(
+            (s) => s['name'] == selectedStopName,
+            orElse: () => {},
+          );
+          if (sMap.isNotEmpty) {
+            setState(() {
+              selectedStopLatLng = LatLng(
+                (sMap['lat'] as num).toDouble(),
+                (sMap['lng'] as num).toDouble(),
+              );
+            });
+            _updateRouteAndETA();
+          }
+        }
       }
     } catch (e) {
       print("Error loading stops: $e");
       if (mounted) setState(() => _isLoadingStops = false);
+    }
+  }
+
+  // ฟังก์ชันฟังสถานะของคำขอเรียกรถ
+  void _listenToRideRequest(String reqId) {
+    requestSubscription?.cancel();
+    requestSubscription = FirebaseFirestore.instance
+        .collection('ride_requests')
+        .doc(reqId)
+        .snapshots()
+        .handleError((e) => print("Firestore Error (ride_requests): $e"))
+        .listen((snapshot) {
+          if (!snapshot.exists) {
+            // คำขอถูกยกเลิกหรือลบออกจากระบบ
+            if (mounted && (isWaiting || isAcknowledged || isOnBoard)) {
+              setState(() {
+                isWaiting = false;
+                isAcknowledged = false;
+                isOnBoard = false;
+                activeRequestId = null;
+                selectedStopName = null;
+                selectedDropOffName = null;
+                selectedStopLatLng = null;
+                estimatedArrivalText = null;
+                highlightedPath.clear();
+              });
+            }
+            return;
+          }
+
+          final data = snapshot.data();
+          if (data != null && data['status'] == 'acknowledged') {
+            if (mounted) {
+              if (!isAcknowledged) {
+                TopToast.show(
+                  context,
+                  'คนขับรับทราบแล้ว! กำลังเดินทางไปรับที่ป้ายครับ',
+                  isError: false,
+                );
+              }
+              setState(() {
+                isWaiting = false;
+                isAcknowledged = true;
+                isCardMinimized = false;
+              });
+              if (pickupEtaSeconds == null && currentEtaSeconds > 0) {
+                pickupEtaSeconds = currentEtaSeconds;
+              }
+              _updateRouteAndETA();
+            }
+          } else if (data != null && data['status'] == 'on_board') {
+            _recordWaitTimeAnalytics();
+            if (mounted) {
+              if (!isOnBoard) {
+                setState(() {
+                  isWaiting = false;
+                  isAcknowledged = false;
+                  isOnBoard = true;
+                  boardStartTime ??= DateTime.now();
+                  _hasRecordedTripAnalytics = false;
+                });
+                _updateRouteAndETA();
+              }
+            }
+          }
+        });
+  }
+
+  // ฟังก์ชันกู้คืนคำขอเรียกรถที่ยังค้างอยู่เมื่อเปิดแอปใหม่
+  Future<void> _restoreActiveRequest() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('ride_requests')
+          .where('student_uid', isEqualTo: user.uid)
+          .where('status', whereIn: ['waiting', 'acknowledged', 'on_board'])
+          .get();
+
+      if (snapshot.docs.isEmpty || !mounted) return;
+
+      final docs = snapshot.docs.toList();
+      docs.sort((a, b) {
+        final aTime = a.data()['timestamp'] as Timestamp?;
+        final bTime = b.data()['timestamp'] as Timestamp?;
+        if (aTime == null && bTime == null) return 0;
+        if (aTime == null) return 1;
+        if (bTime == null) return -1;
+        return bTime.compareTo(aTime); // เรียงจากใหม่ไปเก่า
+      });
+
+      final doc = docs.first;
+      final data = doc.data();
+
+      // ตรวจสอบอายุคำขอ ไม่ให้เกิน 2 ชั่วโมง
+      if (data.containsKey('timestamp') && data['timestamp'] != null) {
+        final requestTime = (data['timestamp'] as Timestamp).toDate();
+        if (DateTime.now().difference(requestTime).inHours >= 2) {
+          try {
+            await doc.reference.delete();
+          } catch (_) {}
+          return;
+        }
+      }
+
+      final status = data['status'];
+      final stopName = data['stop_name']?.toString();
+      final dropOffName = data['dropoff_stop']?.toString();
+      final targetId = data['target_shuttle_id']?.toString();
+
+      if (mounted) {
+        setState(() {
+          activeRequestId = doc.id;
+          selectedStopName = stopName;
+          selectedDropOffName = dropOffName;
+          targetedShuttleId = targetId;
+
+          if (status == 'waiting') {
+            isWaiting = true;
+            isAcknowledged = false;
+            isOnBoard = false;
+          } else if (status == 'acknowledged') {
+            isWaiting = false;
+            isAcknowledged = true;
+            isOnBoard = false;
+          } else if (status == 'on_board') {
+            isWaiting = false;
+            isAcknowledged = false;
+            isOnBoard = true;
+            boardStartTime ??= DateTime.now();
+          }
+
+          if (stopName != null && busStops.isNotEmpty) {
+            final sMap = busStops.firstWhere(
+              (s) => s['name'] == stopName,
+              orElse: () => {},
+            );
+            if (sMap.isNotEmpty) {
+              selectedStopLatLng = LatLng(
+                (sMap['lat'] as num).toDouble(),
+                (sMap['lng'] as num).toDouble(),
+              );
+            }
+          }
+        });
+
+        _listenToRideRequest(doc.id);
+        _updateRouteAndETA();
+      }
+    } catch (e) {
+      print("Error restoring active request: $e");
     }
   }
 
@@ -1463,8 +1639,8 @@ class _StudentHomeState extends State<StudentHome>
     int minIndexDistance = 999;
     double minDirectDistFallback = double.infinity;
 
-    // ถ้านักศึกษาเรียกไปแล้ว หรือขึ้นรถแล้ว ให้ track รถคันที่รับงาน
-    if ((isAcknowledged || isOnBoard) && targetedShuttleId != null) {
+    // ถ้านักศึกษาเรียกไปแล้ว ได้รับการตอบรับ หรือขึ้นรถแล้ว ให้ติดตามรถคันที่รับผิดชอบ
+    if ((isWaiting || isAcknowledged || isOnBoard) && targetedShuttleId != null) {
       try {
         final trackedBus = activeShuttles.firstWhere(
           (bus) => bus['id'] == targetedShuttleId,
@@ -1537,12 +1713,25 @@ class _StudentHomeState extends State<StudentHome>
       );
     }
 
+    final String? previousTarget = targetedShuttleId;
     targetedShuttleId = closestBusId;
     remainingStops = (minIndexDistance != 999) ? minIndexDistance : null;
 
-    List<LatLng> waypoints = [closestBusLoc!];
+    // หากคันเดิมออฟไลน์ระหว่างรอ ให้ซิงก์ target_shuttle_id คันใหม่ไปยัง Firestore
+    if (isWaiting &&
+        activeRequestId != null &&
+        previousTarget != null &&
+        previousTarget != targetedShuttleId &&
+        targetedShuttleId != null) {
+      FirebaseFirestore.instance
+          .collection('ride_requests')
+          .doc(activeRequestId)
+          .update({'target_shuttle_id': targetedShuttleId})
+          .catchError((e) => print("Error updating target shuttle: $e"));
+    }
+
     const distanceCalc = Distance();
-    double directDistToTarget = distanceCalc.distance(closestBusLoc, target);
+    List<LatLng> waypoints = [closestBusLoc!];
 
     // ระบบ Smart Check แบบเก่าที่ใช้ระยะ 80m ถูกเอาออกไปเพื่อป้องกันไม่ให้รถตัดจบลัดคิว
     if (busStops.isNotEmpty) {
@@ -1624,6 +1813,19 @@ class _StudentHomeState extends State<StudentHome>
         } else {
           currentOrder = tempCurrentOrder;
         }
+      }
+
+      // ป้าย 5 เป็นทางแวะทางเลือก ต้องยืนยันแนวการเคลื่อนที่ก่อนข้าม
+      final branchNextOrder = closestBusId == null ? null : _stopFiveBypass.nextStopOrder(
+        graph: _routeGraph,
+        stops: busStops,
+        shuttleId: closestBusId,
+        position: closestBusLoc,
+        lastPassedStop: closestBusLastPassed,
+      );
+      if (branchNextOrder != null && targetOrder != 4) {
+        // คำขอที่ปลายทางเป็นป้าย 5 ต้องคงป้าย 5 เสมอ
+        currentOrder = targetOrder == 5 ? 5 : branchNextOrder;
       }
 
       int stepCount = targetOrder - currentOrder;
@@ -2031,6 +2233,27 @@ class _StudentHomeState extends State<StudentHome>
         return;
       }
 
+      final isStopActive = busStops.any((s) => s['name'] == selectedStopName);
+      if (!isStopActive) {
+        TopToast.show(
+          context,
+          'จุดจอดนี้ปิดให้บริการชั่วคราว ไม่สามารถเรียกรถได้ครับ',
+          isError: true,
+        );
+        return;
+      }
+
+      final isDropOffActive =
+          busStops.any((s) => s['name'] == selectedDropOffName);
+      if (!isDropOffActive) {
+        TopToast.show(
+          context,
+          'จุดลงรถนี้ปิดให้บริการชั่วคราว กรุณาเลือกจุดลงรถใหม่ครับ',
+          isError: true,
+        );
+        return;
+      }
+
       // ตรวจสอบระยะห่างระหว่างนักศึกษากับป้ายที่เลือก
       if (_myLocation == null) {
         TopToast.show(
@@ -2112,48 +2335,7 @@ class _StudentHomeState extends State<StudentHome>
         }
 
         activeRequestId = docRef.id;
-
-        requestSubscription?.cancel();
-        requestSubscription = docRef
-            .snapshots()
-            .handleError((e) => print("Firestore Error (ride_requests): $e"))
-            .listen((snapshot) {
-              if (snapshot.exists) {
-                final data = snapshot.data();
-                if (data != null && data['status'] == 'acknowledged') {
-                  if (mounted) {
-                    TopToast.show(
-                      context,
-                      'คนขับรับทราบแล้ว! กำลังเดินทางไปรับที่ป้ายครับ',
-                      isError: false,
-                    );
-                    setState(() {
-                      isWaiting = false;
-                      isAcknowledged =
-                          true; // เปลี่ยนสถานะเป็นคนขับรับทราบแล้ว และคงเส้นทางกับป้ายจอดไว้
-                      isCardMinimized = false;
-                    });
-                    if (pickupEtaSeconds == null && currentEtaSeconds > 0) {
-                      pickupEtaSeconds = currentEtaSeconds;
-                    }
-                    _updateRouteAndETA();
-                  }
-                } else if (data != null && data['status'] == 'on_board') {
-                  // บันทึกสถิติเวลารอจนกระทั่งขึ้นรถ
-                  _recordWaitTimeAnalytics();
-                  if (mounted) {
-                    if (!isOnBoard) {
-                      setState(() {
-                        isOnBoard = true;
-                        boardStartTime ??= DateTime.now();
-                        _hasRecordedTripAnalytics = false;
-                      });
-                      _updateRouteAndETA(); // อัปเดตเส้นทาง
-                    }
-                  }
-                }
-              }
-            });
+        _listenToRideRequest(docRef.id);
       } catch (e) {
         print("Error requesting ride: $e");
         if (mounted) {

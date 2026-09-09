@@ -9,6 +9,7 @@ import '../../route_data.dart';
 import 'admin_live_map.dart';
 import 'admin_drivers_tab.dart';
 import 'admin_students_tab.dart';
+import 'admin_stops_tab.dart';
 import 'admin_analytics_tab.dart';
 import 'admin_profile_dialog.dart';
 
@@ -59,6 +60,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 ? const AdminDriversTab()
                 : _selectedIndex == 3
                 ? const AdminStudentsTab()
+                : _selectedIndex == 4
+                ? const AdminStopsTab()
                 : const AdminAnalyticsTab(),
           ),
         ],
@@ -528,10 +531,16 @@ class AdminSidebar extends StatelessWidget {
                   index: 3,
                 ),
                 _buildNavItem(
+                  icon: Icons.signpost_rounded,
+                  title: 'จัดการจุดจอด',
+                  subtitle: 'Bus Stops',
+                  index: 4,
+                ),
+                _buildNavItem(
                   icon: Icons.insights_rounded,
                   title: 'รายงานและสถิติ',
                   subtitle: 'Analytics',
-                  index: 4,
+                  index: 5,
                 ),
               ],
             ),

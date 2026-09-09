@@ -92,8 +92,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     final String driverId = userData?['student_id'] ?? '-';
     final String phone = userData?['phone'] ?? '-';
     final String email = userData?['email'] ?? '-';
-    final String shuttleName = userData?['shuttle_name'] ?? '-';
-    final String shuttleNumber = userData?['shuttle_number'] ?? '-';
+    final String shuttleName = userData?['shuttle_name'] ?? userData?['shuttleName'] ?? '-';
+    final String shuttleNumber = userData?['shuttle_number'] ?? userData?['shuttleNumber'] ?? '-';
     final String avatarPath = userData?['avatar'] ?? 'assets/images/man1.png';
 
     // คำนวณคะแนนดาวเฉลี่ยจากฐานข้อมูล

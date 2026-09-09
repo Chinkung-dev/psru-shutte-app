@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../../widgets/top_toast.dart';
+import '../../services/shuttle_access.dart';
 import '../../widgets/app_loading_view.dart';
 
 class DriverStatusScreen extends StatefulWidget {
@@ -91,18 +92,11 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
           _shuttleNumber = sNumber;
 
           // 3. กำหนด Key ในรูปแบบเดียวกับ driver_home.dart
-          String cleanNum = (sNumber ?? '').replaceAll(RegExp(r'[^0-9]'), '');
-          if (cleanNum.isEmpty && sName != null) {
-            cleanNum = sName.replaceAll(RegExp(r'[^0-9]'), '');
-          }
-
-          if (cleanNum.isNotEmpty) {
-            keyToUse = 'shuttle_${cleanNum.padLeft(2, '0')}';
-          } else if (docId != null && docId.isNotEmpty) {
-            keyToUse = docId;
-          } else {
-            keyToUse = user.uid;
-          }
+          keyToUse = shuttleDatabaseKey(
+            documentId: docId != null && docId.isNotEmpty ? docId : user.uid,
+            name: sName ?? '',
+            number: sNumber ?? '',
+          );
         }
 
         _shuttleDocId = keyToUse;

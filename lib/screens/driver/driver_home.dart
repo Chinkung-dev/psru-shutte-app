@@ -10,6 +10,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import '../../widgets/top_toast.dart';
+import '../../services/shuttle_access.dart';
 import 'package:flutter_tts/flutter_tts.dart'; // สำหรับเสียง AI พูดภาษาไทย
 import 'package:audioplayers/audioplayers.dart'; // สำหรับเล่นไฟล์เสียง MP3 จุดจอด
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'; // สำหรับเล่นเสียงแจ้งเตือนมือถือ
@@ -53,24 +54,22 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
   StreamSubscription<QuerySnapshot>? _chatNotificationSub;
   StreamSubscription? _chatSubscription;
-  DateTime _chatListenerStartTime = DateTime.now();
   Map<String, dynamic>? _incomingChatNotification;
   Timer? _chatNotificationTimer;
-  String? _lastNotifiedMessageId;
 
   final MapController _mapController = MapController();
 
   final LatLng _psruCenter = const LatLng(16.83017, 100.21046);
-  // ขอบเขตพื้นที่ ม.ราชภัฏพิบูลสงคราม (ทะเลแก้ว)
+  // ขอบเขตพื้นที่ ม.ราชภัฏพิบูลสงคราม (ทะเลแก้ว) ครอบคลุมทุกอาคารและจุดจอดรอบมหาวิทยาลัย
   final LatLngBounds _psruBounds = LatLngBounds(
-    const LatLng(16.82300, 100.20300),
-    const LatLng(16.83800, 100.21800),
+    const LatLng(16.82200, 100.20200),
+    const LatLng(16.83900, 100.21900),
   );
 
-  // ขอบเขตล็อกมุมกล้องให้อยู่เฉพาะใจกลางมหาวิทยาลัย ไม่ให้เลื่อนหลุดออกนอก ม.
+  // ขอบเขตล็อกมุมกล้องให้ครอบคลุมรอบมหาวิทยาลัย ไม่ให้เลื่อนหลุดออกนอกเมือง แต่เลื่อนดูจุดจอดริมขอบได้อิสระ
   final LatLngBounds _psruCameraBounds = LatLngBounds(
-    const LatLng(16.82700, 100.20650),
-    const LatLng(16.83450, 100.21450),
+    const LatLng(16.82000, 100.20000),
+    const LatLng(16.84100, 100.22100),
   );
 
   List<Map<String, dynamic>> busStops = [];
@@ -132,6 +131,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   // ตัวแปรสำหรับเก็บข้อมูลรถคันอื่นๆ ที่กำลังออนไลน์
   List<Map<String, dynamic>> activeShuttles = [];
   StreamSubscription? allShuttlesSubscription;
+  StreamSubscription? _connectedSubscription;
   Map<String, LatLng> _otherCurrentLocations = {};
   Map<String, LatLng> _otherOldLocations = {};
   Map<String, LatLng> _otherTargetLocations = {};
@@ -236,6 +236,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     _fetchStopsFromFirebase();
     _fetchDriverShuttle(); // ดึงข้อมูลรถของคนขับ
     _listenToUserSession(); // เริ่มฟังสถานะเซสชันของคนขับเพื่อป้องกันการล็อกอินซ้ำ
+    _listenToConnectionStatus(); // เริ่มฟังสถานะการเชื่อมต่อเน็ตเพื่อกู้คืนสถานะออนไลน์
   }
 
   // ฟังก์ชันสำหรับหาว่าคนขับคนนี้ รับผิดชอบรถคันไหน
@@ -279,9 +280,11 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           final uData = userDoc.data();
           _shuttleName =
               uData?['shuttle_name']?.toString().trim() ??
+              uData?['shuttleName']?.toString().trim() ??
               uData?['name']?.toString().trim();
           _shuttleNumber =
               uData?['shuttle_number']?.toString().trim() ??
+              uData?['shuttleNumber']?.toString().trim() ??
               uData?['number']?.toString().trim();
         } catch (e) {
           print("Error querying user doc: $e");
@@ -313,54 +316,13 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
       // 5. ตรวจสอบ Realtime Database (RTDB) node 'shuttles'
       // กำหนด Key ใน RTDB เป็นชื่อคันรถที่อ่านง่าย (เช่น shuttle_01, shuttle_02)
-      String targetRtdbKey = '';
-      String cleanNum = (_shuttleNumber ?? '').replaceAll(
-        RegExp(r'[^0-9]'),
-        '',
+      final targetRtdbKey = shuttleDatabaseKey(
+        documentId: docId != null && docId.isNotEmpty ? docId : user.uid,
+        name: _shuttleName ?? '',
+        number: _shuttleNumber ?? '',
       );
-      if (cleanNum.isEmpty && _shuttleName != null) {
-        cleanNum = _shuttleName!.replaceAll(RegExp(r'[^0-9]'), '');
-      }
 
-      if (cleanNum.isNotEmpty) {
-        targetRtdbKey = 'shuttle_${cleanNum.padLeft(2, '0')}';
-      } else if (docId != null && docId.isNotEmpty) {
-        targetRtdbKey = docId;
-      } else {
-        targetRtdbKey = user.uid;
-      }
-
-      // หากมีการสลับมาใช้ Key รูปแบบอ่านง่าย ให้ลบ Node เก่าที่เป็น Firestore Doc ID หรือ User UID ค้างไว้ทิ้ง
-      if (docId != null && docId != targetRtdbKey) {
-        try {
-          final oldDocNode = FirebaseDatabase.instance
-              .ref('shuttles')
-              .child(docId);
-          final oldSnap = await oldDocNode.get().timeout(
-            const Duration(seconds: 3),
-          );
-          if (oldSnap.exists) {
-            await oldDocNode.remove();
-          }
-        } catch (e) {
-          print("Error removing old docId RTDB node: $e");
-        }
-      }
-      if (user.uid != targetRtdbKey) {
-        try {
-          final oldUserNode = FirebaseDatabase.instance
-              .ref('shuttles')
-              .child(user.uid);
-          final oldSnap = await oldUserNode.get().timeout(
-            const Duration(seconds: 3),
-          );
-          if (oldSnap.exists) {
-            await oldUserNode.remove();
-          }
-        } catch (e) {
-          print("Error removing old user.uid RTDB node: $e");
-        }
-      }
+      // การลบข้อมูลรถเก่าเป็นหน้าที่ผู้ดูแล คนขับไม่มีสิทธิ์ลบรถ
 
       final rtdbRef = FirebaseDatabase.instance
           .ref('shuttles')
@@ -405,6 +367,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         rtdbRef.child('status').onDisconnect().set('offline');
 
         // เริ่มฟังเอกสารรถคันนี้ เพื่อคอยอัปเดตสถานะแบบ Real-time ให้สีหมุดเปลี่ยนตาม
+        myShuttleSubscription?.cancel();
         myShuttleSubscription = rtdbRef.onValue.listen((event) {
           if (event.snapshot.exists && mounted) {
             final data = event.snapshot.value as Map<dynamic, dynamic>;
@@ -729,6 +692,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       List<Map<String, dynamic>> loadedStops = [];
       for (var doc in snapshot.docs) {
         final data = doc.data();
+        if (data['is_active'] == false) continue;
         final rawLat = data['lat'];
         final rawLng = data['lng'];
         double lat = 0.0;
@@ -782,7 +746,27 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     _chatNotificationTimer?.cancel();
     myShuttleSubscription?.cancel();
     allShuttlesSubscription?.cancel();
+    _connectedSubscription?.cancel();
     super.dispose();
+  }
+
+  void _listenToConnectionStatus() {
+    _connectedSubscription?.cancel();
+    _connectedSubscription = FirebaseDatabase.instance
+        .ref('.info/connected')
+        .onValue
+        .listen((event) {
+      final connected = event.snapshot.value == true;
+      if (connected && isOnline && _shuttleDocId != null) {
+        final rtdbRef =
+            FirebaseDatabase.instance.ref('shuttles').child(_shuttleDocId!);
+        rtdbRef.update({
+          'status': 'online',
+          'last_updated': ServerValue.timestamp,
+        });
+        rtdbRef.child('status').onDisconnect().set('offline');
+      }
+    });
   }
 
   void _listenToUserSession() async {
@@ -819,6 +803,15 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               _handleConcurrentLogin();
               return;
             }
+          }
+
+          // 2. ตรวจสอบการเปลี่ยนรถที่ได้รับมอบหมาย
+          final currentShuttleName = (data['shuttle_name'] ?? data['shuttleName'])?.toString().trim();
+          if (currentShuttleName != null &&
+              currentShuttleName.isNotEmpty &&
+              _shuttleName != null &&
+              currentShuttleName != _shuttleName) {
+            _fetchDriverShuttle();
           }
         });
   }
@@ -1663,10 +1656,14 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       }
       _lastFirebaseUpdate = DateTime.now();
 
-      // 1. เลี้ยงการเชื่อมต่อ Realtime Database
-      FirebaseDatabase.instance.ref('shuttles').child(_shuttleDocId!).update({
+      // 1. เลี้ยงการเชื่อมต่อ Realtime Database และยืนยันสถานะออนไลน์
+      final rtdbShuttleRef =
+          FirebaseDatabase.instance.ref('shuttles').child(_shuttleDocId!);
+      rtdbShuttleRef.update({
+        'status': 'online',
         'last_updated': ServerValue.timestamp,
       });
+      rtdbShuttleRef.child('status').onDisconnect().set('offline');
 
       // 2.  เลี้ยงการเชื่อมต่อ Firestore (สำคัญมาก!)
       // ป้องกันบั๊กมือถือตัดการเชื่อมต่อ Firestore เมื่อเปิดทิ้งไว้นานๆ ทำให้ไม่เห็นคนเรียกรถ
@@ -2761,6 +2758,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: () {
+                          if (_selectedIndex == 3 && index != 3) {
+                            _fetchDriverShuttle();
+                          }
                           setState(() => _selectedIndex = index);
                         },
                         child: Column(

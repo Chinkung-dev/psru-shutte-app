@@ -1,0 +1,19 @@
+{
+  "name": "security-tests",
+  "version": "1.0.0",
+  "description": "Local Realtime Database permission regression tests",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "test": "node node_modules/firebase-tools/lib/bin/firebase.js emulators:exec --only database --project demo-shuttle-security --config ../../firebase.security-tests.json \"node --test database.test.mjs\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.18.0",
+    "firebase-tools": "^15.29.0"
+  }
+}

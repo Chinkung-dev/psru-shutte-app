@@ -481,7 +481,7 @@ class _DriversTableCardState extends State<DriversTableCard> {
                           shuttlesSnapshot.data!.snapshot.value == null) {
                         return null;
                       }
-                      final shuttleName = userData['shuttle_name'];
+                      final shuttleName = userData['shuttle_name'] ?? userData['shuttleName'];
                       if (shuttleName != null) {
                         try {
                           final data = shuttlesSnapshot.data!.snapshot.value
