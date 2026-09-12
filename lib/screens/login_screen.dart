@@ -631,7 +631,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     children: [
                       // ส่วนหัวแบรนด์ (Logo + ชื่อแอป + คำโปรย)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(20),
                           boxShadow: [
@@ -1212,7 +1215,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'Version 1.0.5',
+                            'Version 1.0.6',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey.shade400,
