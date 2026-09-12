@@ -16,70 +16,20 @@ import 'screens/driver/driver_home.dart';
 import 'screens/student/student_home.dart';
 import 'screens/student/student_onboarding_screen.dart';
 import 'screens/admin/admin_dashboard.dart';
+import 'screens/test/shuttle_3d_poc_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  String initialRoute = '/login';
+  const envRoute = String.fromEnvironment('INITIAL_ROUTE');
+  final String initialRoute = envRoute.isNotEmpty ? envRoute : '/';
 
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
     debugPrint("Firebase Initialized Successfully");
-
-    // ตรวจสอบ Session การเข้าสู่ระบบทันทีเพื่อเข้าหน้าเป้าหมายโดยตรงโดยไม่ต้องมีหน้าโหลดซ้ำ
-    User? user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      try {
-        user = await FirebaseAuth.instance.authStateChanges().first.timeout(
-          const Duration(milliseconds: 300),
-        );
-      } catch (_) {}
-    }
-
-    if (user != null) {
-      if (user.email == 'admin-shuttle@gmail.com') {
-        initialRoute = '/adminDashboard';
-      } else {
-        final prefs = await SharedPreferences.getInstance();
-        final localSessionId = prefs.getString('current_session_id');
-
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get()
-            .timeout(const Duration(seconds: 3));
-
-        if (userDoc.exists && userDoc.data() != null) {
-          final data = userDoc.data()!;
-          final serverSessionId = data['current_session_id'] as String?;
-
-          // ตรวจสอบความถูกต้องของ Session
-          if (localSessionId == null || localSessionId == serverSessionId) {
-            if (serverSessionId != null && localSessionId == null) {
-              await prefs.setString('current_session_id', serverSessionId);
-            }
-
-            final String role = (data['role'] as String?) ?? 'student';
-            if (role == 'driver') {
-              initialRoute = '/driverHome';
-            } else if (role == 'admin') {
-              initialRoute = '/adminDashboard';
-            } else {
-              final bool hasSeenOnboarding = data['hasSeenOnboarding'] == true;
-              if (hasSeenOnboarding) {
-                initialRoute = '/studentHome';
-              } else {
-                initialRoute = '/studentOnboarding';
-              }
-            }
-          }
-        }
-      }
-    }
   } catch (e) {
-    debugPrint("Error initializing Firebase or session: $e");
-    initialRoute = '/login';
+    debugPrint("Error initializing Firebase: $e");
   }
 
   runApp(MyApp(initialRoute: initialRoute));
@@ -113,7 +63,9 @@ class MyApp extends StatelessWidget {
       ),
       initialRoute: initialRoute,
       routes: {
-        '/': (context) => const SplashScreen(),
+        '/': (context) => initialRoute == '/shuttle3DPoc'
+            ? const Shuttle3DPocScreen()
+            : const SplashScreen(),
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
         '/forgotPassword': (context) => const ForgotPasswordScreen(),
@@ -121,6 +73,7 @@ class MyApp extends StatelessWidget {
         '/studentHome': (context) => const StudentHome(),
         '/studentOnboarding': (context) => const StudentOnboardingScreen(),
         '/adminDashboard': (context) => const AdminDashboardScreen(),
+        '/shuttle3DPoc': (context) => const Shuttle3DPocScreen(),
       },
     );
   }

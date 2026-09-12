@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
 import 'package:latlong2/latlong.dart' hide Path;
@@ -22,9 +21,7 @@ class StudentLiveStatusScreen extends StatefulWidget {
 }
 
 class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
-  StreamSubscription? _firestoreSub;
   StreamSubscription? _rtdbSub;
-  List<Map<String, dynamic>> _firestoreShuttles = [];
   Map<String, Map<dynamic, dynamic>> _rtdbShuttles = {};
   List<Map<String, dynamic>> _shuttleList = [];
   bool _isLoading = true;
@@ -36,12 +33,6 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
   }
 
   void _listenToShuttles() {
-    _firestoreSub = FirebaseFirestore.instance.collection('shuttles').snapshots().listen((snapshot) {
-      if (!mounted) return;
-      _firestoreShuttles = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
-      _mergeAndRefreshShuttles();
-    });
-
     _rtdbSub = FirebaseDatabase.instance.ref('shuttles').onValue.listen((event) {
       if (!mounted) return;
       if (event.snapshot.exists) {
@@ -65,32 +56,10 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
     final now = DateTime.now();
     final Distance distance = Distance();
 
-    // 1. ดึงข้อมูลจาก Realtime Database (RTDB) เป็นหลัก เพราะพิกัดและสถานะออนไลน์จริงจะอัปเดตที่ RTDB
+    // ดึงข้อมูลจาก Realtime Database (RTDB) เป็นหลัก
     _rtdbShuttles.forEach((rtdbKey, rtdbDoc) {
-      // ค้นหา Firestore doc ที่สอดคล้องกัน (ลองค้นหาด้วย ID, เลขคันรถ, หรือชื่อรถ)
-      Map<String, dynamic>? matchingFsDoc;
-      final String rtdbNumStr = (rtdbDoc['number'] ?? '').toString();
-      final String rtdbCleanNum = rtdbNumStr.replaceAll(RegExp(r'[^0-9]'), '');
-      final String rtdbNameStr = (rtdbDoc['name'] ?? '').toString();
-
-      for (var fsDoc in _firestoreShuttles) {
-        final String fsNumStr = (fsDoc['number'] ?? '').toString();
-        final String fsCleanNum = fsNumStr.replaceAll(RegExp(r'[^0-9]'), '');
-        final String fsNameStr = (fsDoc['name'] ?? '').toString();
-        final String fsId = fsDoc['id'].toString();
-
-        if (fsId == rtdbKey ||
-            (fsCleanNum.isNotEmpty && rtdbCleanNum.isNotEmpty && fsCleanNum == rtdbCleanNum) ||
-            (fsNameStr.isNotEmpty && fsNameStr == rtdbNameStr)) {
-          matchingFsDoc = fsDoc;
-          break;
-        }
-      }
-
-      final String name =
-          (rtdbDoc['name'] ?? matchingFsDoc?['name'] ?? 'Shuttle').toString();
-      final String number =
-          (rtdbDoc['number'] ?? matchingFsDoc?['number'] ?? '').toString();
+      final String name = (rtdbDoc['name'] ?? 'Shuttle').toString();
+      final String number = (rtdbDoc['number'] ?? '').toString();
 
       String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
       if (cleanNum.isEmpty) {
@@ -112,22 +81,17 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
             isOnline = true;
           }
         } else {
-          // ถ้าสถานะเป็น online และเพิ่งอัปเดตเข้ามา ให้ถือว่า online
           isOnline = true;
         }
       }
 
       final String status = isOnline ? 'online' : 'offline';
       final String passengerStatus = isOnline
-          ? (rtdbDoc['passenger_status'] ?? matchingFsDoc?['passenger_status'] ?? 'available').toString()
+          ? (rtdbDoc['passenger_status'] ?? 'available').toString()
           : 'offline';
 
-      final double lat = (rtdbDoc['lat'] as num?)?.toDouble() ??
-          (matchingFsDoc?['lat'] as num?)?.toDouble() ??
-          16.82753;
-      final double lng = (rtdbDoc['lng'] as num?)?.toDouble() ??
-          (matchingFsDoc?['lng'] as num?)?.toDouble() ??
-          100.20686;
+      final double lat = (rtdbDoc['lat'] as num?)?.toDouble() ?? 16.82753;
+      final double lng = (rtdbDoc['lng'] as num?)?.toDouble() ?? 100.20686;
 
       final String badgeText =
           cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : name;
@@ -158,64 +122,24 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
         }
       }
 
-      final driverName = (rtdbDoc['driver_name'] ??
-              matchingFsDoc?['driver_name'] ??
-              'คนขับรถประจำคัน')
-          .toString();
-      final driverAvatar = (rtdbDoc['driver_avatar'] ??
-              matchingFsDoc?['driver_avatar'] ??
-              'assets/images/man1.png')
-          .toString();
+      final driverName = (rtdbDoc['driver_name'] ?? 'คนขับรถประจำคัน').toString();
+      final driverAvatar = (rtdbDoc['driver_avatar'] ?? 'assets/images/man1.png').toString();
 
-      if (!shuttleMap.containsKey(shuttleKey) || isOnline) {
-        shuttleMap[shuttleKey] = {
-          'shuttleId': rtdbKey.toString(),
-          'name': name,
-          'number': number,
-          'cleanNum': cleanNum,
-          'badgeText': badgeText,
-          'driverName': driverName,
-          'driverAvatar': driverAvatar,
-          'status': status,
-          'passengerStatus': passengerStatus,
-          'isOnline': isOnline,
-          'nearestStopName': nearestStopName,
-          'etaMinutes': etaMinutes,
-        };
-      }
+      shuttleMap[shuttleKey] = {
+        'shuttleId': rtdbKey.toString(),
+        'name': name,
+        'number': number,
+        'cleanNum': cleanNum,
+        'badgeText': badgeText,
+        'driverName': driverName,
+        'driverAvatar': driverAvatar,
+        'status': status,
+        'passengerStatus': passengerStatus,
+        'isOnline': isOnline,
+        'nearestStopName': nearestStopName,
+        'etaMinutes': etaMinutes,
+      };
     });
-
-    // 2. เติมเอกสารจาก Firestore ที่ยังไม่มีใน RTDB (รถออฟไลน์ที่ลงทะเบียนไว้ในระบบ)
-    for (var fsDoc in _firestoreShuttles) {
-      final String name = (fsDoc['name'] ?? fsDoc['id']).toString();
-      final String number = (fsDoc['number'] ?? '').toString();
-      String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
-      if (cleanNum.isEmpty) {
-        cleanNum = name.replaceAll(RegExp(r'[^0-9]'), '');
-      }
-      final String shuttleKey =
-          cleanNum.isNotEmpty ? cleanNum : name.toLowerCase().trim();
-
-      if (!shuttleMap.containsKey(shuttleKey)) {
-        final String badgeText =
-            cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : name;
-
-        shuttleMap[shuttleKey] = {
-          'shuttleId': fsDoc['id'].toString(),
-          'name': name,
-          'number': number,
-          'cleanNum': cleanNum,
-          'badgeText': badgeText,
-          'driverName': (fsDoc['driver_name'] ?? 'คนขับรถประจำคัน').toString(),
-          'driverAvatar': (fsDoc['driver_avatar'] ?? 'assets/images/man1.png').toString(),
-          'status': 'offline',
-          'passengerStatus': 'offline',
-          'isOnline': false,
-          'nearestStopName': 'ภายในมหาวิทยาลัย',
-          'etaMinutes': 3,
-        };
-      }
-    }
 
     final List<Map<String, dynamic>> list = shuttleMap.values.toList();
 
@@ -237,7 +161,6 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
 
   @override
   void dispose() {
-    _firestoreSub?.cancel();
     _rtdbSub?.cancel();
     super.dispose();
   }

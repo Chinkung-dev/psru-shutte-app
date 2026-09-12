@@ -248,27 +248,29 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       String? docId;
       Map<String, dynamic>? shuttleData;
 
-      // 1. ค้นหาเอกสารรถใน Firestore collection 'shuttles' ที่ driver_uid ตรงกับ uid ของคนขับคนนี้
+      // 1. ค้นหาข้อมูลรถจาก Realtime Database (RTDB) ที่ driver_uid ตรงกับ uid ของคนขับคนนี้
       try {
-        final firestoreShuttleQuery = await FirebaseFirestore.instance
-            .collection('shuttles')
-            .where('driver_uid', isEqualTo: user.uid)
-            .limit(1)
+        final rtdbShuttlesSnap = await FirebaseDatabase.instance
+            .ref('shuttles')
             .get()
             .timeout(const Duration(seconds: 8));
 
-        if (firestoreShuttleQuery.docs.isNotEmpty) {
-          final doc = firestoreShuttleQuery.docs.first;
-          docId = doc.id;
-          shuttleData = doc.data();
-          _shuttleName = shuttleData['name']?.toString().trim();
-          _shuttleNumber = shuttleData['number']?.toString().trim();
+        if (rtdbShuttlesSnap.exists) {
+          for (final child in rtdbShuttlesSnap.children) {
+            final val = child.value;
+            if (val is Map && val['driver_uid']?.toString() == user.uid) {
+              docId = child.key;
+              _shuttleName = val['name']?.toString().trim();
+              _shuttleNumber = val['number']?.toString().trim();
+              break;
+            }
+          }
         }
       } catch (e) {
-        print("Error querying Firestore shuttles by driver_uid: $e");
+        print("Error querying RTDB shuttles by driver_uid: $e");
       }
 
-      // 2. ถ้าไม่พบจาก driver_uid ใน shuttles ให้ไปค้นจากเอกสาร users/{uid}
+      // 2. ถ้าไม่พบจาก driver_uid ใน RTDB ให้ไปค้นจากเอกสาร users/{uid}
       if (_shuttleName == null || _shuttleName!.isEmpty) {
         try {
           final userDoc = await FirebaseFirestore.instance
@@ -293,8 +295,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
       // 3. หากยังไม่พบอีก ให้ใช้ค่าตั้งต้น
       if (_shuttleName == null || _shuttleName!.isEmpty) {
-        _shuttleName = 'รถรับส่ง สาย 1';
-        _shuttleNumber = '1';
+        _shuttleName = 'shuttle#01';
+        _shuttleNumber = 'SH#01';
       }
 
       // 4. ดึงข้อมูล User (ชื่อและรูป Avatar) สำหรับอัปเดตใส่เอกสารรถ
@@ -923,8 +925,12 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       flutterTts = FlutterTts();
 
       // ตรวจสอบว่าระบบรองรับรหัสภาษาไทยแบบใด (บางระบบใช้ th-TH บางระบบใช้ th)
-      dynamic isThThAvailable = await flutterTts.isLanguageAvailable("th-TH");
-      dynamic isThAvailable = await flutterTts.isLanguageAvailable("th");
+      dynamic isThThAvailable = await flutterTts
+          .isLanguageAvailable("th-TH")
+          .timeout(const Duration(seconds: 2), onTimeout: () => false);
+      dynamic isThAvailable = await flutterTts
+          .isLanguageAvailable("th")
+          .timeout(const Duration(seconds: 2), onTimeout: () => false);
 
       if (isThThAvailable == true || isThThAvailable == 1) {
         _ttsLang = "th-TH";
@@ -934,17 +940,18 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         _ttsLang = "th-TH"; // ลองตั้งค่าเริ่มต้นไว้
       }
 
-      await flutterTts.setLanguage(_ttsLang);
+      await flutterTts
+          .setLanguage(_ttsLang)
+          .timeout(const Duration(seconds: 2), onTimeout: () {});
 
       if (!kIsWeb) {
         await flutterTts.setSpeechRate(0.5); // ความเร็วปกติ
         // คงเสียงเดิมไว้ (เสียงผู้หญิง) และปรับระดับเสียงให้ดังสุด (1.0 คือสูงสุดของระบบ TTS)
-        // หากต้องการดังกว่านี้ ต้องเพิ่มเสียง Media ของตัวเครื่องมือถือครับ
         await flutterTts.setVolume(1.0);
         await flutterTts.setPitch(1.0);
       }
     } catch (e) {
-      print(" Error initializing TTS: $e");
+      debugPrint("Error initializing TTS: $e");
     }
   }
 
@@ -1040,6 +1047,51 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       await flutterTts.speak("มีนักศึกษาลงที่ $phoneticStopName");
     } catch (e) {
       print(" Error triggering drop-off TTS: $e");
+    }
+  }
+
+  // อัปเดตสถานะเริ่มงานและพิกัดเริ่มต้นไปยัง Realtime Database ตาม REV-03
+  Future<bool> _updateShiftStartStatus(LatLng loc) async {
+    if (_shuttleDocId == null) return false;
+
+    // ตรวจสอบสถานะผู้โดยสาร: หากเป็น offline, ค่าว่าง หรือค่าที่ไม่ถูกต้อง ให้เปลี่ยนเป็น available
+    String targetPassengerStatus = _currentPassengerStatus.trim().toLowerCase();
+    const validPassengerStatuses = {'available', 'full', 'break'};
+    if (!validPassengerStatuses.contains(targetPassengerStatus) || targetPassengerStatus == 'offline') {
+      targetPassengerStatus = 'available';
+    }
+
+    try {
+      _lastFirebaseUpdate = DateTime.now();
+      _lastUploadedLocation = loc;
+
+      await FirebaseDatabase.instance
+          .ref('shuttles')
+          .child(_shuttleDocId!)
+          .update({
+            'lat': loc.latitude,
+            'lng': loc.longitude,
+            'status': 'online',
+            'passenger_status': targetPassengerStatus,
+            'last_updated': ServerValue.timestamp,
+          });
+
+      if (mounted) {
+        setState(() {
+          _currentPassengerStatus = targetPassengerStatus;
+        });
+      }
+      return true;
+    } catch (e) {
+      print("เกิดข้อผิดพลาดในการบันทึกสถานะเริ่มงานลง RTDB: $e");
+      if (mounted) {
+        TopToast.show(
+          context,
+          'บันทึกสถานะเริ่มงานไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+          isError: true,
+        );
+      }
+      return false;
     }
   }
 
@@ -1210,17 +1262,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         }
 
         if (_shuttleDocId != null) {
-          _lastFirebaseUpdate = DateTime.now();
-          _lastUploadedLocation = newLoc;
-          FirebaseDatabase.instance
-              .ref('shuttles')
-              .child(_shuttleDocId!)
-              .update({
-                'lat': newLoc.latitude,
-                'lng': newLoc.longitude,
-                'status': 'online',
-                'last_updated': ServerValue.timestamp,
-              });
+          await _updateShiftStartStatus(newLoc);
         }
       }
     } catch (e) {
@@ -1234,17 +1276,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         );
 
         if (_shuttleDocId != null && _currentLocation != null) {
-          _lastFirebaseUpdate = DateTime.now();
-          _lastUploadedLocation = _currentLocation;
-          FirebaseDatabase.instance
-              .ref('shuttles')
-              .child(_shuttleDocId!)
-              .update({
-                'lat': _currentLocation!.latitude,
-                'lng': _currentLocation!.longitude,
-                'status': 'online',
-                'last_updated': ServerValue.timestamp,
-              });
+          await _updateShiftStartStatus(_currentLocation!);
         }
       }
     }

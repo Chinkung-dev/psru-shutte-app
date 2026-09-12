@@ -2,6 +2,7 @@ import 'dart:async';
 import '../../widgets/top_toast.dart';
 import '../../widgets/app_loading_view.dart';
 import 'package:flutter/material.dart';
+import '../../widgets/shuttle_display_mode_switch.dart';
 import 'package:flutter/foundation.dart'; // สำหรับเช็ค kIsWeb
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -12,6 +13,11 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import '../../route_data.dart';
 import '../../services/stop_five_bypass.dart';
+import '../../services/shuttle_heading.dart';
+import '../../services/student_location_cache.dart';
+import '../../widgets/shuttle_3d_layer.dart';
+import '../../widgets/shuttle_map_badge.dart';
+import '../../widgets/animated_highlighted_route_layer.dart';
 import 'student_profile.dart';
 import 'student_chat_list_screen.dart'; // Import หน้ารวมห้องแชท
 import 'student_live_status_screen.dart'; // Import หน้า Live Status
@@ -19,7 +25,6 @@ import 'package:geolocator/geolocator.dart'; // เพิ่มเพื่อ�
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter/services.dart';
 
 class StudentHome extends StatefulWidget {
   const StudentHome({super.key});
@@ -36,6 +41,9 @@ class _StudentHomeState extends State<StudentHome>
   final Map<String, LatLng> _oldShuttleLocations = {};
   final Map<String, LatLng> _targetShuttleLocations = {};
   final Map<String, LatLng> _currentShuttleLocations = {};
+  final Map<String, ShuttleHeadingTracker> _shuttleHeadings = {};
+  bool _use3DShuttles = const bool.fromEnvironment('SHUTTLE_3D', defaultValue: false);
+  bool _shuttle3DReady = false;
 
   bool isWaiting = false;
   bool isAcknowledged = false; // เพิ่มสถานะเมื่อคนขับกดรับทราบแล้ว
@@ -57,6 +65,9 @@ class _StudentHomeState extends State<StudentHome>
   int? remainingStops; // เก็บจำนวนป้ายที่เหลือก่อนถึงจุดหมาย
   String? targetedShuttleId; // เก็บ ID ของรถคันที่ใกล้ที่สุดเพื่อส่งคำขอเจาะจง
   LatLng? _myLocation; // ตำแหน่งปัจจุบันของนักศึกษา
+  LatLng? _cachedMyLocation; // ใช้แสดงเท่านั้นระหว่างรอพิกัดสด
+  Timer? _cachedLocationTimer;
+  DateTime? _lastLocationCacheWrite;
   StreamSubscription<Position>? _positionSubscription; // ฟังตำแหน่งแบบเรียลไทม์
   String? _localSessionId; // เก็บ Session ID ของอุปกรณ์ปัจจุบัน
   bool _isForceLoggingOut = false; // ตัวแปรป้องกันการเปิด Dialog แจ้งเตือนซ้ำ
@@ -175,6 +186,7 @@ class _StudentHomeState extends State<StudentHome>
     _buildRouteGraph();
     _listenToShuttles(); // เริ่มฟังตำแหน่งรถ
     _listenToAllChatMessages(); // เริ่มดักฟังข้อความแชทใหม่จากคนขับรถทุกคันแบบ Real-time
+    _restoreLocationMarker();
     _zoomToUserLocation(); // ดึงตำแหน่งผู้ใช้และซูมแผนที่
     _restoreActiveRequest(); // กู้คืนคำขอเรียกรถที่ยังค้างอยู่
 
@@ -226,6 +238,56 @@ class _StudentHomeState extends State<StudentHome>
   }
 
   // ดึงตำแหน่งปัจจุบันของนักศึกษาแล้วซูมแผนที่ไป พร้อมติดตามแบบ Real-time
+  Future<void> _restoreLocationMarker() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission != LocationPermission.whileInUse &&
+          permission != LocationPermission.always) {
+        return;
+      }
+      final prefs = await SharedPreferences.getInstance();
+      final location = StudentLocationCache.read(prefs, uid, DateTime.now());
+      if (!mounted || _myLocation != null || location == null ||
+          FirebaseAuth.instance.currentUser?.uid != uid) {
+        return;
+      }
+      setState(() => _cachedMyLocation = location);
+      _cachedLocationTimer?.cancel();
+      // ตรวจวันหมดอายุเดิม ไม่ต่ออายุ cache ทุกครั้งที่รีเฟรช
+      _cachedLocationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted || _myLocation != null) {
+          timer.cancel();
+          return;
+        }
+        if (StudentLocationCache.read(prefs, uid, DateTime.now()) == null) {
+          timer.cancel();
+          setState(() => _cachedMyLocation = null);
+        }
+      });
+    } catch (e) {
+      debugPrint('คืนหมุดตำแหน่งล่าสุดไม่สำเร็จ: $e');
+    }
+  }
+
+  Future<void> _cacheLocationMarker(LatLng location) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final now = DateTime.now();
+    if (_lastLocationCacheWrite != null &&
+        now.difference(_lastLocationCacheWrite!) < const Duration(seconds: 10)) {
+      return;
+    }
+    _lastLocationCacheWrite = now;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await StudentLocationCache.save(prefs, uid, location, now);
+    } catch (e) {
+      debugPrint('เก็บหมุดตำแหน่งล่าสุดไม่สำเร็จ: $e');
+    }
+  }
+
   Future<void> _zoomToUserLocation({bool forceMove = false}) async {
     try {
       if (!kIsWeb) {
@@ -241,11 +303,14 @@ class _StudentHomeState extends State<StudentHome>
         if (permission == LocationPermission.deniedForever) return;
       }
 
-      void handleNewLocation(LatLng loc, {bool isFromUserAction = false}) {
+      void handleNewLocation(LatLng loc, {bool isFromUserAction = false, bool persist = true}) {
         if (!mounted) return;
+        _cachedLocationTimer?.cancel();
         setState(() {
           _myLocation = loc;
+          _cachedMyLocation = null;
         });
+        if (persist) unawaited(_cacheLocationMarker(loc));
 
         if ((!_hasInitialPositionZoomed || isFromUserAction) && _isMapReady) {
           _hasInitialPositionZoomed = true;
@@ -263,11 +328,12 @@ class _StudentHomeState extends State<StudentHome>
 
       // 1. ดึงตำแหน่งล่าสุด (Last Known) ทันที ถ้ามี
       try {
-        final lastPosition = await Geolocator.getLastKnownPosition();
+        final lastPosition = kIsWeb ? null : await Geolocator.getLastKnownPosition();
         if (lastPosition != null && mounted) {
           handleNewLocation(
             LatLng(lastPosition.latitude, lastPosition.longitude),
             isFromUserAction: forceMove,
+            persist: false,
           );
         }
       } catch (_) {}
@@ -755,6 +821,9 @@ class _StudentHomeState extends State<StudentHome>
                       ? value['passenger_status']
                       : 'available',
                   'number': value.containsKey('number') ? value['number'] : '',
+                  'heading_timestamp': lastUpdatedMillis is num
+                      ? DateTime.fromMillisecondsSinceEpoch(lastUpdatedMillis.toInt())
+                      : now,
                   'last_passed_stop': value.containsKey('last_passed_stop')
                       ? value['last_passed_stop']
                       : null,
@@ -764,12 +833,16 @@ class _StudentHomeState extends State<StudentHome>
           }
         });
 
-        bool hasMeaningfulChange =
-            false; // ตรวจสอบว่ามีรถคันไหนขยับจริงหรือเปลี่ยนสถานะที่นั่งหรือไม่
+        bool hasMeaningfulChange = false;
+        bool targetBecameUnavailableWhileWaiting = false;
+        String? targetUnavailableReason;
+        String? oldUnavailableShuttleName;
 
         for (var shuttle in newShuttles) {
           final String id = shuttle['id'];
           final LatLng newLoc = LatLng(shuttle['lat'], shuttle['lng']);
+          _shuttleHeadings.putIfAbsent(id, ShuttleHeadingTracker.new)
+              .update(newLoc, shuttle['heading_timestamp'] as DateTime);
           final String newPassengerStatus = shuttle['passenger_status'];
           final currentLoc = _currentShuttleLocations[id];
 
@@ -788,7 +861,7 @@ class _StudentHomeState extends State<StudentHome>
           if (statusChanged) {
             hasMeaningfulChange = true;
 
-            // แจ้งเตือนถ้ารถเป้าหมายเปลี่ยนสถานะเป็นเต็มหรือพัก (นำระบบ TopToast กลับมา)
+            // แจ้งเตือนถ้ารถเป้าหมายเปลี่ยนสถานะเป็นเต็มหรือพัก
             if (id == targetedShuttleId) {
               String sName = 'รถคันเป้าหมาย';
               try {
@@ -800,20 +873,29 @@ class _StudentHomeState extends State<StudentHome>
                 if (numStr.isNotEmpty) sName = 'รถเบอร์ $numStr';
               } catch (_) {}
 
-              if (newPassengerStatus == 'full') {
+              if (newPassengerStatus == 'full' ||
+                  newPassengerStatus == 'break') {
                 _alertPlayer.play(AssetSource('voice/glass_1.mp3'));
-                TopToast.show(
-                  context,
-                  'แจ้งเตือน: $sName ที่กำลังมารับ "เต็มแล้ว" ',
-                  isError: true,
-                );
-              } else if (newPassengerStatus == 'break') {
-                _alertPlayer.play(AssetSource('voice/glass_1.mp3'));
-                TopToast.show(
-                  context,
-                  'แจ้งเตือน: $sName "ขอพักเบรค" ชั่วคราว ',
-                  isError: true,
-                );
+                if (isWaiting && !isOnBoard) {
+                  targetBecameUnavailableWhileWaiting = true;
+                  targetUnavailableReason =
+                      newPassengerStatus == 'full' ? 'เต็มแล้ว' : 'ขอพักเบรค';
+                  oldUnavailableShuttleName = sName;
+                } else {
+                  if (newPassengerStatus == 'full') {
+                    TopToast.show(
+                      context,
+                      'แจ้งเตือน: $sName ที่กำลังมารับ "เต็มแล้ว" ',
+                      isError: true,
+                    );
+                  } else {
+                    TopToast.show(
+                      context,
+                      'แจ้งเตือน: $sName "ขอพักเบรค" ชั่วคราว ',
+                      isError: true,
+                    );
+                  }
+                }
               } else if (newPassengerStatus == 'available' &&
                   (oldPassengerStatus == 'full' ||
                       oldPassengerStatus == 'break')) {
@@ -856,6 +938,7 @@ class _StudentHomeState extends State<StudentHome>
         }
 
         final activeIds = newShuttles.map((s) => s['id'] as String).toSet();
+        _shuttleHeadings.removeWhere((id, _) => !activeIds.contains(id));
         _stopFiveBypass.retainApproachingVehicles(
           newShuttles
               .where((s) => s['last_passed_stop'] == 4)
@@ -900,6 +983,8 @@ class _StudentHomeState extends State<StudentHome>
 
         // State Guard: อัปเดต UI และคำนวณกราฟเส้นทางใหม่เฉพาะเมื่อรถขยับจริง หรือสถานะเปลี่ยนเท่านั้น (เพื่อประหยัดแบตเตอรี่และไม่รีบิ้วฟรีเมื่อได้รับ Heartbeat)
         if (hasMeaningfulChange) {
+          final String? prevTarget = targetedShuttleId;
+
           setState(() {
             activeShuttles = newShuttles;
           });
@@ -916,6 +1001,32 @@ class _StudentHomeState extends State<StudentHome>
           // ถ้านักศึกษาเลือกป้ายไว้ ให้ทำการอัปเดตเส้นทางและเวลา ETA (ไม่ว่ารถจะออนไลน์หรือเพิ่งออฟไลน์ไป)
           if (selectedStopLatLng != null) {
             _updateRouteAndETA();
+          }
+
+          if (targetBecameUnavailableWhileWaiting) {
+            if (targetedShuttleId != null && targetedShuttleId != prevTarget) {
+              String newName = 'รถคันใหม่';
+              try {
+                final newShuttle = activeShuttles.firstWhere(
+                  (s) => s['id'] == targetedShuttleId,
+                );
+                final String newNum =
+                    (newShuttle['number'] ?? '').toString();
+                if (newNum.isNotEmpty) newName = 'รถเบอร์ $newNum';
+              } catch (_) {}
+
+              TopToast.show(
+                context,
+                'แจ้งเตือน: $oldUnavailableShuttleName $targetUnavailableReason ระบบสลับคำขอและเส้นทางไปยัง $newName ที่ว่างให้แล้วครับ',
+                isError: false,
+              );
+            } else {
+              TopToast.show(
+                context,
+                'แจ้งเตือน: $oldUnavailableShuttleName $targetUnavailableReason ขณะนี้ไม่มีรถคันอื่นว่าง ระบบกำลังติดตามรถคันที่ใกล้ที่สุดให้ครับ',
+                isError: true,
+              );
+            }
           }
         }
       }
@@ -1540,6 +1651,7 @@ class _StudentHomeState extends State<StudentHome>
 
   @override
   void dispose() {
+    _cachedLocationTimer?.cancel();
     _markerAnimationController.dispose();
     requestSubscription?.cancel();
     userSubscription?.cancel();
@@ -1645,24 +1757,39 @@ class _StudentHomeState extends State<StudentHome>
         final trackedBus = activeShuttles.firstWhere(
           (bus) => bus['id'] == targetedShuttleId,
         );
-        closestBusId = trackedBus['id'];
-        closestBusLoc = LatLng(trackedBus['lat'], trackedBus['lng']);
+        final String pStatus =
+            (trackedBus['passenger_status'] ?? 'available')
+                .toString()
+                .toLowerCase();
 
-        int? lastPassed = (trackedBus['last_passed_stop'] as num?)?.toInt();
-        if (lastPassed != null) {
-          closestBusLastPassed = lastPassed;
-          int maxOrder = 23;
-          if (busStops.isNotEmpty) {
-            maxOrder = busStops
-                .map((s) => ((s['order'] ?? 0) as num).toInt())
-                .reduce((a, b) => a > b ? a : b);
-            if (maxOrder == 0) maxOrder = 23;
+        // ตรวจสอบเงื่อนไขว่าควรติดตามคันเดิมต่อไปหรือไม่:
+        // 1. ถ้าขึ้นรถแล้ว (isOnBoard): ติดตามคันเดิมเสมอ
+        // 2. ถ้าคนขับกดรับแล้ว (isAcknowledged): ติดตามคันเดิมเสมอ
+        // 3. ถ้ากำลังรอ (isWaiting): ติดตามคันเดิมเฉพาะเมื่อรถยังว่าง (available) หากเต็มหรือพักเบรก ให้ปลดล็อกเพื่อสลับไปหาคันใหม่ที่ว่าง
+        final bool shouldKeepTrackedBus = isOnBoard ||
+            isAcknowledged ||
+            (isWaiting && pStatus == 'available');
+
+        if (shouldKeepTrackedBus) {
+          closestBusId = trackedBus['id'];
+          closestBusLoc = LatLng(trackedBus['lat'], trackedBus['lng']);
+
+          int? lastPassed = (trackedBus['last_passed_stop'] as num?)?.toInt();
+          if (lastPassed != null) {
+            closestBusLastPassed = lastPassed;
+            int maxOrder = 23;
+            if (busStops.isNotEmpty) {
+              maxOrder = busStops
+                  .map((s) => ((s['order'] ?? 0) as num).toInt())
+                  .reduce((a, b) => a > b ? a : b);
+              if (maxOrder == 0) maxOrder = 23;
+            }
+            int distIndex = targetOrder - lastPassed;
+            if (distIndex < 0) {
+              distIndex += maxOrder;
+            }
+            minIndexDistance = distIndex;
           }
-          int distIndex = targetOrder - lastPassed;
-          if (distIndex < 0) {
-            distIndex += maxOrder;
-          }
-          minIndexDistance = distIndex;
         }
       } catch (e) {
         // รถอาจจะออฟไลน์ไปแล้ว Fallback ไปหาคันใกล้สุดใหม่
@@ -1670,7 +1797,19 @@ class _StudentHomeState extends State<StudentHome>
     }
 
     if (closestBusId == null) {
-      for (var bus in activeShuttles) {
+      // ให้ความสำคัญกับรถที่มีสถานะว่าง (available) เป็นอันดับแรก (Priority 1)
+      final availableBuses = activeShuttles.where((bus) {
+        final status = (bus['passenger_status'] ?? 'available')
+            .toString()
+            .toLowerCase();
+        return status == 'available';
+      }).toList();
+
+      // หากไม่มีรถคันใดว่างเลย จึงใช้รถที่ออนไลน์ทั้งหมดเป็นตัวเลือกสำรอง (Fallback Priority 2)
+      final candidateBuses =
+          availableBuses.isNotEmpty ? availableBuses : activeShuttles;
+
+      for (var bus in candidateBuses) {
         LatLng busLoc = LatLng(bus['lat'], bus['lng']);
         int? lastPassed = (bus['last_passed_stop'] as num?)?.toInt();
 
@@ -1714,14 +1853,20 @@ class _StudentHomeState extends State<StudentHome>
     }
 
     final String? previousTarget = targetedShuttleId;
+    final bool targetChanged =
+        previousTarget != null && previousTarget != closestBusId;
     targetedShuttleId = closestBusId;
     remainingStops = (minIndexDistance != 999) ? minIndexDistance : null;
 
-    // หากคันเดิมออฟไลน์ระหว่างรอ ให้ซิงก์ target_shuttle_id คันใหม่ไปยัง Firestore
+    // หากมีการสลับคันขณะที่กำลังรอ ให้รีเซ็ตเวลาเพื่อให้คำนวณตามรถคันใหม่
+    if (targetChanged && isWaiting) {
+      pickupEtaSeconds = null;
+    }
+
+    // หากคันเดิมออฟไลน์หรือสลับคันระหว่างรอ ให้ซิงก์ target_shuttle_id คันใหม่ไปยัง Firestore
     if (isWaiting &&
         activeRequestId != null &&
-        previousTarget != null &&
-        previousTarget != targetedShuttleId &&
+        targetChanged &&
         targetedShuttleId != null) {
       FirebaseFirestore.instance
           .collection('ride_requests')
@@ -2541,7 +2686,7 @@ class _StudentHomeState extends State<StudentHome>
           IndexedStack(
             index: _selectedIndex,
             children: [
-              _buildMapScreen(),
+              TickerMode(enabled: _selectedIndex == 0, child: _buildMapScreen()),
               StudentLiveStatusScreen(
                 busStops: busStops,
                 onSelectTab: (index) {
@@ -2657,30 +2802,25 @@ class _StudentHomeState extends State<StudentHome>
                 userAgentPackageName: 'com.example.psru_shuttle_app',
               ),
               PolylineLayer(
-                polylines: [
-                  ...shuttleRoutes.map((segment) {
-                    return Polyline(
-                      points: segment,
-                      strokeWidth: 5.0,
-                      color: const Color(0xFF176a21).withValues(
-                        alpha: 0.5,
-                      ), // ปรับให้เข้มขึ้นเพื่อให้มองเห็นชัด
-                    );
-                  }),
-                  if (highlightedPath.isNotEmpty)
-                    Polyline(
-                      points: highlightedPath,
-                      strokeWidth: 6.0,
-                      color: const Color(0xFF176a21),
-                    ),
-                ],
+                polylines: shuttleRoutes.map((segment) {
+                  return Polyline(
+                    points: segment,
+                    strokeWidth: 5.0,
+                    color: const Color(0xFF176a21).withValues(
+                      alpha: 0.5,
+                    ), // ปรับให้เข้มขึ้นเพื่อให้มองเห็นชัด
+                  );
+                }).toList(),
               ),
+              if (highlightedPath.length >= 2)
+                AnimatedHighlightedRouteLayer(
+                  key: const ValueKey('animated_highlighted_route'),
+                  path: highlightedPath,
+                ),
+              // 1. เลเยอร์หมุดจุดจอดรถทั่วไป (วาดไว้ใต้รถ เพื่อไม่ให้ป้ายสีขาวขนาดใหญ่มาบดบังตัวรถ)
               MarkerLayer(
                 markers: (() {
-                  List<Marker> allMarkers = [];
-                  Marker? selectedMarker;
-
-                  // 1. หมุดจุดจอดรถ (ที่ไม่ได้เลือก)
+                  List<Marker> stopMarkers = [];
                   for (var vStop in _visualStops) {
                     bool isSelected = false;
                     if (vStop['isGroup'] == true) {
@@ -2697,56 +2837,121 @@ class _StudentHomeState extends State<StudentHome>
                           : selectedStopName == vStop['name'];
                     }
 
-                    final marker = Marker(
-                      key: ValueKey('stop_${vStop['id'] ?? vStop['name']}'),
-                      point: LatLng(vStop['lat'], vStop['lng']),
-                      width: 160,
-                      height: isSelected ? 75 : 65,
-                      child: RepaintBoundary(
-                        child: GestureDetector(
-                          key: isSelected
-                              ? keySelectedStopMarker
-                              : (_visualStops.isNotEmpty &&
-                                        vStop == _visualStops.first
-                                    ? keyStopMarker
-                                    : null),
-                          onTap: () {
-                            if (vStop['isGroup'] == true) {
-                              if (!isSelected) {
+                    // ป้ายที่ถูกเลือกจะยกไปวาดในเลเยอร์บนสุด
+                    if (isSelected) continue;
+
+                    stopMarkers.add(
+                      Marker(
+                        key: ValueKey('stop_${vStop['id'] ?? vStop['name']}'),
+                        point: LatLng(vStop['lat'], vStop['lng']),
+                        width: 160,
+                        height: 65,
+                        child: RepaintBoundary(
+                          child: GestureDetector(
+                            key: (_visualStops.isNotEmpty &&
+                                    vStop == _visualStops.first)
+                                ? keyStopMarker
+                                : null,
+                            onTap: () {
+                              if (vStop['isGroup'] == true) {
                                 _moveToStop(vStop['members'][0]);
                               } else {
+                                _moveToStop(vStop);
+                              }
+                            },
+                            child: _buildStopMarker(
+                              isSelected: false,
+                              name: vStop['name'] ?? '',
+                              isGroup: vStop['isGroup'] == true,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                  return stopMarkers;
+                })(),
+              ),
+
+              // 2. เลเยอร์โมเดลรถ 3D (วางอยู่เหนือป้ายจุดจอดทั่วไป ทำให้ตัวรถ 3D ไม่ถูกป้ายทับ)
+              if (_use3DShuttles)
+                Builder(builder: (context) => Shuttle3DLayer(
+                  mapCamera: MapCamera.of(context),
+                  shuttles: activeShuttles.map((shuttle) {
+                    final id = shuttle['id'] as String;
+                    return Shuttle3DObjectData(id: id,
+                      position: _currentShuttleLocations[id] ??
+                          LatLng(shuttle['lat'], shuttle['lng']),
+                      bearing: _shuttleHeadings[id]?.bearing ?? 0);
+                  }).toList(),
+                  onReadyChanged: (ready) {
+                    if (mounted && ready != _shuttle3DReady) {
+                      setState(() => _shuttle3DReady = ready);
+                    }
+                  },
+                )),
+
+              // 3. เลเยอร์บนสุด: หมุดตำแหน่งนักศึกษา, ป้ายกำกับบนหัวรถ, ป้ายจุดจอดที่ถูกเลือก และป้าย ETA
+              MarkerLayer(
+                markers: (() {
+                  List<Marker> overlayMarkers = [];
+                  Marker? selectedMarker;
+
+                  // ตรวจหาป้ายที่ถูกเลือกเพื่อนำมาวาดบนสุด
+                  for (var vStop in _visualStops) {
+                    bool isSelected = false;
+                    if (vStop['isGroup'] == true) {
+                      isSelected = isOnBoard
+                          ? (vStop['members'] as List).any(
+                              (m) => m['name'] == selectedDropOffName,
+                            )
+                          : (vStop['members'] as List).any(
+                              (m) => m['name'] == selectedStopName,
+                            );
+                    } else {
+                      isSelected = isOnBoard
+                          ? selectedDropOffName == vStop['name']
+                          : selectedStopName == vStop['name'];
+                    }
+
+                    if (isSelected) {
+                      selectedMarker = Marker(
+                        key: ValueKey('stop_${vStop['id'] ?? vStop['name']}'),
+                        point: LatLng(vStop['lat'], vStop['lng']),
+                        width: 160,
+                        height: 75,
+                        child: RepaintBoundary(
+                          child: GestureDetector(
+                            key: keySelectedStopMarker,
+                            onTap: () {
+                              if (vStop['isGroup'] == true) {
                                 _moveToStop(
                                   busStops.firstWhere(
                                     (s) => s['name'] == selectedStopName,
                                     orElse: () => vStop['members'][0],
                                   ),
                                 );
+                              } else {
+                                _moveToStop(vStop);
                               }
-                            } else {
-                              _moveToStop(vStop);
-                            }
-                          },
-                          child: _buildStopMarker(
-                            isSelected: isSelected,
-                            name: vStop['name'] ?? '',
-                            isGroup: vStop['isGroup'] == true,
+                            },
+                            child: _buildStopMarker(
+                              isSelected: true,
+                              name: vStop['name'] ?? '',
+                              isGroup: vStop['isGroup'] == true,
+                            ),
                           ),
                         ),
-                      ),
-                    );
-
-                    if (isSelected) {
-                      selectedMarker = marker;
-                    } else {
-                      allMarkers.add(marker);
+                      );
+                      break;
                     }
                   }
 
-                  // 2. แสดงตำแหน่งนักศึกษา (ซ่อนเมื่ออยู่บนรถแล้ว เพื่อใช้หมุดรถแทน)
-                  if (_myLocation != null && !isOnBoard) {
-                    allMarkers.add(
+                  // แสดงตำแหน่งนักศึกษา (ซ่อนเมื่ออยู่บนรถแล้ว เพื่อใช้หมุดรถแทน)
+                  if ((_myLocation ?? _cachedMyLocation) != null && !isOnBoard) {
+                    overlayMarkers.add(
                       Marker(
-                        point: _myLocation!,
+                        point: (_myLocation ?? _cachedMyLocation)!,
                         width: 80,
                         height: 80,
                         child: Stack(
@@ -2766,7 +2971,7 @@ class _StudentHomeState extends State<StudentHome>
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.blueAccent.withOpacity(0.5),
+                                    color: Colors.blueAccent.withValues(alpha: 0.5),
                                     blurRadius: 10,
                                     spreadRadius: 3,
                                   ),
@@ -2775,7 +2980,7 @@ class _StudentHomeState extends State<StudentHome>
                               child: const Icon(
                                 Icons.person,
                                 color: Colors.white,
-                                size: 16, // ใส่ไอคอนรูปคนตรงกลางสีฟ้า
+                                size: 16,
                               ),
                             ),
                             Positioned(
@@ -2786,16 +2991,16 @@ class _StudentHomeState extends State<StudentHome>
                                   vertical: 2,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.blueAccent.withOpacity(0.95),
+                                  color: Colors.blueAccent.withValues(alpha: 0.95),
                                   borderRadius: BorderRadius.circular(6),
                                   border: Border.all(
                                     color: Colors.white,
                                     width: 1.0,
                                   ),
                                 ),
-                                child: const Text(
-                                  'ฉัน', // ข้อความบอกว่าเป็นตัวนักศึกษาเอง
-                                  style: TextStyle(
+                                child: Text(
+                                  _myLocation == null ? 'ฉัน · ล่าสุด' : 'ฉัน',
+                                  style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
@@ -2809,9 +3014,13 @@ class _StudentHomeState extends State<StudentHome>
                     );
                   }
 
-                  // 3. แสดงหมุดรถรับส่งทุกคันที่ออนไลน์ (ขยับแบบอนิเมชันเหมือนฝั่งคนขับ)
-                  allMarkers.addAll(
-                    activeShuttles.map((shuttle) {
+                  // แสดงหมุดรถรับส่งทุกคันที่ออนไลน์ (ขยับแบบอนิเมชันเหมือนฝั่งคนขับ)
+                  final otherShuttles = activeShuttles.where((s) => s['id'] != targetedShuttleId);
+                  final targetedShuttleList = activeShuttles.where((s) => s['id'] == targetedShuttleId);
+                  final orderedShuttlesForMarkers = [...otherShuttles, ...targetedShuttleList];
+
+                  overlayMarkers.addAll(
+                    orderedShuttlesForMarkers.map((shuttle) {
                       final String id = shuttle['id'];
                       final LatLng displayLoc =
                           _currentShuttleLocations[id] ??
@@ -2828,10 +3037,16 @@ class _StudentHomeState extends State<StudentHome>
                       return Marker(
                         key: ValueKey('shuttle_$id'),
                         point: displayLoc,
-                        width: 80,
-                        height: 80,
+                        width: _use3DShuttles ? 150 : 80,
+                        height: _use3DShuttles ? 100 : 80,
+                        rotate: true,
                         child: RepaintBoundary(
-                          child: _buildBusMarker(
+                          child: _use3DShuttles ? ShuttleMapBadge(
+                            number: shuttle['number']?.toString() ?? '',
+                            status: shuttle['passenger_status']?.toString() ?? '',
+                            showFallback: !_shuttle3DReady,
+                            selected: id == targetedShuttleId,
+                          ) : _buildBusMarker(
                             shuttle['passenger_status'],
                             shuttle['number']?.toString(),
                           ),
@@ -2840,16 +3055,16 @@ class _StudentHomeState extends State<StudentHome>
                     }),
                   );
 
-                  // 4. แสดงหมุดจุดจอดที่ถูกเลือกเป็น Layer บนสุด!
+                  // แสดงหมุดจุดจอดที่ถูกเลือกเป็น Layer บนสุด
                   if (selectedMarker != null) {
-                    allMarkers.add(selectedMarker);
+                    overlayMarkers.add(selectedMarker);
                   }
 
-                  // 5. แสดงป้ายเวลาประมาณการ (ETA Badge) ข้างเส้นทางไฮไลท์บนแผนที่
+                  // แสดงป้ายเวลาประมาณการ (ETA Badge) ข้างเส้นทางไฮไลท์บนแผนที่
                   if (highlightedPath.isNotEmpty &&
                       estimatedArrivalText != null &&
                       _getPathMidpoint() != null) {
-                    allMarkers.add(
+                    overlayMarkers.add(
                       Marker(
                         key: const ValueKey('eta_badge'),
                         point: _getPathMidpoint()!,
@@ -2862,7 +3077,7 @@ class _StudentHomeState extends State<StudentHome>
                     );
                   }
 
-                  return allMarkers;
+                  return overlayMarkers;
                 })(),
               ),
             ],
@@ -2946,7 +3161,6 @@ class _StudentHomeState extends State<StudentHome>
                             );
                           },
                         ),
-
                         // ฝั่งขวา: ปุ่มออกจากระบบ (Logout Capsule Chip)
                         GestureDetector(
                           onTap: _logout,
@@ -2992,80 +3206,96 @@ class _StudentHomeState extends State<StudentHome>
           ),
         ),
 
-        // ป้ายสถานะรถรับส่งแบบลอยชิดซ้ายบนแผนที่ (Floating Status Pill on Map - Left Aligned)
+        // ป้ายสถานะรถรับส่งและปุ่มเปลี่ยนโหมด 2D/3D แบบลอยชิดซ้ายบนแผนที่ (Floating Status & Mode Switch)
         Positioned(
           top: 84,
           left: 16,
           child: SafeArea(
             top: true,
             bottom: false,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.95),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color:
-                        (activeShuttles.isNotEmpty
-                                ? const Color(0xFF176a21)
-                                : const Color(0xFFD84315))
-                            .withValues(alpha: 0.12),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ป้ายสถานะรถรับส่ง (Floating Status Pill)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.95),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color:
+                            (activeShuttles.isNotEmpty
+                                    ? const Color(0xFF176a21)
+                                    : const Color(0xFFD84315))
+                                .withValues(alpha: 0.12),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                    border: Border.all(
+                      color: activeShuttles.isNotEmpty
+                          ? const Color(0xFF81C784).withValues(alpha: 0.6)
+                          : Colors.orange.shade200,
+                      width: 1.0,
+                    ),
                   ),
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.06),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: activeShuttles.isNotEmpty
+                              ? const Color(0xFF22C55E)
+                              : const Color(0xFFF57C00),
+                          boxShadow: activeShuttles.isNotEmpty
+                              ? [
+                                  BoxShadow(
+                                    color: const Color(
+                                      0xFF22C55E,
+                                    ).withValues(alpha: 0.6),
+                                    blurRadius: 4,
+                                  ),
+                                ]
+                              : null,
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      Text(
+                        activeShuttles.isNotEmpty
+                            ? 'รถรับส่งวิ่งให้บริการ ${activeShuttles.length} คัน '
+                            : ' ขณะนี้ยังไม่มีคนขับออนไลน์ในระบบ',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: activeShuttles.isNotEmpty
+                              ? const Color(0xFF1B5E20)
+                              : const Color(0xFFD84315),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-                border: Border.all(
-                  color: activeShuttles.isNotEmpty
-                      ? const Color(0xFF81C784).withValues(alpha: 0.6)
-                      : Colors.orange.shade200,
-                  width: 1.0,
                 ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: activeShuttles.isNotEmpty
-                          ? const Color(0xFF22C55E)
-                          : const Color(0xFFF57C00),
-                      boxShadow: activeShuttles.isNotEmpty
-                          ? [
-                              BoxShadow(
-                                color: const Color(
-                                  0xFF22C55E,
-                                ).withValues(alpha: 0.6),
-                                blurRadius: 4,
-                              ),
-                            ]
-                          : null,
-                    ),
-                  ),
-                  const SizedBox(width: 7),
-                  Text(
-                    activeShuttles.isNotEmpty
-                        ? 'รถรับส่งวิ่งให้บริการ ${activeShuttles.length} คัน '
-                        : ' ขณะนี้ยังไม่มีคนขับออนไลน์ในระบบ',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: activeShuttles.isNotEmpty
-                          ? const Color(0xFF1B5E20)
-                          : const Color(0xFFD84315),
-                    ),
-                  ),
-                ],
-              ),
+                const SizedBox(height: 8),
+                // ปุ่มเปลี่ยนโหมดแสดงผลรถ 2D / 3D ลอยบนแผนที่
+                ShuttleDisplayModeSwitch(
+                  use3D: _use3DShuttles,
+                  onChanged: (enabled) => setState(() {
+                    _use3DShuttles = enabled;
+                    _shuttle3DReady = false;
+                  }),
+                ),
+              ],
             ),
           ),
         ),
@@ -4075,7 +4305,7 @@ class _StudentHomeState extends State<StudentHome>
   Widget _buildStopDetailsCard() {
     // ดึงชื่อ/หมายเลขรถที่กำลังเดินทางมารับ หรือรถที่เราขึ้นไปแล้ว
     String? assignedShuttleName;
-    if ((isAcknowledged || isOnBoard) && targetedShuttleId != null) {
+    if ((isWaiting || isAcknowledged || isOnBoard) && targetedShuttleId != null) {
       try {
         final trackedBus = activeShuttles.firstWhere(
           (bus) => bus['id'] == targetedShuttleId,

@@ -48,3 +48,13 @@ app.*.map.json
 # Firebase cache
 .firebase/
 node_modules/
+
+# Ephemeral build files
+/linux/flutter/ephemeral/
+
+# Temporary debug files
+/emulator_*.png
+/poc_preview.png
+/rtdb_shuttles_5.json
+/papers/
+/scratch/

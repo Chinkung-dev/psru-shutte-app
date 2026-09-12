@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import '../../widgets/app_loading_view.dart';
+import '../../services/shuttle_access.dart';
 
 class DriverEditProfileScreen extends StatefulWidget {
   const DriverEditProfileScreen({super.key});
@@ -18,7 +20,6 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
 
   bool _isLoading = true;
   bool _isSaving = false;
-  bool _isLoadingShuttles = false;
 
   int _selectedAvatarIndex = 0;
   late PageController _pageController;
@@ -32,12 +33,8 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
     'assets/images/woman3.png',
   ];
 
-  String? _selectedShuttleName;
-  String? _selectedShuttleNumber;
-
-  List<String> _shuttleNames = [];
-  List<String> _shuttleNumbers = [];
-  List<Map<String, dynamic>> _shuttlesData = [];
+  String? _assignedShuttleName;
+  String? _assignedShuttleNumber;
 
   @override
   void initState() {
@@ -57,8 +54,8 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
           _nameController.text = data['name']?.toString() ?? '';
           _driverIdController.text = data['student_id']?.toString() ?? '';
           _phoneController.text = data['phone']?.toString() ?? '';
-          _selectedShuttleName = (data['shuttle_name'] ?? data['shuttleName'])?.toString();
-          _selectedShuttleNumber = (data['shuttle_number'] ?? data['shuttleNumber'])?.toString();
+          _assignedShuttleName = (data['shuttle_name'] ?? data['shuttleName'])?.toString();
+          _assignedShuttleNumber = (data['shuttle_number'] ?? data['shuttleNumber'])?.toString();
 
           final String currentAvatar = data['avatar']?.toString() ?? 'assets/images/man1.png';
           final int index = _avatarList.indexOf(currentAvatar);
@@ -68,75 +65,27 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
 
           _pageController = PageController(viewportFraction: 0.5, initialPage: _selectedAvatarIndex);
         }
+
+        // หากยังไม่มีข้อมูลรถใน users ให้ตรวจสอบจากโหนด shuttles ใน RTDB
+        if (_assignedShuttleName == null || _assignedShuttleNumber == null) {
+          final rtdbSnap = await FirebaseDatabase.instance.ref('shuttles').get();
+          if (rtdbSnap.exists && rtdbSnap.value is Map) {
+            final shuttles = Map<String, dynamic>.from(rtdbSnap.value as Map);
+            for (final entry in shuttles.entries) {
+              final val = Map<String, dynamic>.from(entry.value as Map);
+              if (val['driver_uid'] == user.uid) {
+                _assignedShuttleName = val['name']?.toString();
+                _assignedShuttleNumber = val['number']?.toString();
+                break;
+              }
+            }
+          }
+        }
       }
-      await _fetchShuttles();
     } catch (e) {
       debugPrint('Error loading user data: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _fetchShuttles() async {
-    setState(() => _isLoadingShuttles = true);
-    try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      final snapshot = await FirebaseFirestore.instance.collection('shuttles').get();
-      final driversSnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .where('role', isEqualTo: 'driver')
-          .get();
-
-      final usedShuttleNames = <String>{};
-      final usedShuttleNumbers = <String>{};
-
-      for (var doc in driversSnapshot.docs) {
-        if (currentUser != null && doc.id == currentUser.uid) {
-          continue; // ไม่นับรถของตัวเองเป็นรถที่ถูกจองแล้ว
-        }
-        final data = doc.data();
-        final sName = (data['shuttle_name'] ?? data['shuttleName'] ?? '').toString().trim();
-        final sNum = (data['shuttle_number'] ?? data['shuttleNumber'] ?? '').toString().trim();
-        if (sName.isNotEmpty) usedShuttleNames.add(sName);
-        if (sNum.isNotEmpty) usedShuttleNumbers.add(sNum);
-      }
-
-      if (snapshot.docs.isNotEmpty) {
-        final allData = snapshot.docs.map<Map<String, dynamic>>((doc) => {
-          'id': doc.id,
-          'name': doc.data()['name']?.toString().trim() ?? '',
-          'number': doc.data()['number']?.toString().trim() ?? '',
-        }).toList();
-
-        final availableData = allData.where((s) {
-          final name = s['name'] as String;
-          final number = s['number'] as String;
-          return name.isNotEmpty &&
-              number.isNotEmpty &&
-              !usedShuttleNames.contains(name) &&
-              !usedShuttleNumbers.contains(number);
-        }).toList();
-
-        if (mounted) {
-          setState(() {
-            _shuttlesData = availableData;
-            _shuttleNames = availableData.map((s) => s['name'] as String).toSet().toList();
-            _shuttleNumbers = availableData.map((s) => s['number'] as String).toSet().toList();
-
-            // หากชื่อรถของตัวเองไม่มีในรายการ ให้เพิ่มเข้าไปเพื่อให้เลือกต่อได้
-            if (_selectedShuttleName != null && !_shuttleNames.contains(_selectedShuttleName)) {
-              _shuttleNames.add(_selectedShuttleName!);
-            }
-            if (_selectedShuttleNumber != null && !_shuttleNumbers.contains(_selectedShuttleNumber)) {
-              _shuttleNumbers.add(_selectedShuttleNumber!);
-            }
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint('Error fetching shuttles: $e');
-    } finally {
-      if (mounted) setState(() => _isLoadingShuttles = false);
     }
   }
 
@@ -154,7 +103,7 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
     final driverId = _driverIdController.text.trim();
     final phone = _phoneController.text.trim();
 
-    if (name.isEmpty || driverId.isEmpty || phone.isEmpty || _selectedShuttleName == null || _selectedShuttleNumber == null) {
+    if (name.isEmpty || driverId.isEmpty || phone.isEmpty) {
       _showSnackBar('กรุณากรอกข้อมูลให้ครบทุกช่อง', Colors.red);
       return;
     }
@@ -178,83 +127,50 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        // ตรวจสอบซ้ำว่ารถไม่ได้ถูกคนอื่นแย่งจองในระหว่างแก้ไข
-        final checkExisting = await FirebaseFirestore.instance
-            .collection('users')
-            .where('role', isEqualTo: 'driver')
-            .get();
+        final avatar = _avatarList[_selectedAvatarIndex];
 
-        for (var doc in checkExisting.docs) {
-          if (doc.id == user.uid) continue;
-          final data = doc.data();
-          final existingName = (data['shuttle_name'] ?? data['shuttleName'] ?? '').toString().trim();
-          final existingNumber = (data['shuttle_number'] ?? data['shuttleNumber'] ?? '').toString().trim();
-          if (existingName == _selectedShuttleName || existingNumber == _selectedShuttleNumber) {
-            _showSnackBar('ชื่อรถหรือหมายเลขรถนี้ถูกเลือกโดยคนขับท่านอื่นแล้ว กรุณาเลือกคันใหม่', Colors.orange);
-            await _fetchShuttles();
-            return;
-          }
-        }
-
-        // ปรับความสัมพันธ์ใน Firestore collection 'shuttles'
-        // 1. ถอดคนขับออกจากรถคันเดิม
-        final oldShuttlesQuery = await FirebaseFirestore.instance
-            .collection('shuttles')
-            .where('driver_uid', isEqualTo: user.uid)
-            .get();
-
-        for (var oldDoc in oldShuttlesQuery.docs) {
-          if (oldDoc.data()['name'] != _selectedShuttleName) {
-            await FirebaseFirestore.instance
-                .collection('shuttles')
-                .doc(oldDoc.id)
-                .update({
-              'driver_uid': FieldValue.delete(),
-              'driver_name': FieldValue.delete(),
-              'driver_avatar': FieldValue.delete(),
-            });
-          }
-        }
-
-        // 2. ผูกคนขับเข้ากับรถคันใหม่
-        if (_selectedShuttleName != null) {
-          final newShuttleQuery = await FirebaseFirestore.instance
-              .collection('shuttles')
-              .where('name', isEqualTo: _selectedShuttleName)
-              .limit(1)
-              .get();
-
-          if (newShuttleQuery.docs.isNotEmpty) {
-            await FirebaseFirestore.instance
-                .collection('shuttles')
-                .doc(newShuttleQuery.docs.first.id)
-                .update({
-              'driver_uid': user.uid,
-              'driver_name': name,
-              'driver_avatar': _avatarList[_selectedAvatarIndex],
-            });
-          }
-        }
-
+        // 1. บันทึกข้อมูลส่วนตัวลงใน users ของ Firestore เป็นหลักก่อนตาม REV-01
         await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
           'name': name,
           'student_id': driverId,
           'phone': phone,
-          'shuttle_name': _selectedShuttleName,
-          'shuttle_number': _selectedShuttleNumber,
-          'shuttleName': _selectedShuttleName,
-          'shuttleNumber': _selectedShuttleNumber,
-          'avatar': _avatarList[_selectedAvatarIndex],
+          'avatar': avatar,
           'updated_at': FieldValue.serverTimestamp(),
         });
 
-        _showSnackBar('อัปเดตโปรไฟล์เรียบร้อยแล้ว!', Colors.green);
+        // 2. พยายามซิงก์ชื่อและรูปลงโหนด shuttles ใน RTDB ของรถที่ตนเองเป็นเจ้าของ
+        bool rtdbSyncSuccess = true;
+        if (_assignedShuttleName != null && _assignedShuttleName!.isNotEmpty) {
+          try {
+            final key = shuttleDatabaseKey(
+              documentId: _assignedShuttleName!,
+              name: _assignedShuttleName!,
+              number: _assignedShuttleNumber ?? '',
+            );
+
+            await FirebaseDatabase.instance.ref('shuttles/$key').update({
+              'driver_name': name,
+              'driver_avatar': avatar,
+            });
+          } catch (rtdbErr) {
+            debugPrint('RTDB driver profile sync notice: $rtdbErr');
+            rtdbSyncSuccess = false;
+          }
+        }
+
         if (mounted) {
+          if (rtdbSyncSuccess) {
+            _showSnackBar('อัปเดตโปรไฟล์เรียบร้อยแล้ว', Colors.green);
+          } else {
+            _showSnackBar('บันทึกโปรไฟล์สำเร็จแล้ว แต่ข้อมูลบนรถยังไม่อัปเดต', Colors.orange);
+          }
           Navigator.pop(context, true);
         }
       }
     } catch (e) {
-      _showSnackBar('เกิดข้อผิดพลาดในการอัปเดตโปรไฟล์', Colors.red);
+      if (mounted) {
+        _showSnackBar('เกิดข้อผิดพลาดในการอัปเดตโปรไฟล์', Colors.red);
+      }
       debugPrint('Error saving profile: $e');
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -478,43 +394,7 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
                             ),
                             const SizedBox(height: 16),
 
-                            _buildDropdownField(
-                              label: 'ชื่อรถรับส่ง',
-                              value: _selectedShuttleName,
-                              items: _shuttleNames,
-                              hint: _isLoadingShuttles
-                                  ? 'กำลังตรวจสอบข้อมูลรถ...'
-                                  : _shuttleNames.isEmpty
-                                      ? 'ไม่มีรถรับส่งว่างในขณะนี้'
-                                      : 'เลือกชื่อรถรับส่ง',
-                              onChanged: (val) {
-                                setState(() {
-                                  _selectedShuttleName = val;
-                                  final matchedShuttle = _shuttlesData.firstWhere(
-                                    (s) => s['name'] == val,
-                                    orElse: () => <String, dynamic>{},
-                                  );
-                                  if (matchedShuttle.isNotEmpty &&
-                                      matchedShuttle['number'] != null &&
-                                      matchedShuttle['number'].toString().isNotEmpty) {
-                                    _selectedShuttleNumber = matchedShuttle['number'].toString();
-                                  }
-                                });
-                              },
-                            ),
-                            const SizedBox(height: 16),
-
-                            _buildDropdownField(
-                              label: 'หมายเลขรถ',
-                              value: _selectedShuttleNumber,
-                              items: _shuttleNumbers,
-                              hint: _isLoadingShuttles
-                                  ? 'กำลังตรวจสอบข้อมูลรถ...'
-                                  : _shuttleNumbers.isEmpty
-                                      ? 'ไม่มีหมายเลขรถว่างในขณะนี้'
-                                      : 'เลือกหมายเลขรถ',
-                              onChanged: (val) => setState(() => _selectedShuttleNumber = val),
-                            ),
+                            _buildAssignedShuttleCard(),
                             const SizedBox(height: 32),
 
                             // ปุ่มบันทึกข้อมูล สไตล์เดียวกับฝั่งนักศึกษา
@@ -629,19 +509,18 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
     );
   }
 
-  Widget _buildDropdownField({
-    required String label,
-    required String? value,
-    required List<String> items,
-    required String hint,
-    required ValueChanged<String?> onChanged,
-  }) {
+  Widget _buildAssignedShuttleCard() {
+    final hasVehicle = _assignedShuttleName != null && _assignedShuttleName!.isNotEmpty;
+    final displayText = hasVehicle
+        ? '${_assignedShuttleNumber ?? ''} (${_assignedShuttleName ?? ''})'
+        : 'ยังไม่ได้รับมอบหมายรถประจำ';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
+        const Text(
+          'รถรับส่งที่ได้รับมอบหมาย',
+          style: TextStyle(
             color: Color(0xFF5A605B),
             fontWeight: FontWeight.w600,
             fontSize: 13.5,
@@ -649,7 +528,8 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
         ),
         const SizedBox(height: 8),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(18),
@@ -665,38 +545,63 @@ class _DriverEditProfileScreenState extends State<DriverEditProfileScreen> {
               ),
             ],
           ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: value,
-              isExpanded: true,
-              hint: Text(
-                hint,
-                style: TextStyle(
-                  color: items.isEmpty ? Colors.red.shade300 : Colors.grey.shade400,
-                  fontSize: 14,
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF176a21).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.directions_bus_rounded,
+                  color: Color(0xFF176a21),
+                  size: 22,
                 ),
               ),
-              icon: Icon(
-                Icons.keyboard_arrow_down_rounded,
-                color: items.isEmpty ? Colors.red.shade300 : const Color(0xFF176a21),
-              ),
-              items: items
-                  .map(
-                    (item) => DropdownMenuItem(
-                      value: item,
-                      child: Text(
-                        item,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF2C2F30),
-                        ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      displayText,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: hasVehicle ? const Color(0xFF2C2F30) : Colors.grey.shade500,
                       ),
                     ),
-                  )
-                  .toList(),
-              onChanged: items.isEmpty ? null : onChanged,
-            ),
+                    const SizedBox(height: 2),
+                    Text(
+                      hasVehicle
+                          ? 'มอบหมายโดยผู้ดูแลระบบ (อ่านอย่างเดียว)'
+                          : 'ติดต่อผู้ดูแลระบบเพื่อรับมอบหมายรถ',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'อ่านอย่างเดียว',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],

@@ -48,18 +48,7 @@ class _AddDriverDialogState extends State<AddDriverDialog> {
 
   Future<void> _fetchShuttles() async {
     try {
-      final shuttlesSnapshot =
-          await FirebaseFirestore.instance.collection('shuttles').get();
-      final allData = shuttlesSnapshot.docs.map((doc) => doc.data()).toList();
-
-      final availableData = allData.where((s) {
-        final name = s['name'] as String? ?? '';
-        final number = s['number'] as String? ?? '';
-        final driverUid = s['driver_uid'] as String?;
-        return name.isNotEmpty &&
-            number.isNotEmpty &&
-            (driverUid == null || driverUid.isEmpty);
-      }).toList();
+      final availableData = await ShuttleAccess.getAvailableShuttles();
 
       if (mounted) {
         setState(() {
@@ -165,31 +154,15 @@ class _AddDriverDialogState extends State<AddDriverDialog> {
           .doc(userCredential.user!.uid)
           .set(userData);
 
-      final shuttleDoc = await FirebaseFirestore.instance
-          .collection('shuttles')
-          .where('name', isEqualTo: _selectedShuttleName)
-          .limit(1)
-          .get();
-
-      if (shuttleDoc.docs.isNotEmpty) {
-        await FirebaseFirestore.instance
-            .collection('shuttles')
-            .doc(shuttleDoc.docs.first.id)
-            .update({
-          'driver_uid': userCredential.user!.uid,
-          'driver_name': name,
-          'driver_avatar': 'assets/images/man1.png',
-        });
-        final shuttle = shuttleDoc.docs.first;
-        await ShuttleAccess.assignDriver(
-          driverUid: userCredential.user!.uid,
-          documentId: shuttle.id,
-          name: shuttle.data()['name']?.toString() ?? '',
-          number: shuttle.data()['number']?.toString() ?? '',
-        );
-      } else {
-        throw StateError('ไม่พบรถที่เลือก กรุณาตรวจสอบข้อมูลรถ');
-      }
+      // มอบหมายคนขับให้กับรถใน Realtime Database
+      await ShuttleAccess.assignDriver(
+        driverUid: userCredential.user!.uid,
+        documentId: _selectedShuttleName!,
+        name: _selectedShuttleName!,
+        number: _selectedShuttleNumber!,
+        driverName: name,
+        driverAvatar: 'assets/images/man1.png',
+      );
 
       if (mounted) {
         _showToast('เพิ่มพนักงานขับรถสำเร็จ', isError: false);
@@ -390,8 +363,18 @@ class _AddDriverDialogState extends State<AddDriverDialog> {
                             : _shuttleNumbers.isEmpty
                                 ? 'ไม่มีหมายเลขรถว่าง'
                                 : 'เลือกหมายเลขรถ',
-                        onChanged: (val) =>
-                            setState(() => _selectedShuttleNumber = val),
+                        onChanged: (val) {
+                          setState(() {
+                            _selectedShuttleNumber = val;
+                            final matched = _shuttlesData.firstWhere(
+                              (s) => s['number'] == val,
+                              orElse: () => <String, dynamic>{},
+                            );
+                            if (matched.isNotEmpty && matched['name'] != null) {
+                              _selectedShuttleName = matched['name'].toString();
+                            }
+                          });
+                        },
                       ),
                       const SizedBox(height: 14),
                       _buildInputField(

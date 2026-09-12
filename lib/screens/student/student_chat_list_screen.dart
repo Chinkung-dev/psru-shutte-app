@@ -18,11 +18,9 @@ class StudentChatListScreen extends StatefulWidget {
 class _StudentChatListScreenState extends State<StudentChatListScreen> {
   String _searchQuery = '';
   StreamSubscription? _rtdbSub;
-  StreamSubscription? _firestoreSub;
   StreamSubscription? _driversSub;
 
   Map<dynamic, dynamic> _rtdbShuttles = {};
-  List<Map<String, dynamic>> _firestoreShuttles = [];
   List<Map<String, dynamic>> _driverUsers = [];
   List<Map<String, dynamic>> _shuttleList = [];
   bool _isLoading = true;
@@ -41,16 +39,6 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
         .listen((snapshot) {
       if (!mounted) return;
       _driverUsers = snapshot.docs.map((d) => d.data()).toList();
-      _mergeAndRefreshChatList();
-    });
-
-    _firestoreSub = FirebaseFirestore.instance
-        .collection('shuttles')
-        .snapshots()
-        .listen((snapshot) {
-      if (!mounted) return;
-      _firestoreShuttles =
-          snapshot.docs.map((d) => {'id': d.id, ...d.data()}).toList();
       _mergeAndRefreshChatList();
     });
 
@@ -116,50 +104,7 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
       };
     });
 
-    // 2. ผสานข้อมูลจาก Firestore Shuttles
-    for (var fsDoc in _firestoreShuttles) {
-      final String name = (fsDoc['name'] ?? fsDoc['id']).toString();
-      final String number = (fsDoc['number'] ?? '').toString();
-      String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
-      if (cleanNum.isEmpty) {
-        cleanNum = name.replaceAll(RegExp(r'[^0-9]'), '');
-      }
-      final String shuttleKey =
-          cleanNum.isNotEmpty ? cleanNum : name.toLowerCase().trim();
-
-      final String badgeText =
-          cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : name;
-      final String fsDriverName =
-          (fsDoc['driver_name'] ?? fsDoc['driverName'] ?? '').toString();
-      final String fsDriverAvatar =
-          (fsDoc['driver_avatar'] ?? fsDoc['avatar'] ?? '').toString();
-
-      if (shuttleMap.containsKey(shuttleKey)) {
-        var existing = shuttleMap[shuttleKey]!;
-        if (existing['driverName'] == 'คนขับรถประจำคัน' &&
-            fsDriverName.isNotEmpty) {
-          existing['driverName'] = fsDriverName;
-        }
-        if ((existing['driverAvatar'] as String).isEmpty &&
-            fsDriverAvatar.isNotEmpty) {
-          existing['driverAvatar'] = fsDriverAvatar;
-        }
-      } else {
-        shuttleMap[shuttleKey] = {
-          'shuttleId': fsDoc['id'].toString(),
-          'name': name,
-          'number': number,
-          'cleanNum': cleanNum,
-          'badgeText': badgeText,
-          'driverName':
-              fsDriverName.isNotEmpty ? fsDriverName : 'คนขับรถประจำคัน',
-          'driverAvatar': fsDriverAvatar,
-          'isOnline': false,
-        };
-      }
-    }
-
-    // 3. ผสานข้อมูลจาก Firestore Driver Users (users role == 'driver')
+    // 2. ผสานข้อมูลจาก Firestore Driver Users (users role == 'driver')
     for (var dUser in _driverUsers) {
       final String sName = (dUser['shuttle_name'] ?? '').toString();
       final String sNum = (dUser['shuttle_number'] ?? '').toString();
@@ -226,7 +171,6 @@ class _StudentChatListScreenState extends State<StudentChatListScreen> {
   @override
   void dispose() {
     _driversSub?.cancel();
-    _firestoreSub?.cancel();
     _rtdbSub?.cancel();
     super.dispose();
   }

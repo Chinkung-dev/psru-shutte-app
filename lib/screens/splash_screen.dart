@@ -59,8 +59,8 @@ class _SplashScreenState extends State<SplashScreen>
 
   /// ตรวจสอบสถานะการเข้าสู่ระบบและนำทางไปยังหน้าจอที่ถูกต้อง
   Future<void> _checkAuthAndNavigate() async {
-    // หน่วงเวลาเพื่อให้แสดงอนิเมชันเปิดแอปอย่างนุ่มนวลและ Firebase Auth พร้อมทำงาน
-    await Future.delayed(const Duration(milliseconds: 1200));
+    // หน่วงเวลาเพื่อให้แสดงอนิเมชันเปิดแอปอย่างนุ่มนวล
+    await Future.delayed(const Duration(milliseconds: 900));
 
     if (!mounted) return;
 
@@ -85,26 +85,48 @@ class _SplashScreenState extends State<SplashScreen>
 
       final prefs = await SharedPreferences.getInstance();
       final localSessionId = prefs.getString('current_session_id');
+      final cachedRole = prefs.getString('cached_user_role');
 
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get()
-          .timeout(const Duration(seconds: 4));
+      Map<String, dynamic>? data;
+
+      try {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get()
+            .timeout(const Duration(seconds: 3));
+
+        if (userDoc.exists && userDoc.data() != null) {
+          data = userDoc.data()!;
+        }
+      } catch (e) {
+        debugPrint("Network fetch user doc failed or timeout: $e");
+        // กรณีเครือข่ายช้า ให้พยายามอ่านจากแคชของ Firestore
+        try {
+          final cachedDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .get(const GetOptions(source: Source.cache));
+          if (cachedDoc.exists && cachedDoc.data() != null) {
+            data = cachedDoc.data()!;
+          }
+        } catch (_) {}
+      }
 
       if (!mounted) return;
 
-      if (userDoc.exists && userDoc.data() != null) {
-        final data = userDoc.data()!;
+      if (data != null) {
         final serverSessionId = data['current_session_id'] as String?;
 
         // ตรวจสอบความถูกต้องของ Session
-        if (localSessionId == null || localSessionId == serverSessionId) {
+        if (localSessionId == null || serverSessionId == null || localSessionId == serverSessionId) {
           if (serverSessionId != null && localSessionId == null) {
             await prefs.setString('current_session_id', serverSessionId);
           }
 
           final String role = (data['role'] as String?) ?? 'student';
+          await prefs.setString('cached_user_role', role);
+
           if (role == 'driver') {
             _navigateTo('/driverHome');
           } else if (role == 'admin') {
@@ -119,6 +141,16 @@ class _SplashScreenState extends State<SplashScreen>
           }
           return;
         }
+      } else if (cachedRole != null && cachedRole.isNotEmpty) {
+        // Fallback กรณีออฟไลน์หรือเน็ตช้ามากแต่มี role แคชไว้เดิม
+        if (cachedRole == 'driver') {
+          _navigateTo('/driverHome');
+        } else if (cachedRole == 'admin') {
+          _navigateTo('/adminDashboard');
+        } else {
+          _navigateTo('/studentHome');
+        }
+        return;
       }
 
       // หากไม่พบข้อมูลหรือเซสชันไม่ตรง ให้ไปยังหน้าเข้าสู่ระบบ

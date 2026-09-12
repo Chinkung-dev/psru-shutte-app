@@ -53,23 +53,26 @@ class _DriverStatusScreenState extends State<DriverStatusScreen> {
           String? sName;
           String? sNumber;
 
-          // 1. ดึงข้อมูลจาก Firestore shuttles ก่อน
+          // 1. ดึงข้อมูลจาก Realtime Database (RTDB) shuttles ก่อน
           try {
-            final firestoreShuttleQuery = await FirebaseFirestore.instance
-                .collection('shuttles')
-                .where('driver_uid', isEqualTo: user.uid)
-                .limit(1)
+            final rtdbShuttlesSnap = await FirebaseDatabase.instance
+                .ref('shuttles')
                 .get()
                 .timeout(const Duration(seconds: 5));
 
-            if (firestoreShuttleQuery.docs.isNotEmpty) {
-              final doc = firestoreShuttleQuery.docs.first;
-              docId = doc.id;
-              sName = doc.data()['name']?.toString();
-              sNumber = doc.data()['number']?.toString();
+            if (rtdbShuttlesSnap.exists) {
+              for (final child in rtdbShuttlesSnap.children) {
+                final val = child.value;
+                if (val is Map && val['driver_uid']?.toString() == user.uid) {
+                  docId = child.key;
+                  sName = val['name']?.toString();
+                  sNumber = val['number']?.toString();
+                  break;
+                }
+              }
             }
           } catch (e) {
-            debugPrint("Error querying Firestore in DriverStatusScreen: $e");
+            debugPrint("Error querying RTDB in DriverStatusScreen: $e");
           }
 
           // 2. ถ้าไม่พบ ให้ค้นจาก users/{uid}

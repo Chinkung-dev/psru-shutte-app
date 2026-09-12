@@ -25,7 +25,14 @@ android {
                 "META-INF/LICENSE.txt",
                 "META-INF/NOTICE",
                 "META-INF/NOTICE.txt",
-                "META-INF/versions/9/OSGI-INF/MANIFEST.MF" // 👈 นี่คือตัวการที่ทำให้ระบบสติแตกครับ!
+                "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+            )
+        }
+        jniLibs {
+            excludes += listOf(
+                "lib/x86_64/**",
+                "lib/armeabi-v7a/**",
+                "lib/x86/**"
             )
         }
     }
@@ -48,6 +55,10 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {

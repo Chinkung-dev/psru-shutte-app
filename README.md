@@ -8,7 +8,7 @@
 
 🗺️ แผนที่และการนำทาง (Map & Routing)
 
-แสดงแผนที่มหาวิทยาลัยด้วย flutter_map (OpenStreetMap)
+แสดงแผนที่มหาวิทยาลัยด้วย flutter_map (OpenStreetMap) 
 
 แสดงหมุดจุดจอดรถ (Bus Stops) และตำแหน่งรถบัส
 

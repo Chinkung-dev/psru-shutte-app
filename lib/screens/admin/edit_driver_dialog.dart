@@ -32,7 +32,6 @@ class _EditDriverDialogState extends State<EditDriverDialog> {
   List<Map<String, dynamic>> _shuttlesData = [];
   bool _isLoadingShuttles = true;
   String? _originalShuttleName;
-  String? _originalShuttleNumber;
 
   @override
   void initState() {
@@ -44,7 +43,6 @@ class _EditDriverDialogState extends State<EditDriverDialog> {
     _selectedShuttleName = widget.driverData['shuttleName'] ?? widget.driverData['shuttle_name'];
     _selectedShuttleNumber = widget.driverData['shuttleNumber'] ?? widget.driverData['shuttle_number'];
     _originalShuttleName = _selectedShuttleName;
-    _originalShuttleNumber = _selectedShuttleNumber;
 
     _fetchShuttles();
   }
@@ -59,21 +57,9 @@ class _EditDriverDialogState extends State<EditDriverDialog> {
 
   Future<void> _fetchShuttles() async {
     try {
-      final shuttlesSnapshot =
-          await FirebaseFirestore.instance.collection('shuttles').get();
-      final allData =
-          shuttlesSnapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
-
-      final availableData = allData.where((s) {
-        final name = s['name'] as String? ?? '';
-        final number = s['number'] as String? ?? '';
-        final driverUid = s['driver_uid'] as String?;
-        return name.isNotEmpty &&
-            number.isNotEmpty &&
-            (driverUid == null ||
-                driverUid.isEmpty ||
-                driverUid == widget.docId);
-      }).toList();
+      final availableData = await ShuttleAccess.getAvailableShuttles(
+        currentDriverUid: widget.docId,
+      );
 
       if (mounted) {
         setState(() {
@@ -147,77 +133,21 @@ class _EditDriverDialogState extends State<EditDriverDialog> {
         'shuttle_number': _selectedShuttleNumber,
       });
 
-      if (_originalShuttleName != _selectedShuttleName ||
-          _originalShuttleNumber != _selectedShuttleNumber) {
-        if (_originalShuttleName != null) {
-          final oldShuttle = await FirebaseFirestore.instance
-              .collection('shuttles')
-              .where('name', isEqualTo: _originalShuttleName)
-              .limit(1)
-              .get();
-          if (oldShuttle.docs.isNotEmpty) {
-            await FirebaseFirestore.instance
-                .collection('shuttles')
-                .doc(oldShuttle.docs.first.id)
-                .update({
-              'driver_uid': FieldValue.delete(),
-              'driver_name': FieldValue.delete(),
-              'driver_avatar': FieldValue.delete(),
-            });
-          }
-        }
-
-        if (_selectedShuttleName != null) {
-          final newShuttle = await FirebaseFirestore.instance
-              .collection('shuttles')
-              .where('name', isEqualTo: _selectedShuttleName)
-              .limit(1)
-              .get();
-          if (newShuttle.docs.isNotEmpty) {
-            await FirebaseFirestore.instance
-                .collection('shuttles')
-                .doc(newShuttle.docs.first.id)
-                .update({
-              'driver_uid': widget.docId,
-              'driver_name': name,
-              'driver_avatar':
-                  widget.driverData['avatar'] ?? 'assets/images/man1.png',
-            });
-          }
-        }
-      } else {
-        if (_selectedShuttleName != null) {
-          final currentShuttle = await FirebaseFirestore.instance
-              .collection('shuttles')
-              .where('name', isEqualTo: _selectedShuttleName)
-              .limit(1)
-              .get();
-          if (currentShuttle.docs.isNotEmpty) {
-            await FirebaseFirestore.instance
-                .collection('shuttles')
-                .doc(currentShuttle.docs.first.id)
-                .update({
-              'driver_name': name,
-            });
-          }
-        }
+      // หากเปลี่ยนรถ ให้ปลดการผูกรถคันเดิมใน Realtime Database
+      if (_originalShuttleName != null &&
+          _originalShuttleName != _selectedShuttleName) {
+        await ShuttleAccess.unassignShuttleByName(_originalShuttleName!);
       }
 
-      if (_selectedShuttleName != null) {
-        final assignedShuttle = await FirebaseFirestore.instance
-            .collection('shuttles')
-            .where('name', isEqualTo: _selectedShuttleName)
-            .limit(1)
-            .get();
-        if (assignedShuttle.docs.isEmpty) {
-          throw StateError('ไม่พบรถที่เลือก กรุณาตรวจสอบข้อมูลรถ');
-        }
-        final shuttle = assignedShuttle.docs.first;
+      // ผูกรถคันใหม่ใน Realtime Database
+      if (_selectedShuttleName != null && _selectedShuttleNumber != null) {
         await ShuttleAccess.assignDriver(
           driverUid: widget.docId,
-          documentId: shuttle.id,
-          name: shuttle.data()['name']?.toString() ?? '',
-          number: shuttle.data()['number']?.toString() ?? '',
+          documentId: _selectedShuttleName!,
+          name: _selectedShuttleName!,
+          number: _selectedShuttleNumber!,
+          driverName: name,
+          driverAvatar: widget.driverData['avatar'] ?? 'assets/images/man1.png',
         );
       }
 
@@ -407,8 +337,18 @@ class _EditDriverDialogState extends State<EditDriverDialog> {
                             : _shuttleNumbers.isEmpty
                                 ? 'ไม่มีหมายเลขรถว่าง'
                                 : 'เลือกหมายเลขรถ',
-                        onChanged: (val) =>
-                            setState(() => _selectedShuttleNumber = val),
+                        onChanged: (val) {
+                          setState(() {
+                            _selectedShuttleNumber = val;
+                            final matched = _shuttlesData.firstWhere(
+                              (s) => s['number'] == val,
+                              orElse: () => <String, dynamic>{},
+                            );
+                            if (matched.isNotEmpty && matched['name'] != null) {
+                              _selectedShuttleName = matched['name'].toString();
+                            }
+                          });
+                        },
                       ),
                       const SizedBox(height: 28),
                       SizedBox(

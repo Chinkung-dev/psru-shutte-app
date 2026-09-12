@@ -12,6 +12,7 @@ import 'admin_students_tab.dart';
 import 'admin_stops_tab.dart';
 import 'admin_analytics_tab.dart';
 import 'admin_profile_dialog.dart';
+import '../../services/shuttle_access.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -87,34 +88,21 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
   int passengersToday = 0;
   double avgWaitTimeMins = 0.0;
 
-  StreamSubscription? _shuttlesSub;
   StreamSubscription? _rtdbSub;
   StreamSubscription? _ridesSub;
   StreamSubscription? _analyticsSub;
 
-  List<Map<String, dynamic>> _firestoreShuttles = [];
   Map<String, Map<dynamic, dynamic>> _rtdbShuttles = {};
 
   @override
   void initState() {
     super.initState();
+    ShuttleAccess.ensureDefaultShuttles(5);
     _listenToShuttles();
     _listenToRideRequests();
   }
 
   void _listenToShuttles() {
-    _shuttlesSub = FirebaseFirestore.instance
-        .collection('shuttles')
-        .snapshots()
-        .listen((snapshot) {
-      if (!mounted) return;
-      _firestoreShuttles =
-          snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
-      _mergeAndRefreshShuttles();
-    }, onError: (e) {
-      debugPrint("Firestore Error (shuttles): $e");
-    });
-
     _rtdbSub = FirebaseDatabase.instance.ref('shuttles').onValue.listen((event) {
       if (!mounted) return;
       if (event.snapshot.exists && event.snapshot.value is Map) {
@@ -141,22 +129,8 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
     final Map<String, Map<String, dynamic>> shuttleMap = {};
 
     _rtdbShuttles.forEach((rtdbKey, rtdbDoc) {
-      Map<String, dynamic>? matchingFsDoc;
-      for (var fsDoc in _firestoreShuttles) {
-        if (fsDoc['id'] == rtdbKey ||
-            (fsDoc['number'] != null &&
-                fsDoc['number'].toString() == rtdbDoc['number']?.toString()) ||
-            (fsDoc['name'] != null &&
-                fsDoc['name'].toString() == rtdbDoc['name']?.toString())) {
-          matchingFsDoc = fsDoc;
-          break;
-        }
-      }
-
-      final String name =
-          (rtdbDoc['name'] ?? matchingFsDoc?['name'] ?? 'Shuttle').toString();
-      final String number =
-          (rtdbDoc['number'] ?? matchingFsDoc?['number'] ?? '').toString();
+      final String name = (rtdbDoc['name'] ?? rtdbKey).toString();
+      final String number = (rtdbDoc['number'] ?? '').toString();
       String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
       if (cleanNum.isEmpty) {
         cleanNum = name.replaceAll(RegExp(r'[^0-9]'), '');
@@ -182,26 +156,15 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
       }
 
       String pStatus = isOnline
-          ? (rtdbDoc['passenger_status'] ??
-                  matchingFsDoc?['passenger_status'] ??
-                  'available')
-              .toString()
+          ? (rtdbDoc['passenger_status'] ?? 'available').toString()
           : 'offline';
 
-      final String driverName = (rtdbDoc['driver_name'] ??
-              matchingFsDoc?['driver_name'] ??
-              'คนขับรถประจำคัน')
-          .toString();
-      final String driverAvatar = (rtdbDoc['driver_avatar'] ??
-              matchingFsDoc?['driver_avatar'] ??
-              '')
-          .toString();
-      final double lat = (rtdbDoc['lat'] as num?)?.toDouble() ??
-          (matchingFsDoc?['lat'] as num?)?.toDouble() ??
-          16.82753;
-      final double lng = (rtdbDoc['lng'] as num?)?.toDouble() ??
-          (matchingFsDoc?['lng'] as num?)?.toDouble() ??
-          100.20686;
+      final String driverName =
+          (rtdbDoc['driver_name'] ?? 'คนขับรถประจำคัน').toString();
+      final String driverAvatar =
+          (rtdbDoc['driver_avatar'] ?? '').toString();
+      final double lat = (rtdbDoc['lat'] as num?)?.toDouble() ?? 16.82753;
+      final double lng = (rtdbDoc['lng'] as num?)?.toDouble() ?? 100.20686;
 
       shuttleMap[shuttleKey] = {
         'id': rtdbKey.toString(),
@@ -212,40 +175,11 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
         'passenger_status': pStatus,
         'driver_name': driverName,
         'driver_avatar': driverAvatar,
-        'capacity_percent': rtdbDoc['capacity_percent'] ??
-            matchingFsDoc?['capacity_percent'] ??
-            0,
+        'capacity_percent': rtdbDoc['capacity_percent'] ?? 0,
         'lat': lat,
         'lng': lng,
       };
     });
-
-    for (var fsDoc in _firestoreShuttles) {
-      final String name = (fsDoc['name'] ?? fsDoc['id']).toString();
-      final String number = (fsDoc['number'] ?? '').toString();
-      String cleanNum = number.replaceAll(RegExp(r'[^0-9]'), '');
-      if (cleanNum.isEmpty) {
-        cleanNum = name.replaceAll(RegExp(r'[^0-9]'), '');
-      }
-      final String shuttleKey =
-          cleanNum.isNotEmpty ? cleanNum : name.toLowerCase().trim();
-
-      if (!shuttleMap.containsKey(shuttleKey)) {
-        shuttleMap[shuttleKey] = {
-          'id': fsDoc['id'].toString(),
-          'name': name,
-          'number': number,
-          'cleanNum': cleanNum,
-          'status': 'offline',
-          'passenger_status': 'offline',
-          'driver_name': (fsDoc['driver_name'] ?? 'คนขับรถประจำคัน').toString(),
-          'driver_avatar': (fsDoc['driver_avatar'] ?? '').toString(),
-          'capacity_percent': fsDoc['capacity_percent'] ?? 0,
-          'lat': (fsDoc['lat'] as num?)?.toDouble() ?? 16.82753,
-          'lng': (fsDoc['lng'] as num?)?.toDouble() ?? 100.20686,
-        };
-      }
-    }
 
     List<Map<String, dynamic>> list = shuttleMap.values.toList();
 
@@ -337,7 +271,6 @@ class _AdminDashboardOverviewState extends State<AdminDashboardOverview> {
 
   @override
   void dispose() {
-    _shuttlesSub?.cancel();
     _rtdbSub?.cancel();
     _ridesSub?.cancel();
     _analyticsSub?.cancel();

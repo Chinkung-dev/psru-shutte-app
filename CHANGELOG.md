@@ -6,6 +6,91 @@
 
 ## 🆕 อัปเดตล่าสุด (Recent Updates)
 
+### 2026-09-12 — ปรับเส้นไฮไลท์แผนที่นักศึกษา
+
+- เปลี่ยนเส้นที่เลือกเป็น gradient เขียวเข้ม–เขียวมรกต–เขียวสด หนา 7 พิกเซล พร้อมขอบขาว 2 พิกเซลและมุมมน เพื่อแยกจากถนนบนพื้นแผนที่สีอ่อน
+- ใช้ gradient ของ flutter_map เดิมโดยไม่มีแอนิเมชันสี ไม่เปลี่ยนพิกัดเส้นทางหรือการคำนวณ ETA ยังรอตรวจภาพจริงหลัง Hot Reload
+
+### 2026-09-12 — คืนหมุดนักศึกษาระหว่างรอ GPS หลังรีเฟรช
+
+- บนเว็บ `getLastKnownPosition` ไม่รองรับ จึงเพิ่ม cache ตำแหน่งที่ได้รับจาก GPS ใน SharedPreferences แยกตาม UID อ่านเฉพาะเมื่อยังอนุญาตตำแหน่งและข้อมูลอายุไม่ถึง 5 นาที
+- แสดงหมุด `ฉัน · ล่าสุด` ระหว่างรอพิกัดใหม่ แล้วเปลี่ยนเป็น `ฉัน` เมื่อ GPS ส่งข้อมูล โดยพิกัด cache ใช้แสดงเท่านั้น ไม่ส่งเป็นพิกัดสดสำหรับเรียกรถ เขียน cache ไม่ถี่กว่า 10 วินาที และยกเลิก timer เมื่อออกจากหน้าจอ
+- ทดสอบบริการ cache จริง: คืนตำแหน่งหลัง reload, แยกบัญชี, ปฏิเสธข้อมูลหมดอายุ/เวลาจากอนาคต/JSON เสีย ชุดทดสอบทั้งหมดผ่าน 38/38 ข้อ ยังรอตรวจการรีเฟรชบนเบราว์เซอร์จริงหลังแก้
+
+### 2026-09-11 — แก้ APK เปิดแล้วเด้งเมื่อ Run บน Android Emulator
+
+- กำหนด Flutter target ของ `app` ใน `android/build.gradle.kts` เป็น ARM64 ก่อน Flutter plugin เลือก engine ให้ตรงกับ ABI ที่แอปรองรับ ป้องกัน APK ขาด `libflutter.so` เมื่อ IDE ส่ง target x86_64
+- ทดสอบ build debug ด้วย `--target-platform android-x64` ผ่าน ตรวจพบ engine ARM64 ใน APK และเปิดบน Pixel_10_Pro ที่รองรับ ARM translation ได้ พบ Dart VM Service และ Firebase เริ่มสำเร็จ
+- ยังไม่ได้ตรวจ breakpoint/Hot Reload ผ่าน IDE และไม่ใช่ผลยืนยันการแก้บั๊กซิงก์ตำแหน่ง 3D
+
+### 2026-09-10 — ปฏิรูปสถาปัตยกรรมข้อมูลรถและคนขับสู่ Realtime Database ล้วน (Single Source of Truth)
+
+- **การรวมศูนย์ข้อมูลสู่ Firebase Realtime Database (RTDB) เป็น Single Source of Truth:**
+  - ยกเลิกการใช้งาน Collection `shuttles` ใน Cloud Firestore และย้ายการจัดการรถรับส่งทั้งหมด (`shuttle_01` ถึง `shuttle_05`) ไปไว้ที่ RTDB ใต้โหนด `shuttles` และ `shuttle_drivers` เพื่อลดความซ้ำซ้อนและป้องกันข้อมูลไม่ตรงกัน
+  - กำหนดชื่อและหมายเลขรถตามมาตรฐานสากล: ชื่อรถ `shuttle#01` - `shuttle#05` และหมายเลขรถ `SH#01` - `SH#05`
+  - ฟังก์ชัน `ShuttleAccess.ensureDefaultShuttles(5)` ตรวจสอบและสร้างโหนดรถ 5 คันใน RTDB พร้อมลบเอกสารตกค้างใน Firestore อัตโนมัติ (`cleanLegacyFirestoreShuttles`)
+  - ฟังก์ชัน `ShuttleAccess.getAvailableShuttles()` ดึงเฉพาะรถที่ยังไม่มีคนขับมอบหมายจาก RTDB
+  - จัดการสิทธิ์การขับขี่แบบอะตอมมิกผ่าน `ShuttleAccess.assignDriver` และ `ShuttleAccess.unassignShuttleByName`
+- **การปรับปรุงโมดูลผู้ดูแลระบบ (Admin Modules):**
+  - `add_driver_dialog.dart`: ค้นหารถว่างจาก RTDB โดยตรง และผูกคนขับลง RTDB ทันที
+  - `edit_driver_dialog.dart`: ปลดรถเดิมและผูกรถใหม่ผ่าน RTDB โดยตรง
+  - `admin_dashboard.dart`: ยกเลิก Stream Firestore Shuttles และรับฟังสถานะรถจาก RTDB ล้วนๆ
+- **การปรับปรุงโมดูลคนขับ (Driver Modules):**
+  - `driver_home.dart`: ตรวจสอบรถที่คนขับรับผิดชอบจาก RTDB โหนด `shuttles` ที่ `driver_uid == user.uid`
+  - `driver_status_screen.dart`: ดึงและอัปเดตสถานะรถ (`available`, `full`, `break`) ผ่าน RTDB
+  - `driver_edit_profile_screen.dart`: ปลด/ผูกรถและอัปเดตสิทธิ์คนขับใน RTDB
+- **การปรับปรุงโมดูลนักศึกษา (Student Modules):**
+  - `student_chat_list_screen.dart`: ตัดการเชื่อมต่อ Firestore Shuttles ใช้ข้อมูลสถานะและรายชื่อรถสดจาก RTDB
+  - `student_live_status_screen.dart`: ตัดการเชื่อมต่อ Firestore Shuttles แสดงพิกัดและสถานะรถทั้ง 5 คันจาก RTDB โดยตรง
+- **การแก้ไขข้อผิดพลาดในการคอมไพล์และการเพิ่มความยืดหยุ่นของ API:**
+  - ลบ `_shuttlesSub?.cancel()` ใน `lib/screens/admin/admin_dashboard.dart` เมธอด `dispose()` ที่ค้างอยู่หลังตัดการเชื่อมต่อ Firestore
+  - ลบ `_originalShuttleNumber = _selectedShuttleNumber` ใน `lib/screens/admin/edit_driver_dialog.dart` ที่ไม่ได้ถูกประกาศ
+  - ปรับปรุงฟังก์ชัน `ShuttleAccess.assignDriver` ให้รองรับพารามิเตอร์แบบยืดหยุ่นทั้ง `name`/`number` และ `shuttleName`/`shuttleNumber` พร้อมทำให้ `documentId` เป็น Optional เพื่อรองรับการเรียกใช้งานร่วมกันระหว่างทุกโมดูล
+- **การกำหนดสิทธิ์ความปลอดภัยในระดับ Realtime Database (Admin Security Access):**
+  - กำหนดสิทธิ์ให้เฉพาะแอดมินที่มี UID อยู่ในโหนด `/access/admins/<ADMIN_UID> = true` เท่านั้นจึงจะมีสิทธิ์เขียนและมอบหมายรถใน RTDB ตามกฎ `database.rules.json` และคู่มือ `docs/database-access.md`
+  - สร้างไฟล์โครงสร้างข้อมูลเริ่มต้น 5 คัน `rtdb_shuttles_5.json` รองรับการนำเข้า (Import JSON) ผ่าน Firebase Console
+- **ขอบเขตความปลอดภัยในการล้างข้อมูล Cloud Firestore:**
+  - ลบคอลเล็กชัน `shuttles` ใน Firestore ได้อย่างปลอดภัย
+  - คงคอลเล็กชันหลัก `users`, `stops`, `ride_requests`, `chats` และ `shuttles_ping` (ใช้เป็น Heartbeat เลี้ยงสัญญาณ Firestore ในแอปคนขับ)
+- **ผลการทดสอบ (Testing & Verification):**
+  - Unit Tests ผ่านครบ 21/21 ข้อ (รวมชุดทดสอบ `test/shuttle_access_test.dart` 5 ข้อ, `shuttle_3d_test.dart` 16 ข้อ, และ `stop_five_bypass_test.dart` 10 ข้อ)
+  - `flutter analyze` ในโมดูลที่แก้ไขผ่าน 100% ไม่มีข้อผิดพลาด
+
+### 2026-09-10 — ขยายระบบแสดงผลรถเป็น 5 คัน และระบบจัดเตรียมข้อมูลรถอัตโนมัติ (Multi-Shuttle 5 Cars & Auto-Seeding)
+
+- **ขยายรถจำลอง 3D เป็น 5 คัน ในหน้าทดสอบ (`lib/screens/test/shuttle_3d_poc_screen.dart`):**
+  - เปลี่ยนโครงสร้างข้อมูลจากตัวแปรรถ 2 คันเดิม มาเป็นโครงสร้างข้อมูล `_SimulatedShuttle` รองรับรถ 5 คัน (`shuttle_01` ถึง `shuttle_05`)
+  - กระจายตำแหน่งเริ่มต้นของรถทั้ง 5 คันตามจุดสำคัญบนเส้นทางถนนจริงของ มรภ.พิบูลสงคราม (ประตูหน้า มรภ., คณะวิทยาการจัดการ, อาคารกิจกรรมนักศึกษา)
+  - กำหนดสถานะหลากหลายและสมจริง: รถ 01 (ว่าง), รถ 02 (เต็ม), รถ 03 (ว่าง), รถ 04 (พัก - จอดนิ่งประจำจุด), รถ 05 (ว่าง)
+  - ปรับปรุงอัลกอริทึมจำลองการวิ่ง (`_toggleSimulation`): รถที่ให้บริการทั้ง 4 คันวิ่งตามแนวถนนพร้อมคำนวณ Bearing หักเลี้ยวตามทางโค้งอัตโนมัติ โดยรถคันที่ 04 จอดพักอยู่กับที่
+  - ป้ายข้อความ 2D (`ShuttleMapBadge`) แสดงหมายเลขรถ 01-05 พร้อมสีตามสถานะชัดเจน ลอยตัวเหนือแนวหลังคา 3D อย่างเสถียร
+- **ระบบจัดเตรียมข้อมูลรถอัตโนมัติในฐานข้อมูล Firestore (`lib/services/shuttle_access.dart`):**
+  - เพิ่มฟังก์ชัน `ShuttleAccess.ensureDefaultShuttles([int targetCount = 5])` เพื่อตรวจสอบความมีอยู่ของเอกสารรถใน Collection `shuttles`
+  - กำหนดชื่อรถตามมาตรฐานระบบ `shuttle#01` ถึง `shuttle#05` พร้อมหมายเลขรถ 2 หลัก (`01` ถึง `05`) และสถานะเริ่มต้น `offline`
+  - ทำความสะอาดเอกสารเดิมที่เคยสร้างซ้ำซ้อนเป็นภาษาไทย และแปลงข้อมูลให้เป็นชื่อมาตรฐานเดียวกันทั้งหมด
+  - ปรับปรุง `add_driver_dialog.dart` และ `edit_driver_dialog.dart` ให้จัดเรียงลำดับรถตามหมายเลข พร้อมซิงก์ชื่อรถและหมายเลขรถให้สอดคล้องกันอัตโนมัติ ทำให้แอดมินเลือกผูกรถกับพนักงานขับรถได้อย่างถูกต้องและเป็นระเบียบ
+- **ปรับปรุงการนำทางสำหรับการทดสอบ (`lib/main.dart`):**
+  - รองรับ `--dart-define=INITIAL_ROUTE=/shuttle3DPoc` และกำหนดเส้นทางราก `/` ให้เปิดหน้าทดสอบรถ 3D ได้โดยตรงบน Emulator
+- **ผลการทดสอบบน Android Emulator (Pixel_9 / API 37):**
+  - ติดตั้ง APK สำเร็จ แสดงผลรถ 3D ทั้ง 5 คันพร้อมกันใน Three.js Scene เดียวอย่างลื่นไหล
+  - การจำลองรถวิ่ง การเลี้ยวโค้ง และการสลับสถานะสีป้ายทำงานได้ถูกต้อง 100%
+  - รันชุดทดสอบ Unit Tests `test/shuttle_3d_test.dart` ผ่านครบถ้วน 16/16 ข้อ
+
+### 2026-09-10 — หมุดรถรับส่ง 3D จริงและระบบคำนวณทิศทาง (GLB Model & Heading Tracker)
+
+- สถานะทดลอง: ปิด 3D โดยค่าเริ่มต้น เปิดด้วยปุ่ม "รถ 3D" หรือ `--dart-define=SHUTTLE_3D=true`; ผ่านการตรวจรับทางสายตาและการควบคุมบน WebGL2 และ Android Emulator Pixel_9 (API 37) แล้ว แต่ยังต้องวัด FPS/memory บนเครื่องจริงก่อนเปิดใช้เป็นค่าเริ่มต้น
+- ตรวจสอบและแก้ไขข้อผิดพลาด Startup Race Condition ใน `Shuttle3DLayer`: ป้องกันการสร้าง Texture ด้วยขนาด 0x0 ในเฟรมแรกของ `FlutterMap` ช่วยแก้ปัญหา EGL context loss และ Null check error บน Android
+- จัดการ Build Configuration สำหรับ Android: ติดตั้ง CMake 3.31.4 และกำหนด ABI Filter ให้เป็น `arm64-v8a` ล้วน ป้องกัน Linker Crash บนเครื่องจำลอง x86_64
+- ตรวจเอกสาร [แผน](docs/3d-shuttle-plan.md) และ [คู่มือ setup](docs/3d-shuttle-setup.md) ให้บันทึกผลการทดสอบจริงครบถ้วน; tests รวม 16/16 ผ่าน, analyzer โมดูล 3D ผ่าน และ build ผ่านทั้ง Web และ Android
+- เพิ่ม entrypoint `lib/shuttle_3d_preview.dart` สำหรับรถจำลองโดยไม่ใช้ Firebase; ตรวจภาพทั้งบน Web release และ Android Emulator แสดง GLB 2 คัน หลังคาทึบมิดชิด หมุนรถตามแนวถนน เลี้ยวโค้ง ปรับสถานะ แตะป้ายจอด สลับหมุดสำรอง และโหมด Wireframe ได้สมบูรณ์
+
+- พัฒนาโมเดล 3D จริงของรถรับส่ง PSRU สีขาว-เขียวตามภาพอ้างอิง ด้วย Blender 5.2 Python (`tools/3d-shuttle/build_model.py`) ได้ไฟล์ `psru_shuttle.blend` และส่งออกเป็น `assets/models/psru_shuttle.glb` (ขนาด 414 KB, 7,988 triangles, 8 materials, ตัวถังเปิดข้าง กระจกหน้าโค้งพร้อมที่ปัดน้ำฝน เบาะดำ ล้อจริง)
+- พัฒนา `lib/widgets/shuttle_3d_layer.dart` แสดงผลโมเดล 3D ซ้อนเหนือ OpenStreetMap ผ่าน `three_js` โดยแชร์ Geometry และ Material ร่วมกันระหว่างรถทุกคันเพื่อประหยัดหน่วยความจำ
+- พัฒนา `lib/services/shuttle_heading.dart` และ `ShuttleHeadingTracker` คำนวณมุมแบริ่งจากพิกัด GPS จริง พร้อมระบบกรองสัญญาณรบกวน สะสมระยะ 4 เมตรก่อนเปลี่ยนทิศ ป้องกันรถหมุนสั่นเมื่อหยุดนิ่ง และหมุนผ่านมุมที่สั้นที่สุด (Shortest Arc) ข้ามทิศเหนือ 359°/1°
+- พัฒนา `lib/widgets/shuttle_map_badge.dart` แสดงป้ายกำกับ 2D (หมายเลขรถ และสถานะผู้โดยสาร: ว่าง, เต็ม, พัก, ออฟไลน์) ที่อ่านได้ตรงเสมอโดยไม่หมุนตามตัวรถ พร้อมมีหมุดสำรอง (Fallback Marker) อัตโนมัติหากโมเดล 3D กำลังโหลดหรือไม่พร้อมใช้งาน
+- เชื่อมต่อเข้ากับหน้าจอหลักนักศึกษา `lib/screens/student/student_home.dart` พร้อมปุ่มสลับ "รถ 3D", รองรับ `TickerMode` เพื่อหยุดเรนเดอร์เมื่อสลับแท็บ และ `WidgetsBindingObserver` เพื่อหยุดทำงานเมื่อแอปอยู่เบื้องหลัง
+- ชุดทดสอบอัตโนมัติ `test/shuttle_3d_test.dart` ผ่าน 100% ครอบคลุมการคำนวณทิศทาง การเลี้ยวผ่านมุม 0° การกรอง GPS noise และการแสดงป้ายสถานะ
+
 ### 2026-09-09 — แก้เส้นไฮไลท์เมื่อรถข้ามป้าย 5 (ยังไม่ deploy)
 
 - แก้กรณีนักศึกษาเดินทางจากป้าย 4 ไปป้าย 6 แล้วรถเลี้ยวข้ามป้าย 5 (ศูนย์กีฬาในร่ม): ระบบเดิมบังคับ waypoint ผ่านป้าย 5 แม้รถเลี้ยวไปป้าย 6 แล้ว ทำให้เส้นย้อนกลับและ ETA เกินจริง

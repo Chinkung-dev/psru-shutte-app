@@ -52,6 +52,7 @@ dependencies:
   url_launcher: ^6.3.2
   google_fonts: ^8.2.1
   google_sign_in: ^6.2.2
+  three_js: ^0.3.0
 
 dev_dependencies:
   flutter_test:
@@ -118,6 +119,7 @@ flutter:
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
   assets:
+    - assets/models/psru_shuttle.glb
     - assets/images/
     - lib/screens/driver/
     - assets/voice/
