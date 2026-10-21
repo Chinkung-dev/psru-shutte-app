@@ -1,0 +1,107 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ฟังก์ชันตรวจสอบผู้ใช้ที่ล็อกอิน
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // ฟังก์ชันตรวจสอบสิทธิ์แอดมิน (อ้างอิงจากเอกสาร users/{uid})
+    function isAdmin() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ฟังก์ชันตรวจสอบสิทธิ์คนขับรถ
+    function isDriver() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'driver';
+    }
+
+    // 1. คอลเล็กชัน users (โปรไฟล์ผู้ใช้และสิทธิ์การใช้งาน)
+    match /users/{userId} {
+      // ผู้ใช้ที่ล็อกอินอ่านข้อมูลได้เพื่อแสดงชื่อ โปรไฟล์ และรายชื่อคนขับ
+      allow read: if isAuthenticated();
+
+      // สร้างบัญชี: แอดมินสร้างได้ทุกบทบาท หรือผู้ใช้สมัครเองต้องเป็น student เท่านั้น
+      allow create: if isAuthenticated() && (
+        isAdmin() ||
+        (request.auth.uid == userId && request.resource.data.role == 'student')
+      );
+
+      // แก้ไขโปรไฟล์: แอดมินแก้ได้ทั้งหมด หรือเจ้าของบัญชีแก้ได้แต่ห้ามเปลี่ยน role ของตนเอง
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        (request.auth.uid == userId && request.resource.data.role == resource.data.role)
+      );
+
+      // ลบบัญชี: เฉพาะแอดมินเท่านั้น
+      allow delete: if isAdmin();
+    }
+
+    // 2. คอลเล็กชัน stops (จุดจอดรถรับส่ง)
+    match /stops/{stopId} {
+      // ผู้ใช้ทั่วไปและคนขับอ่านจุดจอดได้
+      allow read: if isAuthenticated();
+      // แอดมินเท่านั้นที่สามารถเพิ่ม แก้ไข หรือลบจุดจอดรถได้
+      allow write: if isAdmin();
+    }
+
+    // 3. คอลเล็กชัน ride_requests (การแจ้งรอรถรับส่งของนักศึกษา)
+    match /ride_requests/{requestId} {
+      // ผู้ใช้ที่ล็อกอินอ่านได้ (นักศึกษาดูสถานะตนเอง คนขับดูรายการรอรถ แอดมินดูภาพรวม)
+      allow read: if isAuthenticated();
+
+      // นักศึกษาสร้างคำขอเรียกรถของตนเองได้
+      allow create: if isAuthenticated() && request.resource.data.student_uid == request.auth.uid;
+
+      // ปรับปรุงสถานะ: เจ้าของคำขอ คนขับ (เมื่อกดรับทราบ) หรือแอดมิน
+      allow update: if isAuthenticated() && (
+        request.auth.uid == resource.data.student_uid ||
+        isDriver() ||
+        isAdmin()
+      );
+
+      // ลบคำขอ: เจ้าของคำขอ คนขับ หรือแอดมิน
+      allow delete: if isAuthenticated() && (
+        request.auth.uid == resource.data.student_uid ||
+        isDriver() ||
+        isAdmin()
+      );
+    }
+
+    // 4. คอลเล็กชัน chats (ห้องแชทและข้อความสื่อสาร)
+    match /chats/{chatId} {
+      allow read, write: if isAuthenticated();
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated();
+        // ส่งข้อความ: senderId ต้องตรงกับ uid ของตนเอง
+        allow create: if isAuthenticated() && request.resource.data.senderId == request.auth.uid;
+        // การแก้ไขหรือลบข้อความ: เฉพาะแอดมิน
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // 5. คอลเล็กชัน shuttles (ข้อมูลสำรองใน Firestore)
+    match /shuttles/{shuttleId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 6. คอลเล็กชัน analytics (สถิติเวลารอและรอบวิ่งรายวัน)
+    match /analytics/{docId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+
+    // ปิดกั้นเอกสารและคอลเล็กชันอื่นนอกเหนือจากที่กำหนด
+    match /{document=**} {
+      allow read, write: false;
+    }
+  }
+}
