@@ -51,10 +51,32 @@ node_modules/
 
 # Ephemeral build files
 /linux/flutter/ephemeral/
+/windows/flutter/ephemeral/
+/macos/Flutter/ephemeral/
+/macos/Flutter/GeneratedPluginRegistrant.swift
+/linux/flutter/generated_plugin_registrant.*
+/linux/flutter/generated_plugins.cmake
+/windows/flutter/generated_plugin_registrant.*
+/windows/flutter/generated_plugins.cmake
 
-# Temporary debug files
+# Android build and local files
+/android/build/
+/android/.gradle/
+/android/local.properties
+
+# Temporary debug and academic files
 /emulator_*.png
 /poc_preview.png
 /rtdb_shuttles_5.json
 /papers/
 /scratch/
+/mockup/
+/Micro-Carbon Tracker/
+/test_*.dart
+.vscode/
+
+# Obsolete / redundant assets
+/lib/screens/driver/logo.png
+/lib/screens/driver/screen.png
+/assets/qrcode_psru_shuttle_apk.png
+/assets/qrcode_psru_shuttle_green.png

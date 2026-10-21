@@ -1,1 +1,0 @@
-import 'package:latlong2/latlong.dart'; void main() { const distanceCalc = Distance(); final target16 = LatLng(16.8293284, 100.2073433); final target17 = LatLng(16.827725, 100.207166); print('16 to 17: '); }

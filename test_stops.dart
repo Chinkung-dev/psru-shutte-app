@@ -1,1 +1,0 @@
-import 'package:cloud_firestore/cloud_firestore.dart'; import 'package:firebase_core/firebase_core.dart'; void main() async { await Firebase.initializeApp(); final snap = await FirebaseFirestore.instance.collection('bus_stops').get(); for (var doc in snap.docs) { print(doc.data()); } }
