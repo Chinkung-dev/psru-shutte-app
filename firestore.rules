@@ -101,7 +101,7 @@ service cloud.firestore {
 
     // ปิดกั้นเอกสารและคอลเล็กชันอื่นนอกเหนือจากที่กำหนด
     match /{document=**} {
-      allow read, write: false;
+      allow read, write: if false;
     }
   }
 }

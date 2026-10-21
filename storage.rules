@@ -18,7 +18,7 @@ service firebase.storage {
 
     // ปิดกั้นไฟล์อื่นๆ นอกเหนือจากที่กำหนด
     match /{allPaths=**} {
-      allow read, write: false;
+      allow read, write: if false;
     }
   }
 }
