@@ -80,3 +80,13 @@ node_modules/
 /lib/screens/driver/screen.png
 /assets/qrcode_psru_shuttle_apk.png
 /assets/qrcode_psru_shuttle_green.png
+/assets/images/qrcode_psru_shuttle_apk.png
+/assets/images/qrcode_psru_shuttle_green.png
+/tools/3d-shuttle/preview_*.png
+*.blend1
+
+# AI Assistant Tooling
+/.agents/
+skills-lock.json
+
+

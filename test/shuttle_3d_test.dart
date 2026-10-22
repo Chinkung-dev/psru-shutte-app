@@ -86,6 +86,57 @@ void main() {
       expect(tracker.bearing, closeTo(0, .02));
     },
   );
+
+  test(
+    'รถจอดนิ่งที่จุดจอดแล้วมี GPS Jitter ถอยหลังกลับทิศ 180 องศา ต้องไม่หมุนกลับหลังไปมา',
+    () {
+      final tracker = ShuttleHeadingTracker();
+      tracker.update(origin, time);
+      // รถวิ่งไปทางทิศเหนือ (0 องศา) เป็นระยะ 10 เมตร
+      final northStop = distance.offset(origin, 10, 0);
+      tracker.update(northStop, time.add(const Duration(seconds: 2)));
+      expect(tracker.bearing, closeTo(0, .02));
+
+      // รถจอดนิ่งที่จุดจอด มี GPS Jitter ส่ายถอยหลังลงมาทางทิศใต้ (180 องศา) 4.5 เมตร
+      final jitterSouth = distance.offset(northStop, 4.5, 180);
+      tracker.update(jitterSouth, time.add(const Duration(seconds: 6)));
+      // ต้องไม่กลับหลังหันไปทางทิศใต้ (180 องศา) ยังคงรักษาทิศเหนือ (0 องศา) เดิมไว้
+      expect(tracker.bearing, closeTo(0, .02));
+
+      // GPS Jitter ส่ายกลับขึ้นมาที่จุดเดิม
+      tracker.update(northStop, time.add(const Duration(seconds: 9)));
+      expect(tracker.bearing, closeTo(0, .02));
+
+      // GPS Jitter ส่ายซ้ำๆ ขณะจอดนิ่งเป็นเวลา 1 นาที
+      for (int sec = 12; sec <= 60; sec += 3) {
+        final wobblePos = distance.offset(northStop, 5.0, (sec % 6 == 0) ? 180 : 0);
+        tracker.update(wobblePos, time.add(Duration(seconds: sec)));
+        expect(tracker.bearing, closeTo(0, .02));
+      }
+
+      // เมื่อรถเริ่มออกตัววิ่งกลับรถจริงไปทางทิศใต้ต่อเนื่อง 16 เมตรด้วยความเร็วปกติ
+      final driveSouth = distance.offset(northStop, 16, 180);
+      tracker.update(driveSouth, time.add(const Duration(seconds: 64)));
+      // หมุนตามทิศทางใหม่ 180 องศาได้อย่างถูกต้องเมื่อมีการวิ่งจริง
+      expect(tracker.bearing, closeTo(180, .02));
+    },
+  );
+
+  test(
+    'เมื่อรถเคลื่อนที่ช้ามากต่ำกว่า 0.8 ม./วินาที จะรักษาทิศทางเดิมไว้เสมอ',
+    () {
+      final tracker = ShuttleHeadingTracker();
+      tracker.update(origin, time);
+      final eastPos = distance.offset(origin, 10, 90);
+      tracker.update(eastPos, time.add(const Duration(seconds: 2)));
+      expect(tracker.bearing, closeTo(90, .02));
+
+      // จำลอง GPS drift เดินช้ามาก 2 เมตรในเวลา 10 วินาที (0.2 ม./วินาที)
+      final slowDrift = distance.offset(eastPos, 2, 270);
+      tracker.update(slowDrift, time.add(const Duration(seconds: 12)));
+      expect(tracker.bearing, closeTo(90, .02));
+    },
+  );
   testWidgets(
     'number/status stay visible with fallback and unknown status is explicit',
     (tester) async {

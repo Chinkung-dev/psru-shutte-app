@@ -116,14 +116,15 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
   StreamSubscription? shuttleSubscription;
   StreamSubscription? rideRequestsSubscription;
 
-  int totalPassengersToday = 0;
-  double onTimePercentage = 100.0;
-
   final Map<String, LatLng> _currentShuttleLocations = {};
   final Map<String, LatLng> _oldShuttleLocations = {};
   final Map<String, LatLng> _targetShuttleLocations = {};
 
   String? _selectedShuttleId;
+  String? _selectedStudentRequestId;
+
+  List<Map<String, dynamic>> _activeRideRequests = [];
+  final Map<String, Map<String, dynamic>> _studentProfilesCache = {};
 
   late AnimationController _markerAnimationController;
   late Animation<double> _markerAnimation;
@@ -165,45 +166,6 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
               }
             });
           }
-        });
-  }
-
-  void _listenToRideRequests() {
-    DateTime now = DateTime.now();
-    DateTime startOfDay = DateTime(now.year, now.month, now.day);
-    rideRequestsSubscription = FirebaseFirestore.instance
-        .collection('ride_requests')
-        .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
-        .snapshots()
-        .listen((snapshot) {
-          if (!mounted) return;
-          int total = snapshot.docs.length;
-          int onTimeCount = 0;
-
-          for (var doc in snapshot.docs) {
-            final data = doc.data();
-            final Timestamp? startTs = data['timestamp'] as Timestamp?;
-            final Timestamp? ackTs = data['acknowledged_at'] as Timestamp?;
-
-            if (startTs != null && ackTs != null) {
-              final start = startTs.toDate();
-              final ack = ackTs.toDate();
-              if (ack.difference(start).inMinutes <= 5) {
-                onTimeCount++;
-              }
-            } else if (data['status'] == 'acknowledged' ||
-                data['status'] == 'on_board' ||
-                data['status'] == 'completed') {
-              onTimeCount++;
-            }
-          }
-
-          double rate = total > 0 ? (onTimeCount / total) * 100.0 : 100.0;
-
-          setState(() {
-            totalPassengersToday = total;
-            onTimePercentage = rate;
-          });
         });
   }
 
@@ -324,6 +286,115 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
             }
           }
         });
+  }
+
+  void _listenToRideRequests() {
+    rideRequestsSubscription = FirebaseFirestore.instance
+        .collection('ride_requests')
+        .where('status', whereIn: ['waiting', 'acknowledged'])
+        .snapshots()
+        .listen((snapshot) {
+          if (!mounted) return;
+          final now = DateTime.now();
+          final List<Map<String, dynamic>> requests = [];
+
+          for (var doc in snapshot.docs) {
+            final data = doc.data();
+
+            // กรองคำขอที่เก่าเกิน 2 ชั่วโมงออก เพื่อไม่ให้แสดงข้อมูลค้างในระบบ
+            if (data.containsKey('timestamp') && data['timestamp'] != null) {
+              DateTime? reqTime;
+              if (data['timestamp'] is Timestamp) {
+                reqTime = (data['timestamp'] as Timestamp).toDate();
+              } else if (data['timestamp'] is String) {
+                reqTime = DateTime.tryParse(data['timestamp']);
+              }
+              if (reqTime != null && now.difference(reqTime).inHours >= 2) {
+                continue;
+              }
+            }
+
+            // ดึงพิกัดนักศึกษา (ถ้ามี student_lat และ student_lng)
+            double? sLat;
+            double? sLng;
+            if (data['student_lat'] is num) {
+              sLat = (data['student_lat'] as num).toDouble();
+            } else if (data['student_lat'] is String) {
+              sLat = double.tryParse(data['student_lat']);
+            }
+
+            if (data['student_lng'] is num) {
+              sLng = (data['student_lng'] as num).toDouble();
+            } else if (data['student_lng'] is String) {
+              sLng = double.tryParse(data['student_lng']);
+            }
+
+            // หากไม่มีพิกัด GPS ให้ใช้พิกัดของป้ายที่เลือกรถ
+            if (sLat == null || sLng == null) {
+              final String stopName =
+                  data['stop_name']?.toString().trim() ?? '';
+              if (stopName.isNotEmpty) {
+                for (var s in busStops) {
+                  if ((s['name'] ?? '').toString().trim() == stopName) {
+                    if (s['lat'] is num && s['lng'] is num) {
+                      sLat = (s['lat'] as num).toDouble();
+                      sLng = (s['lng'] as num).toDouble();
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+
+            if (sLat != null && sLng != null) {
+              final reqMap = {
+                'id': doc.id,
+                'student_uid': data['student_uid']?.toString(),
+                'stop_name': data['stop_name']?.toString() ?? 'จุดรับผู้โดยสาร',
+                'dropoff_stop': data['dropoff_stop']?.toString(),
+                'status': data['status']?.toString() ?? 'waiting',
+                'timestamp': data['timestamp'],
+                'target_shuttle_id': data['target_shuttle_id']?.toString(),
+                'lat': sLat,
+                'lng': sLng,
+              };
+              requests.add(reqMap);
+
+              final uid = reqMap['student_uid'] as String?;
+              if (uid != null &&
+                  uid.isNotEmpty &&
+                  !_studentProfilesCache.containsKey(uid)) {
+                _fetchStudentProfile(uid);
+              }
+            }
+          }
+
+          setState(() {
+            _activeRideRequests = requests;
+            if (_selectedStudentRequestId != null &&
+                !requests.any((r) => r['id'] == _selectedStudentRequestId)) {
+              _selectedStudentRequestId = null;
+            }
+          });
+        }, onError: (e) {
+          debugPrint("Firestore Error (ride_requests): $e");
+        });
+  }
+
+  Future<void> _fetchStudentProfile(String uid) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      if (doc.exists && mounted) {
+        setState(() {
+          _studentProfilesCache[uid] = doc.data() ?? {};
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching student profile: $e");
+    }
   }
 
   Widget _buildStopMarker({required String name, bool isGroup = false}) {
@@ -468,6 +539,82 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
     );
   }
 
+  Widget _buildStudentMarker(Map<String, dynamic> req, bool isSelected) {
+    final String status = req['status'] ?? 'waiting';
+    final bool isWaiting = status == 'waiting';
+    final Color primaryColor =
+        isWaiting ? const Color(0xFF1E88E5) : const Color(0xFF00897B);
+    final String statusText = isWaiting ? 'นักศึกษารอรถ' : 'คนขับรับทราบ';
+
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        if (isSelected)
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: primaryColor, width: 2.5),
+            ),
+          ),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: primaryColor.withOpacity(0.35),
+                blurRadius: 10,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.all(3),
+          child: Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: primaryColor,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.person_rounded,
+              color: Colors.white,
+              size: 18,
+            ),
+          ),
+        ),
+        Positioned(
+          bottom: -4,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+            decoration: BoxDecoration(
+              color: primaryColor,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.white, width: 1.0),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.12),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+            ),
+            child: Text(
+              statusText,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 9.5,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildMap() {
     return FlutterMap(
       mapController: _mapController,
@@ -531,9 +678,31 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
                   onTap: () {
                     setState(() {
                       _selectedShuttleId = id;
+                      _selectedStudentRequestId = null;
                     });
                   },
                   child: RepaintBoundary(child: _buildShuttleMarker(shuttle)),
+                ),
+              );
+            }),
+            ..._activeRideRequests.map((req) {
+              final LatLng loc = LatLng(req['lat'], req['lng']);
+              final isSelected = _selectedStudentRequestId == req['id'];
+              return Marker(
+                key: ValueKey('req_${req['id']}'),
+                point: loc,
+                width: 90,
+                height: 70,
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedStudentRequestId = req['id'];
+                      _selectedShuttleId = null;
+                    });
+                  },
+                  child: RepaintBoundary(
+                    child: _buildStudentMarker(req, isSelected),
+                  ),
                 ),
               );
             }),
@@ -707,6 +876,12 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
                             '${busStops.length} จุด',
                             true,
                           ),
+                          const SizedBox(height: 8),
+                          _buildRouteItem(
+                            'นักศึกษาเรียกรถ',
+                            '${_activeRideRequests.length} คน',
+                            _activeRideRequests.isNotEmpty,
+                          ),
                         ],
                       ),
                     ),
@@ -717,7 +892,7 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
                     Positioned(
                       top: 20,
                       right: 20,
-                      bottom: 110,
+                      bottom: 24,
                       child: Builder(
                         builder: (context) {
                           final selectedShuttle = activeShuttles.firstWhere(
@@ -921,66 +1096,35 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
                       ),
                     ),
 
-                  // แถบสรุปสถิติด้านล่าง (Bottom Dashboard Floating Bar)
-                  Positioned(
-                    bottom: 24,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: Container(
-                        height: 68,
-                        width: (constraints.maxWidth - 48).clamp(280.0, 420.0),
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(34),
-                          border: Border.all(
-                            color: const Color(0xFF176a21).withOpacity(0.12),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF176a21).withOpacity(0.10),
-                              blurRadius: 20,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            Expanded(
-                              child: _buildBottomStat(
-                                Icons.groups_rounded,
-                                NumberFormat(
-                                  '#,##0',
-                                ).format(totalPassengersToday),
-                                'ผู้โดยสารสะสม',
-                              ),
-                            ),
-                            Container(
-                              width: 1,
-                              height: 32,
-                              color: const Color(0xFFEFF2F0),
-                              margin: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
-                            ),
-                            Expanded(
-                              child: _buildBottomStat(
-                                Icons.timer_outlined,
-                                '${onTimePercentage.toStringAsFixed(1)}%',
-                                'อัตราตรงเวลา',
-                              ),
-                            ),
-                          ],
-                        ),
+                  // แผงรายละเอียดเมื่อคลิกเลือกนักศึกษาที่เรียกรถ (ขวาบน)
+                  if (_selectedStudentRequestId != null)
+                    Positioned(
+                      top: 20,
+                      right: 20,
+                      bottom: 24,
+                      child: Builder(
+                        builder: (context) {
+                          final selectedRequest = _activeRideRequests.firstWhere(
+                            (r) => r['id'] == _selectedStudentRequestId,
+                            orElse: () => {},
+                          );
+
+                          if (selectedRequest.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+
+                          return _buildStudentDetailPanel(
+                            selectedRequest,
+                            isCompact,
+                            constraints,
+                          );
+                        },
                       ),
                     ),
-                  ),
 
                   // ปุ่มควบคุมแผนที่ (Zoom In, Out, Center)
                   Positioned(
-                    bottom: 110,
+                    bottom: 24,
                     left: 20,
                     child: Column(
                       children: [
@@ -1152,55 +1296,6 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
     );
   }
 
-  Widget _buildBottomStat(IconData icon, String value, String label) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: const BoxDecoration(
-            color: Color(0xFFE8F5E9),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: const Color(0xFF176a21), size: 18),
-        ),
-        const SizedBox(width: 10),
-        Flexible(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  value,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 15,
-                    color: Color(0xFF1E2923),
-                  ),
-                ),
-              ),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  label,
-                  style: const TextStyle(
-                    color: Color(0xFF718076),
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildMapControlButton(IconData icon, VoidCallback onTap) {
     return Container(
       width: 42,
@@ -1223,6 +1318,399 @@ class _AdminLiveMapTabState extends State<AdminLiveMapTab>
           borderRadius: BorderRadius.circular(21),
           onTap: onTap,
           child: Icon(icon, color: const Color(0xFF176a21), size: 20),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStudentDetailPanel(
+    Map<String, dynamic> req,
+    bool isCompact,
+    BoxConstraints constraints,
+  ) {
+    final String? uid = req['student_uid'];
+    final profile = uid != null ? (_studentProfilesCache[uid] ?? {}) : {};
+    final String studentName =
+        (profile['name'] != null &&
+                profile['name'].toString().trim().isNotEmpty)
+            ? profile['name'].toString().trim()
+            : 'นักศึกษา / ผู้โดยสาร';
+    final String studentId = profile['student_id']?.toString() ?? '-';
+    final String phone = profile['phone']?.toString() ?? '-';
+    final String stopName = req['stop_name'] ?? 'จุดรับผู้โดยสาร';
+    final String? dropoff = req['dropoff_stop'];
+    final String status = req['status'] ?? 'waiting';
+    final bool isWaiting = status == 'waiting';
+
+    String timeStr = '-';
+    if (req['timestamp'] is Timestamp) {
+      final dt = (req['timestamp'] as Timestamp).toDate();
+      timeStr = DateFormat('HH:mm น.').format(dt);
+    }
+
+    return Container(
+      width: isCompact ? constraints.maxWidth - 40 : 320,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: Colors.black.withOpacity(0.04)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E88E5).withOpacity(0.12),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                height: 4,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Color(0xFF1565C0),
+                      Color(0xFF1E88E5),
+                      Color(0xFF64B5F6),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF1E88E5),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'คำขอเรียกรถ (นักศึกษา)',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E88E5),
+                        fontSize: 13,
+                      ),
+                    ),
+                    const Spacer(),
+                    InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedStudentRequestId = null;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0F4F8),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Icon(
+                          Icons.close_rounded,
+                          size: 16,
+                          color: Color(0xFF5A605B),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // ข้อมูลส่วนตัวนักศึกษา
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: const Color(0xFF1E88E5).withOpacity(0.2),
+                          width: 2,
+                        ),
+                      ),
+                      child: const CircleAvatar(
+                        radius: 20,
+                        backgroundColor: Color(0xFFE3F2FD),
+                        child: Icon(
+                          Icons.person_rounded,
+                          color: Color(0xFF1E88E5),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            studentName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: Color(0xFF1E2923),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            studentId != '-'
+                                ? 'รหัสนักศึกษา: $studentId'
+                                : 'ผู้โดยสาร',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF718076),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // สถานะและเวลาที่เรียก
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isWaiting
+                              ? const Color(0xFFE3F2FD)
+                              : const Color(0xFFE8F5E9),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'สถานะคำขอ',
+                              style: TextStyle(
+                                color: Color(0xFF718076),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              isWaiting ? 'กำลังรอรถ' : 'คนขับรับทราบแล้ว',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w900,
+                                color: isWaiting
+                                    ? const Color(0xFF1565C0)
+                                    : const Color(0xFF176a21),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF2F6F3),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'เวลาที่กดเรียก',
+                              style: TextStyle(
+                                color: Color(0xFF718076),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              timeStr,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFF1E2923),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 14),
+
+              // ข้อมูลจุดขึ้นรถและจุดลงรถ
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAF9),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.black.withOpacity(0.04)),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.location_on_rounded,
+                            size: 18,
+                            color: Color(0xFF176a21),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'จุดขึ้นรถ',
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: Color(0xFF718076),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  stopName,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1E2923),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (dropoff != null && dropoff.isNotEmpty) ...[
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8.0),
+                          child: Divider(height: 1, color: Color(0xFFE0E5E2)),
+                        ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.flag_rounded,
+                              size: 18,
+                              color: Color(0xFFE65100),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'จุดลงรถปลายทาง',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      color: Color(0xFF718076),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  Text(
+                                    dropoff,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF1E2923),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (phone != '-') ...[
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8.0),
+                          child: Divider(height: 1, color: Color(0xFFE0E5E2)),
+                        ),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.phone_rounded,
+                              size: 18,
+                              color: Color(0xFF1E88E5),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              phone,
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF1E2923),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // ปุ่มโฟกัสพิกัดนักศึกษาบนแผนที่
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      _animatedMapMove(LatLng(req['lat'], req['lng']), 17.5);
+                    },
+                    icon: const Icon(Icons.my_location_rounded, size: 16),
+                    label: const Text(
+                      'นำมุมมองแผนที่ไปยังจุดนี้',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1E88E5),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

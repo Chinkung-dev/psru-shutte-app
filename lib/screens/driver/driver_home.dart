@@ -50,7 +50,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   Timer?
   _heartbeatTimer; // Heartbeat สำหรับอัปเดตเวลาให้สดใหม่อยู่เสมอตอนจอดรอรับส่ง
   String _currentPassengerStatus = 'available';
-  final AudioPlayer _alertPlayer = AudioPlayer(); // ตัวเล่นเสียงแจ้งเตือน
+  final AudioPlayer _alertPlayer = AudioPlayer()..setReleaseMode(ReleaseMode.stop); // ตัวเล่นเสียงแจ้งเตือน
 
   StreamSubscription<QuerySnapshot>? _chatNotificationSub;
   StreamSubscription? _chatSubscription;
@@ -121,6 +121,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
   String? waitingStudentStop;
   List<String> activeRequestIds = []; // เก็บไอดีคำขอทั้งหมดในป้ายที่กำลังรอ
+  final Set<String> _alertedRequestIds = {}; // เก็บไอดีคำขอที่เคยส่งเสียงแจ้งเตือนไปแล้ว
   int activeStudentCount = 0; // จำนวนนักศึกษาที่รออยู่ป้ายนั้น
   String?
   currentRequestStatus; // เก็บสถานะการเรียก ('waiting' หรือ 'acknowledged')
@@ -155,6 +156,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _alertPlayer.setReleaseMode(ReleaseMode.stop); // ตั้งค่าไม่ให้ปล่อยทรัพยากรหลังเล่นจบ เพื่อให้เล่นซ้ำได้ต่อเนื่อง
     _initTts(); // เตรียมระบบอ่านข้อความ AI ภาษาไทย
 
     // Setup animation controller for smooth marker movement (900ms ให้หมุดเคลื่อนที่ต่อเนื่องเมื่อรถวิ่ง 20-30 กม./ชม.)
@@ -944,12 +946,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           .setLanguage(_ttsLang)
           .timeout(const Duration(seconds: 2), onTimeout: () {});
 
-      if (!kIsWeb) {
-        await flutterTts.setSpeechRate(0.5); // ความเร็วปกติ
-        // คงเสียงเดิมไว้ (เสียงผู้หญิง) และปรับระดับเสียงให้ดังสุด (1.0 คือสูงสุดของระบบ TTS)
-        await flutterTts.setVolume(1.0);
-        await flutterTts.setPitch(1.0);
-      }
+      // ตั้งค่าระดับเสียงและความเร็วให้พร้อมใช้งานทุกแพลตฟอร์ม
+      await flutterTts.setVolume(1.0);
+      await flutterTts.setSpeechRate(kIsWeb ? 1.0 : 0.5);
+      await flutterTts.setPitch(1.0);
     } catch (e) {
       debugPrint("Error initializing TTS: $e");
     }
@@ -960,6 +960,19 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
   String? _lastVoiceAlertStopName;
   Timer? _ttsDebounceTimer;
 
+  // ฟังก์ชันเล่นเสียงแจ้งเตือนพร้อมหยุด เพื่อให้เล่นซ้ำได้ต่อเนื่อง
+  Future<void> _playAlertSound(String assetPath) async {
+    try {
+      try {
+        await _alertPlayer.stop();
+      } catch (_) {}
+      await _alertPlayer.setVolume(1.0);
+      await _alertPlayer.play(AssetSource(assetPath));
+    } catch (e) {
+      debugPrint("Error playing alert sound: $e");
+    }
+  }
+
   // ฟังก์ชันเล่นเสียงแจ้งเตือนและอ่านชื่อป้าย
   Future<void> _triggerVoiceAlert(String stopName, int count) async {
     // 1. ถ้ายอดมาจากป้ายเดิม และมีการกดเรียกซ้ำ ให้ยกเลิกคิวพูด TTS เดิมก่อน
@@ -968,10 +981,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     final now = DateTime.now();
     bool playSound = true;
 
-    // ป้องกันเสียงเคาะแก้ว (ติ๊ง) รัวเกินไป
+    // ป้องกันเสียงแจ้งเตือนดังซ้อนกันถี่เกินไปภายใน 1.5 วินาที สำหรับป้ายเดิม
     if (_lastVoiceAlertTime != null && _lastVoiceAlertStopName == stopName) {
-      if (now.difference(_lastVoiceAlertTime!).inSeconds < 5) {
-        playSound = false; // ถ้าเพิ่งดังไปไม่เกิน 5 วิ ไม่ต้องดังซ้ำ
+      if (now.difference(_lastVoiceAlertTime!).inMilliseconds < 1500) {
+        playSound = false;
       }
     }
 
@@ -982,25 +995,31 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         if (!kIsWeb) {
           HapticFeedback.heavyImpact(); // ระบบสั่นเมื่อมีการเรียกรถ
         }
-        await _alertPlayer.setVolume(1.0);
-        await _alertPlayer.play(
-          AssetSource('voice/glass_1.mp3'),
-        ); // เสียงแจ้งเตือนเมื่อนักศึกษากดเรียกรถ (glass_1.mp3)
+        await _playAlertSound('voice/glass_1.mp3');
       } catch (e) {
-        print("Error playing alert sound: $e");
+        debugPrint("Error playing alert sound: $e");
       }
     }
 
-    // 2. หน่วงเวลาไว้ 2 วินาที เผื่อมีคนกดเพิ่มในจุดเดียวกัน
-    _ttsDebounceTimer = Timer(const Duration(seconds: 2), () async {
+    // 2. หน่วงเวลา 1.2 วินาทีเพื่อให้เสียงกระดิ่งจบก่อนเริ่มขานเสียง AI
+    _ttsDebounceTimer = Timer(const Duration(milliseconds: 1200), () async {
       if (!mounted || !isOnline) return;
 
       try {
-        await flutterTts.stop();
+        // บน Web หากสั่ง stop ทันที Chrome Web Speech API จะตัดเสียง utterance ทิ้ง
+        if (!kIsWeb) {
+          await flutterTts.stop();
+        } else {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+
         // 3. ปรับแก้คำอ่านบางคำที่ AI อ่านผิด (เช่น IT ให้อ่านว่า ไอที)
         String phoneticStopName = stopName
             .replaceAll('IT', 'ไอที')
-            .replaceAll('ทีปวิชญ์', 'ทีปะวิช');
+            .replaceAll('ทีปวิชญ์', 'ทีปะวิช')
+            .replaceAll('(ขาเข้า)', '')
+            .replaceAll('(ขาออก)', '')
+            .trim();
 
         String textToSpeak;
         if (count > 1) {
@@ -1008,11 +1027,13 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         } else {
           textToSpeak = "มีนักศึกษารออยู่ที่ $phoneticStopName";
         }
-        // ย้ำการตั้งค่าภาษาไทยอีกครั้งบน Web ก่อนพูด โดยใช้ค่าที่เซฟไว้ตอน init
+
         await flutterTts.setLanguage(_ttsLang);
+        await flutterTts.setVolume(1.0);
+        await flutterTts.setSpeechRate(kIsWeb ? 1.0 : 0.5);
         await flutterTts.speak(textToSpeak);
       } catch (e) {
-        print(" Error triggering TTS: $e");
+        debugPrint("Error triggering TTS: $e");
       }
     });
   }
@@ -1025,16 +1046,18 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       if (!kIsWeb) {
         HapticFeedback.heavyImpact(); // ระบบสั่นเมื่อถึงจุดหมาย
       }
-      await _alertPlayer.setVolume(1.0);
-      await _alertPlayer.play(
-        AssetSource('voice/glass_1.mp3'),
-      ); // เสียงแจ้งเตือนจุดลงรถ (glass_2.mp3)
+      await _playAlertSound('voice/glass_1.mp3');
 
       await Future.delayed(
         const Duration(milliseconds: 1200),
       ); // รอให้เสียงกระดิ่งจบ
 
-      await flutterTts.stop();
+      if (!kIsWeb) {
+        await flutterTts.stop();
+      } else {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+
       String phoneticStopName = stopName
           .replaceAll('IT', 'ไอที')
           .replaceAll('ทีปวิชญ์', 'ทีปะวิช')
@@ -1042,11 +1065,13 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           .replaceAll('(ขาออก)', '')
           .trim();
 
-      // ย้ำการตั้งค่าภาษาไทยอีกครั้งบน Web ก่อนพูด
+      // ย้ำการตั้งค่าภาษาไทยอีกครั้งก่อนพูด
       await flutterTts.setLanguage(_ttsLang);
+      await flutterTts.setVolume(1.0);
+      await flutterTts.setSpeechRate(kIsWeb ? 1.0 : 0.5);
       await flutterTts.speak("มีนักศึกษาลงที่ $phoneticStopName");
     } catch (e) {
-      print(" Error triggering drop-off TTS: $e");
+      debugPrint("Error triggering drop-off TTS: $e");
     }
   }
 
@@ -1108,6 +1133,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
         await _alertPlayer.setVolume(0.0);
         await _alertPlayer.play(AssetSource('voice/glass_1.mp3'));
         await Future.delayed(const Duration(milliseconds: 200));
+        await _alertPlayer.stop();
+        await _alertPlayer.seek(Duration.zero);
         await _alertPlayer.setVolume(1.0);
       }
     } catch (e) {
@@ -1347,6 +1374,34 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 .reduce((a, b) => a > b ? a : b);
             if (maxOrder == 0) maxOrder = 23;
 
+            // ตรวจจับการเลี้ยวเข้าเส้นทางบายพาสข้ามป้ายสาขาอัตโนมัติ (ป้าย 5 หรือ 16)
+            // ทำงานอัตโนมัติ 100% จากแนว GPS โดยคนขับไม่ต้องกดปุ่มใดๆ ทั้งสิ้น (Hands-free Automatic Bypass)
+            if (_currentTargetStopOrder == 5 && _lastPassedStopOrder == 4) {
+              final stop5 = busStops.firstWhere((s) => ((s['order'] ?? 0) as num).toInt() == 5, orElse: () => {});
+              final stop6 = busStops.firstWhere((s) => ((s['order'] ?? 0) as num).toInt() == 6, orElse: () => {});
+              if (stop5.isNotEmpty && stop6.isNotEmpty && stop5['lat'] != null && stop6['lat'] != null) {
+                final d5 = const Distance().distance(newLoc, LatLng(stop5['lat'], stop5['lng']));
+                final d6 = const Distance().distance(newLoc, LatLng(stop6['lat'], stop6['lng']));
+                if (d5 > 120.0 && d6 < 140.0) {
+                  print(" ตรวจพบรถเข้าเส้นทางตรงข้ามป้าย 5 มุ่งหน้าป้าย 6 อัตโนมัติ");
+                  _lastPassedStopOrder = 5;
+                  _currentTargetStopOrder = 6;
+                }
+              }
+            } else if (_currentTargetStopOrder == 16 && _lastPassedStopOrder == 15) {
+              final stop16 = busStops.firstWhere((s) => ((s['order'] ?? 0) as num).toInt() == 16, orElse: () => {});
+              final stop17 = busStops.firstWhere((s) => ((s['order'] ?? 0) as num).toInt() == 17, orElse: () => {});
+              if (stop16.isNotEmpty && stop17.isNotEmpty && stop16['lat'] != null && stop17['lat'] != null) {
+                final d16 = const Distance().distance(newLoc, LatLng(stop16['lat'], stop16['lng']));
+                final d17 = const Distance().distance(newLoc, LatLng(stop17['lat'], stop17['lng']));
+                if (d16 > 120.0 && d17 < 140.0) {
+                  print(" ตรวจพบรถเข้าเส้นทางตรงข้ามป้าย 16 มุ่งหน้าป้าย 17 อัตโนมัติ");
+                  _lastPassedStopOrder = 16;
+                  _currentTargetStopOrder = 17;
+                }
+              }
+            }
+
             // Strict Window Routing: คาดการณ์ป้ายล่วงหน้า 2 ป้ายเป็นหลัก
             List<int> upcomingStops = [];
             for (int i = 0; i < 2; i++) {
@@ -1362,7 +1417,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             }
 
             int detectedStopOrder = -1;
-            double minDistance = 30.0;
+            double minDistance = 45.0; // ขยายรัศมีตรวจจับเป็น 45 เมตรเพื่อป้องกัน GPS หลุดช่วงความเร็ว 20-30 กม./ชม.
             Map<String, dynamic>? detectedStopData;
 
             // ตรวจจับว่าเข้าใกล้ป้ายใดใน Window หรือไม่
@@ -1386,7 +1441,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
 
             // ระบบกู้คืน (Smart Recovery Mode): ค้นหาจากทุกป้าย แต่จำกัดการกระโดดข้ามอย่างเข้มงวด
             if (detectedStopOrder == -1) {
-              minDistance = 30.0;
+              minDistance = 45.0; // ขยายรัศมีกู้คืนเป็น 45 เมตร
               for (var stop in busStops) {
                 int order = ((stop['order'] ?? 0) as num).toInt();
 
@@ -1441,6 +1496,18 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                 " Passed Stop: ${detectedStopData['name']} (Order: $detectedStopOrder)",
               );
 
+              // ตรวจสอบการข้ามป้ายแบบอัตโนมัติ (เช่น ข้ามป้าย 5 หรือ 16) เพื่อบันทึกสถิติว่าข้ามตามเงื่อนไข
+              if (_lastPassedStopOrder != null) {
+                int jump = (detectedStopOrder - _lastPassedStopOrder!) % maxOrder;
+                if (jump < 0) jump += maxOrder;
+                if (jump > 1 && jump <= 3) {
+                  for (int skipped = 1; skipped < jump; skipped++) {
+                    int skippedOrder = ((_lastPassedStopOrder! - 1 + skipped) % maxOrder) + 1;
+                    print(" ตรวจพบการข้ามป้ายอัตโนมัติ: ป้ายที่ $skippedOrder");
+                  }
+                }
+              }
+
               // ตรวจสอบว่าขับครบรอบหรือไม่ (ถ้าป้ายล่าสุดที่ผ่านอยู่ท้ายซอย แล้วป้ายใหม่โผล่มาต้นซอย)
               if (_lastPassedStopOrder != null) {
                 int thresholdHigh = maxOrder > 10 ? maxOrder - 5 : maxOrder - 2;
@@ -1457,28 +1524,32 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               _currentTargetStopOrder = (detectedStopOrder % maxOrder) + 1;
             }
 
-            // Drop-off TTS Alert (แจ้งเตือนล่วงหน้า 150 เมตร) - โฟกัสป้ายเป้าหมายปัจจุบันเสมอ
-            final currentTargetStop = busStops.firstWhere(
-              (s) => s['order'] == _currentTargetStopOrder,
-              orElse: () => busStops.first,
-            );
-            if (currentTargetStop['lat'] != null &&
-                currentTargetStop['lng'] != null) {
-              final targetLoc = LatLng(
-                currentTargetStop['lat'],
-                currentTargetStop['lng'],
-              );
-              final distanceToCurrentTarget = const Distance().distance(
-                newLoc,
-                targetLoc,
-              );
-              if (distanceToCurrentTarget <= 150.0 &&
-                  _activeDropOffStops.contains(currentTargetStop['name'])) {
-                if (!_announcedDropOffStops.contains(
-                  currentTargetStop['name'],
-                )) {
-                  _announcedDropOffStops.add(currentTargetStop['name']);
-                  _triggerDropOffVoiceAlert(currentTargetStop['name']);
+            // Drop-off TTS Alert: ตรวจสอบทุกป้ายที่มีผู้โดยสารจะลง (_activeDropOffStops) ในระยะ 150 เมตร
+            if (_activeDropOffStops.isNotEmpty) {
+              for (var stop in busStops) {
+                final stopName = (stop['name'] ?? '').toString().trim();
+                if (stopName.isNotEmpty &&
+                    _activeDropOffStops.contains(stopName) &&
+                    !_announcedDropOffStops.contains(stopName)) {
+                  if (stop['lat'] != null && stop['lng'] != null) {
+                    final double stopLat = stop['lat'] is num
+                        ? (stop['lat'] as num).toDouble()
+                        : (double.tryParse(stop['lat'].toString()) ?? 0.0);
+                    final double stopLng = stop['lng'] is num
+                        ? (stop['lng'] as num).toDouble()
+                        : (double.tryParse(stop['lng'].toString()) ?? 0.0);
+
+                    if (stopLat != 0.0 && stopLng != 0.0) {
+                      final stopLoc = LatLng(stopLat, stopLng);
+                      final distance =
+                          const Distance().distance(newLoc, stopLoc);
+                      if (distance <= 150.0) {
+                        _announcedDropOffStops.add(stopName);
+                        _triggerDropOffVoiceAlert(stopName);
+                        break; // แจ้งเตือนทีละ 1 ป้ายต่อ 1 รอบ GPS ป้องกันเสียงพูดชนกัน
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -1511,7 +1582,10 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
           FirebaseDatabase.instance
               .ref('shuttles')
               .child(_shuttleDocId!)
-              .update(updateData);
+              .update(updateData)
+              .catchError((e) {
+                print("RTDB Update Error: $e");
+              });
           print(" [DriverHome] Updated location in RTDB: $updateData");
         }
       },
@@ -1609,40 +1683,56 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               }
             }
 
-            // ค้นหาคำขอที่มีสถานะ 'waiting' เพื่อเป็นป้ายหลัก (active)
-            QueryDocumentSnapshot? activeDoc;
-            for (var doc in docs) {
-              if (doc['status'] == 'waiting') {
-                activeDoc = doc;
-                break;
+            // ค้นหาคำขอทั้งหมดที่ยังมีสถานะ waiting
+            final waitingDocs = docs.where((d) => d['status'] == 'waiting').toList();
+
+            // ตรวจหาคำขอใหม่ที่ยังไม่เคยส่งเสียงแจ้งเตือน (รองรับกรณีมีคำขอจากหลายป้ายพร้อมกัน)
+            final newWaitingDocs = waitingDocs
+                .where((d) => !_alertedRequestIds.contains(d.id))
+                .toList();
+
+            if (newWaitingDocs.isNotEmpty) {
+              for (var d in newWaitingDocs) {
+                _alertedRequestIds.add(d.id);
+              }
+              // นำคำขอล่าสุดมาส่งเสียงเตือนและขานชื่อป้าย
+              final latestDoc = newWaitingDocs.last;
+              final String alertStop = latestDoc['stop_name']?.toString() ?? '';
+              if (alertStop.isNotEmpty) {
+                final int countAtStop = waitingDocs
+                    .where((d) => d['stop_name'] == alertStop)
+                    .length;
+                _triggerVoiceAlert(alertStop, countAtStop);
               }
             }
+
+            // ทำความสะอาดไอดีเก่าที่ไม่อยู่ในสถานะ waiting แล้ว
+            _alertedRequestIds.retainAll(waitingDocs.map((d) => d.id));
+
+            // กำหนดป้ายหลักที่จะแสดงบนหน้าจอ
+            QueryDocumentSnapshot? activeDoc;
+            if (waitingStudentStop != null) {
+              for (var doc in waitingDocs) {
+                if (doc['stop_name'] == waitingStudentStop) {
+                  activeDoc = doc;
+                  break;
+                }
+              }
+            }
+            activeDoc ??= waitingDocs.isNotEmpty ? waitingDocs.first : null;
 
             if (activeDoc != null) {
               String targetStop = activeDoc['stop_name'];
 
               // รวบรวมคำขอทั้งหมดที่อยู่ป้ายเดียวกันและมีสถานะ waiting
               List<String> targetIds = [];
-              for (var doc in docs) {
-                if (doc['status'] == 'waiting' &&
-                    doc['stop_name'] == targetStop) {
+              for (var doc in waitingDocs) {
+                if (doc['stop_name'] == targetStop) {
                   targetIds.add(doc.id);
                 }
               }
 
-              // ตรวจสอบว่ามี id ไหนที่เพิ่งเข้ามาใหม่หรือไม่
-              bool hasNewRequest = false;
-              for (var id in targetIds) {
-                if (!activeRequestIds.contains(id)) {
-                  hasNewRequest = true;
-                  break;
-                }
-              }
-
-              if (hasNewRequest) {
-                _triggerVoiceAlert(targetStop, targetIds.length);
-              }
-
+              _announcedDropOffStops.retainAll(dropOffStops);
               setState(() {
                 _activeDropOffStops = dropOffStops;
                 _dropOffCounts = dropOffCounts;
@@ -1654,6 +1744,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
               });
             } else {
               // ถ้าไม่มีคำขอ waiting เลย (อาจจะ acknowledged หรือ on_board หมดแล้ว)
+              _announcedDropOffStops.retainAll(dropOffStops);
               setState(() {
                 _activeDropOffStops = dropOffStops;
                 _dropOffCounts = dropOffCounts;
@@ -1666,6 +1757,7 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
             }
           } else {
             // เมื่อนักศึกษาลงรถเสร็จสิ้น/ลบคำขอออกจาก Firestore ทั้งหมด
+            _announcedDropOffStops.clear();
             setState(() {
               _activeDropOffStops = {};
               _dropOffCounts = {};
@@ -1715,6 +1807,8 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
     _lastUploadedLocation = null;
     _lastFirebaseUpdate = null;
 
+    _alertedRequestIds.clear();
+    _announcedDropOffStops.clear();
     if (mounted) {
       setState(() {
         isOnline = false;
@@ -1786,10 +1880,9 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
       if (!kIsWeb) {
         FlutterRingtonePlayer().playNotification();
       }
-      await _alertPlayer.setVolume(1.0);
-      await _alertPlayer.play(AssetSource('voice/chat_sound.mp3'));
+      await _playAlertSound('voice/chat_sound.mp3');
     } catch (e) {
-      print("Error playing chat alert sound: $e");
+      debugPrint("Error playing chat alert sound: $e");
     }
   }
 
@@ -2413,78 +2506,83 @@ class _DriverHomeState extends State<DriverHome> with TickerProviderStateMixin {
                         ),
 
                         // ฝั่งขวา: ปุ่มสถานะออนไลน์ / เลิกงาน / ออกจากระบบ
-                        if (isOnline)
-                          GestureDetector(
-                            onTap: _stopTracking,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 7,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFEBEE),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: const Color(0xFFEF5350).withValues(alpha: 0.3),
-                                ),
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.power_settings_new_rounded,
-                                    color: Color(0xFFC62828),
-                                    size: 16,
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (isOnline)
+                              GestureDetector(
+                                onTap: _stopTracking,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 7,
                                   ),
-                                  SizedBox(width: 5),
-                                  Text(
-                                    'เลิกงาน',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFFC62828),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFFEBEE),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: const Color(0xFFEF5350).withValues(alpha: 0.3),
                                     ),
                                   ),
-                                ],
-                              ),
-                            ),
-                          )
-                        else
-                          GestureDetector(
-                            onTap: _logout,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 7,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF1F5F2),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: Colors.black.withValues(alpha: 0.04),
-                                ),
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.logout_rounded,
-                                    color: Color(0xFF5A605B),
-                                    size: 16,
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.power_settings_new_rounded,
+                                        color: Color(0xFFC62828),
+                                        size: 16,
+                                      ),
+                                      SizedBox(width: 5),
+                                      Text(
+                                        'เลิกงาน',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFFC62828),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  SizedBox(width: 5),
-                                  Text(
-                                    'ออก',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF5A605B),
+                                ),
+                              )
+                            else
+                              GestureDetector(
+                                onTap: _logout,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F2),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: Colors.black.withValues(alpha: 0.04),
                                     ),
                                   ),
-                                ],
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.logout_rounded,
+                                        color: Color(0xFF5A605B),
+                                        size: 16,
+                                      ),
+                                      SizedBox(width: 5),
+                                      Text(
+                                        'ออก',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF5A605B),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
+                          ],
+                        ),
                       ],
                     ),
                   ),

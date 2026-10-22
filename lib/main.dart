@@ -1,13 +1,10 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-// Import หน้าจอทั้งหมดมารวมไว้ที่นี่
+// Import หน้าจอทั้งหมดมารวมไว้นี่
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
@@ -26,6 +23,12 @@ void main() async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
+    ).timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        debugPrint("Firebase initialization timed out after 5s");
+        return Firebase.app();
+      },
     );
     debugPrint("Firebase Initialized Successfully");
   } catch (e) {
@@ -54,7 +57,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'PSRU Shuttle App',
+      title: 'PSRU S² Tracker',
       scrollBehavior: MyCustomScrollBehavior(),
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),

@@ -200,7 +200,7 @@
         </div>
         <div class="loading-pill">
           <div class="loading-pill-dot"></div>
-          กำลังเตรียมระบบ...
+          <span id="loading-status-text">กำลังเตรียมระบบ...</span>
         </div>
       </div>
     </div>
@@ -222,32 +222,22 @@
       }
     }
 
-    // 1. ฟัง Event แรกเมื่อ Flutter วาดเฟรมแรกเสร็จ
+    // 1. ฟัง Event เมื่อ Flutter วาดเฟรมแรกเสร็จสมบูรณ์
     window.addEventListener('flutter-first-frame', removeFlutterPreloader);
 
-    // 2. ตรวจจับการแทรก Element ของ Flutter View ใน DOM
-    var observer = new MutationObserver(function(mutations) {
-      for (var i = 0; i < mutations.length; i++) {
-        var addedNodes = mutations[i].addedNodes;
-        for (var j = 0; j < addedNodes.length; j++) {
-          var node = addedNodes[j];
-          if (node.nodeType === 1 && (
-            node.tagName === 'FLUTTER-VIEW' ||
-            node.tagName === 'FLT-GLASS-PANE' ||
-            node.tagName === 'CANVAS' ||
-            node.id === 'flutter_container'
-          )) {
-            removeFlutterPreloader();
-            observer.disconnect();
-            return;
-          }
-        }
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+    // 2. ปรับข้อความสถานะเมื่อโหลดนาน (เช่น การเปิดครั้งแรกหรือรันโหมด Debug)
+    setTimeout(function() {
+      var statusEl = document.getElementById('loading-status-text');
+      if (statusEl) statusEl.textContent = 'กำลังโหลดทรัพยากรระบบ...';
+    }, 6000);
 
-    // 3. Fallback Timeout ป้องกันค้าง
-    setTimeout(removeFlutterPreloader, 3500);
+    setTimeout(function() {
+      var statusEl = document.getElementById('loading-status-text');
+      if (statusEl) statusEl.textContent = 'กำลังเริ่มต้นหน้าจอแอปพลิเคชัน...';
+    }, 18000);
+
+    // 3. Fallback Timeout ป้องกันค้าง (กำหนดเวลา 90 วินาที)
+    setTimeout(removeFlutterPreloader, 90000);
   </script>
 
   <script src="flutter_bootstrap.js" async></script>

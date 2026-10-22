@@ -527,62 +527,6 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
 
-          // ปุ่มเข้าสู่หน้าจอทดสอบหมุด 3D (Phase 1 PoC)
-          Positioned(
-            top: 16,
-            right: 16,
-            child: SafeArea(
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () {
-                    Navigator.of(context).pushNamed('/shuttle3DPoc');
-                  },
-                  borderRadius: BorderRadius.circular(20),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: const Color(0xFF176a21).withValues(alpha: 0.3),
-                      ),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Colors.black12,
-                          blurRadius: 4,
-                          offset: Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.view_in_ar,
-                          size: 16,
-                          color: Color(0xFF176a21),
-                        ),
-                        SizedBox(width: 5),
-                        Text(
-                          'ทดสอบ 3D',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF176a21),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-
           // 3. Floating Decorative Badges ตกแต่งด้านข้างสำหรับจอคอมพิวเตอร์/จอใหญ่
           if (screenWidth > 900) ...[
             Positioned(
@@ -1141,25 +1085,37 @@ class _LoginScreenState extends State<LoginScreen> {
                                                           strokeWidth: 2.5,
                                                         ),
                                                   )
-                                                : const Row(
-                                                    mainAxisAlignment:
-                                                        MainAxisAlignment
-                                                            .center,
-                                                    children: [
-                                                      _GoogleIcon(size: 22),
-                                                      SizedBox(width: 12),
-                                                      Text(
-                                                        'เข้าสู่ระบบด้วย Google',
-                                                        style: TextStyle(
-                                                          fontSize: 16,
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                          color: Color(
-                                                            0xFF37474F,
-                                                          ),
-                                                        ),
+                                                : const FittedBox(
+                                                    fit: BoxFit.scaleDown,
+                                                    child: Padding(
+                                                      padding:
+                                                          EdgeInsets.symmetric(
+                                                        horizontal: 12,
                                                       ),
-                                                    ],
+                                                      child: Row(
+                                                        mainAxisAlignment:
+                                                            MainAxisAlignment
+                                                                .center,
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          _GoogleIcon(size: 22),
+                                                          SizedBox(width: 12),
+                                                          Text(
+                                                            'เข้าสู่ระบบด้วย Google',
+                                                            style: TextStyle(
+                                                              fontSize: 16,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .bold,
+                                                              color: Color(
+                                                                0xFF37474F,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
                                                   ),
                                           ),
                                         ),
@@ -1215,7 +1171,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'Version 1.0.6',
+                            'Version 1.0.7',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey.shade400,

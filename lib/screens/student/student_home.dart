@@ -1960,7 +1960,7 @@ class _StudentHomeState extends State<StudentHome>
         }
       }
 
-      // ป้าย 5 เป็นทางแวะทางเลือก ต้องยืนยันแนวการเคลื่อนที่ก่อนข้าม
+      // ป้าย 5 และ 16 เป็นทางแวะทางเลือก ต้องยืนยันแนวการเคลื่อนที่ก่อนข้าม
       final branchNextOrder = closestBusId == null ? null : _stopFiveBypass.nextStopOrder(
         graph: _routeGraph,
         stops: busStops,
@@ -1968,9 +1968,15 @@ class _StudentHomeState extends State<StudentHome>
         position: closestBusLoc,
         lastPassedStop: closestBusLastPassed,
       );
-      if (branchNextOrder != null && targetOrder != 4) {
-        // คำขอที่ปลายทางเป็นป้าย 5 ต้องคงป้าย 5 เสมอ
-        currentOrder = targetOrder == 5 ? 5 : branchNextOrder;
+      if (branchNextOrder != null) {
+        // คำขอที่ปลายทางเป็นป้ายสาขา (ป้าย 5 หรือ 16) ต้องคงป้ายปลายทางเดิมเสมอ
+        if (targetOrder == 5 && closestBusLastPassed == 4) {
+          currentOrder = 5;
+        } else if (targetOrder == 16 && closestBusLastPassed == 15) {
+          currentOrder = 16;
+        } else if (targetOrder != 4 && targetOrder != 15) {
+          currentOrder = branchNextOrder;
+        }
       }
 
       int stepCount = targetOrder - currentOrder;
@@ -3162,8 +3168,11 @@ class _StudentHomeState extends State<StudentHome>
                           },
                         ),
                         // ฝั่งขวา: ปุ่มออกจากระบบ (Logout Capsule Chip)
-                        GestureDetector(
-                          onTap: _logout,
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            GestureDetector(
+                              onTap: _logout,
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 12,
@@ -3199,12 +3208,14 @@ class _StudentHomeState extends State<StudentHome>
                         ),
                       ],
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),
           ),
         ),
+      ),
+    ),
 
         // ป้ายสถานะรถรับส่งและปุ่มเปลี่ยนโหมด 2D/3D แบบลอยชิดซ้ายบนแผนที่ (Floating Status & Mode Switch)
         Positioned(

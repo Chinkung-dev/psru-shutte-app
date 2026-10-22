@@ -121,5 +121,5 @@ flutter:
   assets:
     - assets/models/psru_shuttle.glb
     - assets/images/
-    - lib/screens/driver/
     - assets/voice/
+

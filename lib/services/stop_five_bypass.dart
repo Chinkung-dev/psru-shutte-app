@@ -1,13 +1,13 @@
 import 'dart:math' as math;
 import 'package:latlong2/latlong.dart';
 
-/// ติดตามเฉพาะทางแยกป้าย 4–5–6 โดยไม่เปลี่ยนสถานะผ่านป้ายของคนขับ
+/// ติดตามเฉพาะทางแยกป้าย 4–5–6 และ 15–16–17 โดยไม่เปลี่ยนสถานะผ่านป้ายของคนขับ
 class StopFiveBypass {
-  _Branch? _branch;
-  List<LatLng>? _stops;
-  final Map<String, _Progress> _vehicles = {};
+  final Map<int, _Branch?> _branches = {};
+  final Map<int, List<LatLng>?> _cachedStops = {};
+  final Map<String, Map<int, _Progress>> _vehicleProgress = {};
 
-  /// คืนป้ายถัดไป 5 หรือ 6 เฉพาะช่วงนี้; null ให้ใช้ลำดับเดิม
+  /// คืนป้ายถัดไป (เช่น 6 หรือ 17 หากข้ามป้าย; 5 หรือ 16 หากแวะเข้าป้าย); null ให้ใช้ลำดับเดิม
   int? nextStopOrder({
     required Map<LatLng, List<LatLng>> graph,
     required List<Map<String, dynamic>> stops,
@@ -15,12 +15,18 @@ class StopFiveBypass {
     required LatLng position,
     required int? lastPassedStop,
   }) {
-    if (lastPassedStop != 4) {
-      _vehicles.remove(shuttleId);
+    // รองรับคู่ทางแยกบายพาส: ป้าย 4->5->6 และ ป้าย 15->16->17
+    if (lastPassedStop != 4 && lastPassedStop != 15) {
+      _vehicleProgress.remove(shuttleId);
       return null;
     }
+
+    final int fromOrder = lastPassedStop!;
+    final int skipOrder = fromOrder + 1;
+    final int toOrder = fromOrder + 2;
+
     final locations = <LatLng>[];
-    for (final order in [4, 5, 6]) {
+    for (final order in [fromOrder, skipOrder, toOrder]) {
       final matches = stops.where((s) => s['order'] == order).toList();
       if (matches.length != 1) return null;
       final stop = matches.single;
@@ -32,30 +38,32 @@ class StopFiveBypass {
         ),
       );
     }
-    if (_stops == null ||
+    final cached = _cachedStops[fromOrder];
+    if (cached == null ||
         !List.generate(
           3,
-          (i) => _stops![i] == locations[i],
+          (i) => cached[i] == locations[i],
         ).every((same) => same)) {
-      _stops = locations;
-      _branch = _Branch.build(graph, locations);
-      _vehicles.clear();
+      _cachedStops[fromOrder] = locations;
+      _branches[fromOrder] = _Branch.build(graph, locations);
+      _vehicleProgress.forEach((_, map) => map.remove(fromOrder));
     }
-    final branch = _branch;
+    final branch = _branches[fromOrder];
     if (branch == null) return null;
-    final progress = _vehicles.putIfAbsent(shuttleId, _Progress.new);
-    if (progress.skipped) return 6;
+    final vehicleMap = _vehicleProgress.putIfAbsent(shuttleId, () => {});
+    final progress = vehicleMap.putIfAbsent(fromOrder, _Progress.new);
+    if (progress.skipped) return toOrder;
 
     final direct = _project(position, branch.direct);
     final detour = _project(position, branch.detour);
-    // รอจนพ้นแยกอย่างน้อย 25 ม. และแนวถนนชัดเจนกว่าทางเข้าป้าย 5
+    // รอจนพ้นแยกอย่างน้อย 25 ม. และแนวถนนชัดเจนกว่าทางเข้าป้ายสาขา
     final onBypass =
         direct.distance <= 18 &&
         direct.along >= 25 &&
         detour.distance - direct.distance >= 15;
     if (!onBypass) {
       progress.candidate = null;
-      return 5;
+      return skipOrder;
     }
     final candidate = progress.candidate;
     if (candidate == null) {
@@ -66,15 +74,15 @@ class StopFiveBypass {
     } else if (direct.along < candidate - 5) {
       progress.candidate = direct.along;
     }
-    return progress.skipped ? 6 : 5;
+    return progress.skipped ? toOrder : skipOrder;
   }
 
-  void reset() => _vehicles.clear();
+  void reset() => _vehicleProgress.clear();
 
-  // ล้างผลของรถที่พ้นป้าย 4 หรือหายไป แม้ผู้ใช้ยังไม่ได้เลือกปลายทาง
+  // ล้างผลของรถที่พ้นป้ายทางแยก หรือหายไป แม้ผู้ใช้ยังไม่ได้เลือกปลายทาง
   void retainApproachingVehicles(Iterable<String> ids) {
     final approaching = ids.toSet();
-    _vehicles.removeWhere((id, _) => !approaching.contains(id));
+    _vehicleProgress.removeWhere((id, _) => !approaching.contains(id));
   }
 }
 

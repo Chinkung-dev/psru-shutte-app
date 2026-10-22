@@ -17,7 +17,8 @@ class StudentLiveStatusScreen extends StatefulWidget {
   });
 
   @override
-  State<StudentLiveStatusScreen> createState() => _StudentLiveStatusScreenState();
+  State<StudentLiveStatusScreen> createState() =>
+      _StudentLiveStatusScreenState();
 }
 
 class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
@@ -33,7 +34,9 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
   }
 
   void _listenToShuttles() {
-    _rtdbSub = FirebaseDatabase.instance.ref('shuttles').onValue.listen((event) {
+    _rtdbSub = FirebaseDatabase.instance.ref('shuttles').onValue.listen((
+      event,
+    ) {
       if (!mounted) return;
       if (event.snapshot.exists) {
         final data = event.snapshot.value as Map<dynamic, dynamic>;
@@ -65,8 +68,9 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
       if (cleanNum.isEmpty) {
         cleanNum = name.replaceAll(RegExp(r'[^0-9]'), '');
       }
-      final String shuttleKey =
-          cleanNum.isNotEmpty ? cleanNum : name.toLowerCase().trim();
+      final String shuttleKey = cleanNum.isNotEmpty
+          ? cleanNum
+          : name.toLowerCase().trim();
 
       String rtdbStatus = (rtdbDoc['status'] ?? 'offline').toString();
       bool isOnline = false;
@@ -93,8 +97,9 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
       final double lat = (rtdbDoc['lat'] as num?)?.toDouble() ?? 16.82753;
       final double lng = (rtdbDoc['lng'] as num?)?.toDouble() ?? 100.20686;
 
-      final String badgeText =
-          cleanNum.isNotEmpty ? 'Shuttle #$cleanNum' : name;
+      final String badgeText = cleanNum.isNotEmpty
+          ? 'Shuttle #$cleanNum'
+          : name;
 
       String nearestStopName = "ภายในมหาวิทยาลัย";
       int etaMinutes = 3;
@@ -122,8 +127,10 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
         }
       }
 
-      final driverName = (rtdbDoc['driver_name'] ?? 'คนขับรถประจำคัน').toString();
-      final driverAvatar = (rtdbDoc['driver_avatar'] ?? 'assets/images/man1.png').toString();
+      final driverName = (rtdbDoc['driver_name'] ?? 'คนขับรถประจำคัน')
+          .toString();
+      final driverAvatar =
+          (rtdbDoc['driver_avatar'] ?? 'assets/images/man1.png').toString();
 
       shuttleMap[shuttleKey] = {
         'shuttleId': rtdbKey.toString(),
@@ -197,7 +204,9 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F2), // สีพื้นหลังเทาอมเขียวมิ้นต์อ่อนๆ ช่วยขับให้การ์ดดูมีมิติ
+      backgroundColor: const Color(
+        0xFFF0F4F2,
+      ), // สีพื้นหลังเทาอมเขียวมิ้นต์อ่อนๆ ช่วยขับให้การ์ดดูมีมิติ
       body: Column(
         children: [
           _buildHeader(),
@@ -206,7 +215,10 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 800),
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -215,11 +227,16 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
                       const SizedBox(height: 16),
 
                       // 4 Grid Cards (สถานะรถว่าง/เต็ม/พัก/ออฟไลน์)
-                      _buildStatsGrid(availableCount, fullCount, breakCount, offlineCount),
-                      
+                      _buildStatsGrid(
+                        availableCount,
+                        fullCount,
+                        breakCount,
+                        offlineCount,
+                      ),
+
                       // Section Title (สถานะรถ + REAL-TIME)
                       _buildSectionTitle(),
-                      
+
                       // รายการรถรับส่งแต่ละคัน
                       if (_shuttleList.isEmpty)
                         const Center(
@@ -227,14 +244,21 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
                             padding: EdgeInsets.symmetric(vertical: 40),
                             child: Text(
                               'ยังไม่มีข้อมูลรถรับส่งในระบบ',
-                              style: TextStyle(color: Colors.grey, fontSize: 15),
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 15,
+                              ),
                             ),
                           ),
                         )
                       else
-                        ..._shuttleList.map((shuttle) => _buildShuttleCard(shuttle)),
-                      
-                      const SizedBox(height: 100), // เว้นที่ว่างด้านล่างไม่ให้แถบเมนู (Bottom Nav) บังคันสุดท้าย
+                        ..._shuttleList.map(
+                          (shuttle) => _buildShuttleCard(shuttle),
+                        ),
+
+                      const SizedBox(
+                        height: 100,
+                      ), // เว้นที่ว่างด้านล่างไม่ให้แถบเมนู (Bottom Nav) บังคันสุดท้าย
                     ],
                   ),
                 ),
@@ -254,14 +278,9 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
         gradient: const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFFFFFFFF),
-            Color(0xFFF8FAF8),
-          ],
+          colors: [Color(0xFFFFFFFF), Color(0xFFF8FAF8)],
         ),
-        borderRadius: const BorderRadius.vertical(
-          bottom: Radius.circular(26),
-        ),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(26)),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF176a21).withValues(alpha: 0.08),
@@ -317,7 +336,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
     );
   }
 
-  // Hero Card (ดีไซน์สีขาวอมมิ้นต์นุ่มนวล สบายตา ไม่ทึบ)
+  // Hero Card
   Widget _buildHeroCard(int activeCount) {
     return Container(
       width: double.infinity,
@@ -326,10 +345,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFFFFFFF),
-            Color(0xFFEAF5ED),
-          ],
+          colors: [Color(0xFFFFFFFF), Color(0xFFEAF5ED)],
         ),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
@@ -398,7 +414,9 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
                         ),
                       ),
                       child: Text(
-                        activeCount > 0 ? 'คัน พร้อมรับส่ง ' : 'ยังไม่มีรถออนไลน์',
+                        activeCount > 0
+                            ? 'คัน พร้อมรับส่ง '
+                            : 'ยังไม่มีรถออนไลน์',
                         style: TextStyle(
                           fontSize: 12,
                           color: activeCount > 0
@@ -436,8 +454,7 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
   }
 
   // 4 Grid Cards (สถานะรถพร้อมกรอบสีพาสเทลนุ่มนวล)
-  Widget _buildStatsGrid(
-      int available, int full, int breakTime, int offline) {
+  Widget _buildStatsGrid(int available, int full, int breakTime, int offline) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final double itemWidth = (constraints.maxWidth - 14) / 2;
@@ -633,7 +650,9 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
       }
     }
 
-    final bool showEta = isOnline && (passengerStatus == 'available' || passengerStatus == 'full');
+    final bool showEta =
+        isOnline &&
+        (passengerStatus == 'available' || passengerStatus == 'full');
 
     return GestureDetector(
       onTap: () {
@@ -789,7 +808,10 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
               )
             else
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF1F5F2),
                   borderRadius: BorderRadius.circular(12),
@@ -809,5 +831,3 @@ class _StudentLiveStatusScreenState extends State<StudentLiveStatusScreen> {
     );
   }
 }
-
-

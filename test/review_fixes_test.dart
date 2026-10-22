@@ -385,4 +385,181 @@ void main() {
       expect(find.byType(PolylineLayer), findsOneWidget);
     });
   });
+
+  group('REV-08: ตรรกะเสียงแจ้งเตือนคำขอขึ้นรถของคนขับ (Driver Alert Sound & TTS)', () {
+    bool shouldPlayAlertSound({
+      required DateTime? lastAlertTime,
+      required String? lastAlertStopName,
+      required String currentStopName,
+      required DateTime currentTime,
+    }) {
+      if (lastAlertTime != null && lastAlertStopName == currentStopName) {
+        if (currentTime.difference(lastAlertTime).inMilliseconds < 1500) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    test('คำขอแรกเข้ามา ต้องเล่นเสียงแจ้งเตือนเสมอ', () {
+      final now = DateTime.now();
+      final result = shouldPlayAlertSound(
+        lastAlertTime: null,
+        lastAlertStopName: null,
+        currentStopName: 'ตึก IT',
+        currentTime: now,
+      );
+      expect(result, isTrue);
+    });
+
+    test('คำขอถัดไปที่ป้ายเดิมหลังจากผ่านไป 2 วินาที ต้องเล่นเสียงแจ้งเตือนซ้ำได้', () {
+      final t1 = DateTime(2026, 9, 12, 10, 0, 0);
+      final t2 = DateTime(2026, 9, 12, 10, 0, 2); // ผ่านไป 2 วินาที (เกิน 1.5 วินาที)
+      final result = shouldPlayAlertSound(
+        lastAlertTime: t1,
+        lastAlertStopName: 'ตึก IT',
+        currentStopName: 'ตึก IT',
+        currentTime: t2,
+      );
+      expect(result, isTrue);
+    });
+
+    test('คำขอถัดไปที่ต่างป้ายกันแม้เวลาห่างกันไม่ถึง 1 วินาที ต้องเล่นเสียงแจ้งเตือนทันที', () {
+      final t1 = DateTime(2026, 9, 12, 10, 0, 0);
+      final t2 = DateTime(2026, 9, 12, 10, 0, 0, 500); // ผ่านไป 500 มิลลิวินาที
+      final result = shouldPlayAlertSound(
+        lastAlertTime: t1,
+        lastAlertStopName: 'ตึก IT',
+        currentStopName: 'หอพัก 1',
+        currentTime: t2,
+      );
+      expect(result, isTrue);
+    });
+
+    test('คำขอซ้ำป้ายเดิมภายใน 1 วินาที ต้องไม่เล่นเสียงกระดิ่งซ้อนทับ แต่ TTS จะยังอ่านข้อมูลล่าสุด', () {
+      final t1 = DateTime(2026, 9, 12, 10, 0, 0);
+      final t2 = DateTime(2026, 9, 12, 10, 0, 0, 800); // 800 มิลลิวินาที
+      final result = shouldPlayAlertSound(
+        lastAlertTime: t1,
+        lastAlertStopName: 'ตึก IT',
+        currentStopName: 'ตึก IT',
+        currentTime: t2,
+      );
+      expect(result, isFalse);
+    });
+  });
+
+  group('REV-09: ตรรกะแจ้งเตือนจุดหมายปลายทางของนักศึกษา (Driver Drop-off Stop Proximity Alert)', () {
+    List<String> checkStopsToAlert({
+      required LatLng currentLocation,
+      required List<Map<String, dynamic>> allStops,
+      required Set<String> activeDropOffStops,
+      required Set<String> announcedDropOffStops,
+    }) {
+      List<String> toAlert = [];
+      if (activeDropOffStops.isEmpty) return toAlert;
+
+      for (var stop in allStops) {
+        final stopName = (stop['name'] ?? '').toString().trim();
+        if (stopName.isNotEmpty &&
+            activeDropOffStops.contains(stopName) &&
+            !announcedDropOffStops.contains(stopName)) {
+          if (stop['lat'] != null && stop['lng'] != null) {
+            final double stopLat = stop['lat'] is num
+                ? (stop['lat'] as num).toDouble()
+                : (double.tryParse(stop['lat'].toString()) ?? 0.0);
+            final double stopLng = stop['lng'] is num
+                ? (stop['lng'] as num).toDouble()
+                : (double.tryParse(stop['lng'].toString()) ?? 0.0);
+
+            if (stopLat != 0.0 && stopLng != 0.0) {
+              final stopLoc = LatLng(stopLat, stopLng);
+              final distance = const Distance().distance(currentLocation, stopLoc);
+              if (distance <= 150.0) {
+                toAlert.add(stopName);
+                break; // แจ้งเตือนทีละ 1 ป้ายต่อรอบ
+              }
+            }
+          }
+        }
+      }
+      return toAlert;
+    }
+
+    final mockStops = [
+      {'name': 'อาคารเรียนรวม', 'lat': 16.820000, 'lng': 100.260000, 'order': 1},
+      {'name': 'ตึก IT', 'lat': 16.822000, 'lng': 100.262000, 'order': 2},
+      {'name': 'ป้ายข้ามพิเศษ', 'lat': 16.824000, 'lng': 100.264000, 'order': 5},
+      {'name': 'หอพักนักศึกษา', 'lat': 16.826000, 'lng': 100.266000, 'order': 6},
+    ];
+
+    test('ตรวจจับป้ายที่มีผู้โดยสารลงในระยะ 150 เมตรได้ถูกต้องแม้ข้ามป้ายก่อนหน้า', () {
+      // รถอยู่ที่พิกัดห่างจาก หอพักนักศึกษา ประมาณ 100 เมตร (ข้ามป้าย 5 ไป)
+      const busLocation = LatLng(16.825500, 100.265500);
+      final activeDropOffs = {'หอพักนักศึกษา'};
+      final announced = <String>{};
+
+      final toAlert = checkStopsToAlert(
+        currentLocation: busLocation,
+        allStops: mockStops,
+        activeDropOffStops: activeDropOffs,
+        announcedDropOffStops: announced,
+      );
+
+      expect(toAlert, contains('หอพักนักศึกษา'));
+    });
+
+    test('ไม่แจ้งเตือนซ้ำหากป้ายนั้นได้ประกาศเตือนไปแล้ว', () {
+      const busLocation = LatLng(16.825500, 100.265500);
+      final activeDropOffs = {'หอพักนักศึกษา'};
+      final announced = {'หอพักนักศึกษา'}; // ขานไปแล้ว
+
+      final toAlert = checkStopsToAlert(
+        currentLocation: busLocation,
+        allStops: mockStops,
+        activeDropOffStops: activeDropOffs,
+        announcedDropOffStops: announced,
+      );
+
+      expect(toAlert, isEmpty);
+    });
+
+    test('หากระยะห่างเกิน 150 เมตร จะยังไม่ส่งเสียงเตือน', () {
+      // รถอยู่ที่ป้าย 1 แต่อยากลงป้าย 6 (ระยะห่างประมาณ 800 เมตร)
+      const busLocation = LatLng(16.820000, 100.260000);
+      final activeDropOffs = {'หอพักนักศึกษา'};
+      final announced = <String>{};
+
+      final toAlert = checkStopsToAlert(
+        currentLocation: busLocation,
+        allStops: mockStops,
+        activeDropOffStops: activeDropOffs,
+        announcedDropOffStops: announced,
+      );
+
+      expect(toAlert, isEmpty);
+    });
+
+    test('เมื่อมีผู้โดยสารลงรถเสร็จสิ้นและมีกลุ่มใหม่ลงป้ายเดิม จะสามารถประกาศใหม่ได้', () {
+      final announced = {'หอพักนักศึกษา'};
+      // เมื่อผู้โดยสารลงเสร็จ ข้อมูล active ใน Firestore หายไป
+      final currentDropOffs = <String>{};
+      announced.retainAll(currentDropOffs);
+      expect(announced, isEmpty);
+
+      // ต่อมามีผู้โดยสารใหม่เลือกลงที่หอพักนักศึกษาอีกครั้ง
+      final newDropOffs = {'หอพักนักศึกษา'};
+      const busLocation = LatLng(16.825500, 100.265500);
+      final toAlert = checkStopsToAlert(
+        currentLocation: busLocation,
+        allStops: mockStops,
+        activeDropOffStops: newDropOffs,
+        announcedDropOffStops: announced,
+      );
+
+      expect(toAlert, contains('หอพักนักศึกษา'));
+    });
+  });
 }
+
+
